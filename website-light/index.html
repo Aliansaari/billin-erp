@@ -1,0 +1,890 @@
+<!doctype html>
+<html lang="en" data-theme="classic">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#0891A8" />
+<title>Billing ERP — Wholesale, beautifully fast.</title>
+<meta name="description" content="The fastest billing software for wholesale. Bill in 6 seconds. Sync across 10 computers. Run on Windows, Mac, web, iOS and Android." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;500;600;700;800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ─────────────────────────────  NAV  ───────────────────────────── -->
+<header class="nav" id="nav">
+  <a href="#top" class="nav__brand" aria-label="Billing ERP">
+    <span class="logo">
+      <svg viewBox="0 0 36 36" fill="none">
+        <defs>
+          <linearGradient id="lg-n" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#0EAFCA"/>
+            <stop offset="1" stop-color="#0891A8"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="32" height="32" rx="9" fill="url(#lg-n)"/>
+        <g fill="white" opacity=".98">
+          <rect x="9"    y="11" width="1.4" height="14" rx=".5"/>
+          <rect x="11.4" y="11" width="2.2" height="14" rx=".5"/>
+          <rect x="14.4" y="11" width="1"   height="14" rx=".5"/>
+          <rect x="16.2" y="11" width="2"   height="14" rx=".5"/>
+          <rect x="19"   y="11" width="1.4" height="14" rx=".5"/>
+          <rect x="21.2" y="11" width="2.6" height="14" rx=".5"/>
+          <rect x="24.6" y="11" width="1.2" height="14" rx=".5"/>
+        </g>
+      </svg>
+    </span>
+    <span class="nav__name">Billing<span class="nav__name-thin"> ERP</span></span>
+  </a>
+  <nav class="nav__links">
+    <a href="#features">Features</a>
+    <a href="#cinematic">How it works</a>
+    <a href="#platforms">Platforms</a>
+    <a href="#pricing">Pricing</a>
+  </nav>
+  <div class="nav__right">
+    <button class="theme-tog" id="themeTog" aria-label="Toggle theme">
+      <span class="theme-tog__dot"></span>
+      <span class="theme-tog__name" id="themeTogName">Classic</span>
+    </button>
+    <a class="btn btn--primary" href="#download">
+      <span>Download free</span>
+      <svg viewBox="0 0 16 16" width="12" height="12"><path d="M3 8h10m0 0L9 4m4 4L9 12" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ─────────────────────────────  HERO  ───────────────────────────── -->
+  <section class="hero">
+    <div class="hero__decor" aria-hidden="true">
+      <div class="hero__blob hero__blob--a"></div>
+      <div class="hero__blob hero__blob--b"></div>
+      <div class="grid-bg"></div>
+    </div>
+
+    <div class="hero__inner">
+      <span class="eyebrow">
+        <span class="dot"></span>
+        v1.0 · Made for wholesale at industrial scale
+      </span>
+
+      <h1 class="hero__title">
+        <span class="line">Wholesale,</span>
+        <span class="line"><em>beautifully</em> fast.</span>
+      </h1>
+
+      <p class="hero__lead">
+        Billing software for shops that move. Scan a barcode, hit Enter — your bill is done.
+        Real-time LAN sync across 10 computers. GST-ready. The same data on Windows, Mac, web, iOS and Android.
+      </p>
+
+      <div class="hero__cta">
+        <a href="#download" class="btn btn--primary btn--lg">
+          <span>Download for free</span>
+          <svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 2v9m0 0 3.5-3.5M8 11 4.5 7.5M3 14h10" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a href="#cinematic" class="btn btn--ghost btn--lg">
+          <span class="play">
+            <svg viewBox="0 0 16 16" width="9" height="9"><path d="M4 3l9 5-9 5V3z" fill="currentColor"/></svg>
+          </span>
+          Watch it bill
+        </a>
+      </div>
+
+      <div class="hero__trust">
+        <div><strong>10M+</strong><span>invoices billed</span></div>
+        <div class="sep"></div>
+        <div><strong>6.2s</strong><span>per invoice</span></div>
+        <div class="sep"></div>
+        <div><strong>10</strong><span>users on LAN</span></div>
+        <div class="sep"></div>
+        <div><strong>5</strong><span>platforms</span></div>
+      </div>
+    </div>
+
+    <!-- Live dashboard mockup -->
+    <div class="hero__app" aria-hidden="true">
+      <div class="app">
+        <div class="app__bar">
+          <div class="app__dots"><i></i><i></i><i></i></div>
+          <div class="app__title">Billing ERP · Dashboard</div>
+          <div class="app__chip"><i class="pulse-dot"></i>5 users online</div>
+        </div>
+
+        <div class="app__body">
+          <aside class="app__side">
+            <div class="app__sg">
+              <div class="app__sh">Workspace</div>
+              <div class="app__si app__si--on">📊  Dashboard</div>
+              <div class="app__si">📝  Sales</div>
+              <div class="app__si">🛒  Purchase</div>
+              <div class="app__si">👥  Parties</div>
+              <div class="app__si">📦  Inventory</div>
+              <div class="app__si">💰  Payments</div>
+            </div>
+            <div class="app__sg">
+              <div class="app__sh">Insights</div>
+              <div class="app__si">📈  Reports</div>
+              <div class="app__si">🧾  GST</div>
+              <div class="app__si">🏭  Manufacturing</div>
+            </div>
+          </aside>
+
+          <main class="app__main">
+            <div class="app__kpis">
+              <div class="kpi">
+                <div class="kpi__h">Today's sales</div>
+                <div class="kpi__n">₹ <span data-counter="482310">482,310</span></div>
+                <div class="kpi__d kpi__d--up">▲ 18.4% vs yesterday</div>
+                <div class="kpi__spark">
+                  <svg viewBox="0 0 120 30" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="sg" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0" stop-color="#0891A8" stop-opacity=".4"/>
+                        <stop offset="1" stop-color="#0891A8" stop-opacity="0"/>
+                      </linearGradient>
+                    </defs>
+                    <path d="M0,22 L10,18 L20,20 L30,14 L40,16 L50,10 L60,12 L70,8 L80,11 L90,6 L100,9 L110,4 L120,2 L120,30 L0,30 Z" fill="url(#sg)"/>
+                    <path d="M0,22 L10,18 L20,20 L30,14 L40,16 L50,10 L60,12 L70,8 L80,11 L90,6 L100,9 L110,4 L120,2" fill="none" stroke="#0891A8" stroke-width="1.6" stroke-linecap="round"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="kpi">
+                <div class="kpi__h">Receivables</div>
+                <div class="kpi__n">₹ <span data-counter="1240000">12,40,000</span></div>
+                <div class="kpi__d">14 customers · 3 overdue</div>
+                <div class="kpi__chips">
+                  <span class="chip chip--warn">3 overdue</span>
+                  <span class="chip">11 on time</span>
+                </div>
+              </div>
+              <div class="kpi">
+                <div class="kpi__h">Stock value</div>
+                <div class="kpi__n">₹ <span data-counter="8712500">87,12,500</span></div>
+                <div class="kpi__d">2,184 SKUs · 3 warehouses</div>
+                <div class="kpi__bars">
+                  <i style="--h:64%"></i><i style="--h:88%"></i><i style="--h:42%"></i><i style="--h:71%"></i><i style="--h:55%"></i><i style="--h:92%"></i><i style="--h:78%"></i>
+                </div>
+              </div>
+            </div>
+
+            <div class="app__chart">
+              <div class="app__chartHd">
+                <div>
+                  <div class="app__chartT">Sales vs Purchase · last 30 days</div>
+                  <div class="app__chartS">live · refreshed seconds ago</div>
+                </div>
+                <div class="legend">
+                  <span><i style="background:#0891A8"></i>Sales</span>
+                  <span><i style="background:#2D8856"></i>Purchase</span>
+                </div>
+              </div>
+              <svg viewBox="0 0 600 160" preserveAspectRatio="none" class="bigchart">
+                <defs>
+                  <linearGradient id="ag" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0" stop-color="#0891A8" stop-opacity=".22"/>
+                    <stop offset="1" stop-color="#0891A8" stop-opacity="0"/>
+                  </linearGradient>
+                  <linearGradient id="bg2" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0" stop-color="#2D8856" stop-opacity=".18"/>
+                    <stop offset="1" stop-color="#2D8856" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <path class="ar" d="M0,120 C40,100 80,110 120,80 C160,55 200,90 240,65 C280,45 320,80 360,50 C400,28 440,68 480,38 C520,18 560,52 600,22 L600,160 L0,160 Z" fill="url(#ag)"/>
+                <path class="ln ln--a" d="M0,120 C40,100 80,110 120,80 C160,55 200,90 240,65 C280,45 320,80 360,50 C400,28 440,68 480,38 C520,18 560,52 600,22" fill="none" stroke="#0891A8" stroke-width="2"/>
+                <path class="br" d="M0,130 C40,120 80,125 120,108 C160,98 200,118 240,100 C280,86 320,110 360,90 C400,75 440,100 480,82 C520,68 560,92 600,68 L600,160 L0,160 Z" fill="url(#bg2)"/>
+                <path class="ln ln--b" d="M0,130 C40,120 80,125 120,108 C160,98 200,118 240,100 C280,86 320,110 360,90 C400,75 440,100 480,82 C520,68 560,92 600,68" fill="none" stroke="#2D8856" stroke-width="2" stroke-dasharray="3 3"/>
+              </svg>
+            </div>
+
+            <div class="app__bills">
+              <div class="app__billsHd"><span>Recent bills</span><span class="muted">live</span></div>
+              <div class="bill bill--paid">
+                <span class="bill__no">INV-9823</span>
+                <span class="bill__who">ABC Wholesale</span>
+                <span class="bill__amt">₹ 1,24,500</span>
+                <span class="bill__tag">Paid</span>
+              </div>
+              <div class="bill bill--partial">
+                <span class="bill__no">INV-9822</span>
+                <span class="bill__who">Reliance Textiles</span>
+                <span class="bill__amt">₹ 84,200</span>
+                <span class="bill__tag">Partial</span>
+              </div>
+              <div class="bill bill--paid">
+                <span class="bill__no">INV-9821</span>
+                <span class="bill__who">Sunrise Distributors</span>
+                <span class="bill__amt">₹ 32,990</span>
+                <span class="bill__tag">Paid</span>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+
+      <!-- floating glassy chips -->
+      <div class="float-chip float-chip--a">
+        <div class="float-chip__i">⚡</div>
+        <div><strong>6.2s</strong><span>per bill</span></div>
+      </div>
+      <div class="float-chip float-chip--b">
+        <div class="float-chip__i">🔄</div>
+        <div><strong>Synced</strong><span>5 PCs · LAN</span></div>
+      </div>
+      <div class="float-chip float-chip--c">
+        <div class="float-chip__i">📦</div>
+        <div><strong>2,184</strong><span>SKUs tracked</span></div>
+      </div>
+    </div>
+
+    <!-- Logos strip -->
+    <div class="logos">
+      <div class="logos__lbl">Trusted by wholesale shops across India</div>
+      <div class="logos__track">
+        <span>Reliance Textiles</span><span>·</span>
+        <span>Sunrise Distributors</span><span>·</span>
+        <span>ABC Wholesale</span><span>·</span>
+        <span>Patel Trading Co.</span><span>·</span>
+        <span>Mehta Imports</span><span>·</span>
+        <span>SK Brothers</span><span>·</span>
+        <span>Krishna Garments</span><span>·</span>
+        <span>Royal Fabrics</span><span>·</span>
+        <span>Reliance Textiles</span><span>·</span>
+        <span>Sunrise Distributors</span><span>·</span>
+        <span>ABC Wholesale</span><span>·</span>
+        <span>Patel Trading Co.</span><span>·</span>
+        <span>Mehta Imports</span><span>·</span>
+        <span>SK Brothers</span><span>·</span>
+        <span>Krishna Garments</span><span>·</span>
+        <span>Royal Fabrics</span><span>·</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────  CINEMATIC  ───────────────────────────── -->
+  <section id="cinematic" class="cinematic">
+    <div class="cap reveal">
+      <span class="kicker">A bill, as it happens</span>
+      <h2 class="display">Scan. <em>Enter.</em> <span class="accent">Done.</span></h2>
+      <p>Scroll. Watch the bill assemble itself at the speed of a cashier on a busy Saturday.</p>
+    </div>
+
+    <div class="cin">
+      <div class="cin__rail">
+        <article class="cin__step" data-cin="0">
+          <span class="cin__num">01</span>
+          <h3>Pick the customer.</h3>
+          <p>Type a name or mobile. Smart-search across thousands of parties — with current balance and credit limit visible inline.</p>
+        </article>
+        <article class="cin__step" data-cin="1">
+          <span class="cin__num">02</span>
+          <h3>Scan the first item.</h3>
+          <p>Beam locks in. Category, size, HSN, GST rate, last rate — auto-filled. Cursor jumps to quantity.</p>
+        </article>
+        <article class="cin__step" data-cin="2">
+          <span class="cin__num">03</span>
+          <h3>Add a few more.</h3>
+          <p>One-handed. Barcode after barcode. Box-of-12 math is automatic. Margins update in real time.</p>
+        </article>
+        <article class="cin__step" data-cin="3">
+          <span class="cin__num">04</span>
+          <h3>Split the payment.</h3>
+          <p>Cash, UPI, card, cheque — combined in one bill. GST splits. Round-off settles. Save with <kbd>⌘</kbd><kbd>↵</kbd>.</p>
+        </article>
+      </div>
+
+      <div class="cin__view">
+        <div class="cin__sticky">
+          <div class="bill-card" id="cinBill">
+            <div class="bill-card__hd">
+              <span>New Sales Bill</span>
+              <span class="bill-card__no">INV-9824</span>
+            </div>
+
+            <div class="bill-card__row">
+              <label>Customer</label>
+              <div class="bill-card__inp" id="cinCustomer"><span class="bill-card__ph">Search by name or mobile…</span></div>
+            </div>
+            <div class="bill-card__row">
+              <label>Barcode</label>
+              <div class="bill-card__inp bill-card__inp--mono">
+                <span class="bill-card__beam" id="cinBeam"></span>
+                <span id="cinBarcode"><span class="bill-card__ph">Scan…</span></span>
+              </div>
+            </div>
+
+            <div class="bill-card__table">
+              <div class="bill-card__th"><span>Item</span><span>HSN</span><span>Qty</span><span>Rate</span><span>Amt</span></div>
+              <div class="bill-card__tb" id="cinItems"></div>
+            </div>
+
+            <div class="bill-card__totals">
+              <div><span>Subtotal</span><strong id="cinSub">₹ 0</strong></div>
+              <div><span>CGST 2.5%</span><strong id="cinCgst">₹ 0</strong></div>
+              <div><span>SGST 2.5%</span><strong id="cinSgst">₹ 0</strong></div>
+              <div class="bill-card__grand"><span>Total</span><strong id="cinTot">₹ 0</strong></div>
+            </div>
+
+            <div class="bill-card__pay" id="cinPay"></div>
+
+            <div class="bill-card__cta">
+              <button class="btn btn--ghost btn--sm btn--full">Save as credit</button>
+              <button class="btn btn--primary btn--sm btn--full" id="cinSave">Save &amp; Print <kbd>⌘</kbd><kbd>↵</kbd></button>
+            </div>
+
+            <div class="bill-card__done" id="cinDone">
+              <svg viewBox="0 0 60 60" width="64" height="64"><circle cx="30" cy="30" r="26" fill="none" stroke="#2D8856" stroke-width="3" class="ring"/><path d="M18 31l9 9 16-19" fill="none" stroke="#2D8856" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" class="tick"/></svg>
+              <strong>Saved · <span id="cinDoneTime">6.2s</span></strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────  TILES  ───────────────────────────── -->
+  <section id="features" class="tiles">
+    <div class="cap reveal">
+      <span class="kicker">Every part of your day</span>
+      <h2 class="display">A toolkit as deep as <em>the shop floor.</em></h2>
+      <p>Twelve modules. Hundreds of features. One beautifully consistent experience.</p>
+    </div>
+
+    <div class="tiles__grid">
+
+      <article class="tile tile--xl">
+        <div class="tile__copy">
+          <h3>Inventory that knows<br/>where it lives.</h3>
+          <p>Multi-warehouse, batch &amp; expiry, serial tracking, low-stock alerts. Move stock between locations in a single click.</p>
+          <ul>
+            <li>3 warehouses, unified search</li>
+            <li>Batch numbers &amp; expiry colours</li>
+            <li>FIFO, LIFO, weighted-average valuation</li>
+          </ul>
+        </div>
+        <div class="tile__viz">
+          <div class="wh">
+            <div class="wh__col">
+              <span class="wh__h">Mumbai HQ</span>
+              <div class="wh__bin" style="--w:80%"></div>
+              <div class="wh__bin" style="--w:62%"></div>
+              <div class="wh__bin" style="--w:90%"></div>
+            </div>
+            <div class="wh__col">
+              <span class="wh__h">Pune</span>
+              <div class="wh__bin" style="--w:55%"></div>
+              <div class="wh__bin" style="--w:74%"></div>
+              <div class="wh__bin" style="--w:38%"></div>
+            </div>
+            <div class="wh__col">
+              <span class="wh__h">Bengaluru</span>
+              <div class="wh__bin" style="--w:42%"></div>
+              <div class="wh__bin" style="--w:88%"></div>
+              <div class="wh__bin" style="--w:51%"></div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="tile">
+        <div class="tile__copy">
+          <h3>GST done right.</h3>
+          <p>CGST, SGST, IGST, cess — per HSN. GSTR-1 &amp; 3B in one click.</p>
+        </div>
+        <div class="tile__viz">
+          <div class="gst">
+            <div class="gst__r"><span>HSN 6109</span><span>CGST 2.5%</span><span>SGST 2.5%</span></div>
+            <div class="gst__r"><span>HSN 6204</span><span>CGST 6%</span><span>SGST 6%</span></div>
+            <div class="gst__r gst__r--hl"><span>HSN 5407</span><span>IGST 5%</span><span></span></div>
+          </div>
+          <div class="gst__stamp">GSTR-1 ready</div>
+        </div>
+      </article>
+
+      <article class="tile">
+        <div class="tile__copy">
+          <h3>Roles &amp; audit, by default.</h3>
+          <p>Admin, Manager, Cashier, Accountant. Every change is logged with who, what, and when.</p>
+        </div>
+        <div class="tile__viz">
+          <div class="audit">
+            <div class="audit__l"><span class="dot dot--ok"></span><span>Cashier · billed INV-9823</span><time>0:00</time></div>
+            <div class="audit__l"><span class="dot dot--ok"></span><span>Manager · adjusted stock</span><time>0:02</time></div>
+            <div class="audit__l"><span class="dot dot--warn"></span><span>Admin · changed GST rate</span><time>0:05</time></div>
+            <div class="audit__l"><span class="dot dot--ok"></span><span>Accountant · ledger entry</span><time>0:08</time></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="tile tile--xl tile--feat">
+        <div class="tile__copy">
+          <h3>One LAN. <em>Ten heads down.</em></h3>
+          <p>Up to 10 simultaneous users on the same cable network. ACID transactions, foreign-key integrity. Two cashiers can never overwrite each other.</p>
+          <ul>
+            <li>Real-time stock ledger across all PCs</li>
+            <li>Conflict-free transaction queue</li>
+            <li>Hourly auto-backups · encrypted &amp; restorable</li>
+          </ul>
+        </div>
+        <div class="tile__viz">
+          <svg viewBox="0 0 380 240" class="lan">
+            <defs>
+              <radialGradient id="lr" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#0891A8" stop-opacity=".22"/><stop offset="1" stop-color="#0891A8" stop-opacity="0"/></radialGradient>
+            </defs>
+            <circle cx="190" cy="120" r="70" fill="url(#lr)"/>
+            <g class="lan__lines" stroke="#0891A8" stroke-width="1.2" fill="none" stroke-opacity=".4">
+              <path d="M190 120 L50 40"/><path d="M190 120 L330 40"/>
+              <path d="M190 120 L20 200"/><path d="M190 120 L360 200"/>
+              <path d="M190 120 L190 230"/>
+            </g>
+            <g>
+              <g transform="translate(50,40)"><rect x="-18" y="-12" width="36" height="24" rx="4" fill="#fff" stroke="#0891A8"/><text x="0" y="4" text-anchor="middle" fill="#0891A8" font-size="10" font-family="JetBrains Mono">PC1</text></g>
+              <g transform="translate(330,40)"><rect x="-18" y="-12" width="36" height="24" rx="4" fill="#fff" stroke="#0891A8"/><text x="0" y="4" text-anchor="middle" fill="#0891A8" font-size="10" font-family="JetBrains Mono">PC2</text></g>
+              <g transform="translate(20,200)"><rect x="-18" y="-12" width="36" height="24" rx="4" fill="#fff" stroke="#0891A8"/><text x="0" y="4" text-anchor="middle" fill="#0891A8" font-size="10" font-family="JetBrains Mono">PC3</text></g>
+              <g transform="translate(360,200)"><rect x="-18" y="-12" width="36" height="24" rx="4" fill="#fff" stroke="#0891A8"/><text x="0" y="4" text-anchor="middle" fill="#0891A8" font-size="10" font-family="JetBrains Mono">PC4</text></g>
+              <g transform="translate(190,230)"><rect x="-18" y="-12" width="36" height="24" rx="4" fill="#fff" stroke="#0891A8"/><text x="0" y="4" text-anchor="middle" fill="#0891A8" font-size="10" font-family="JetBrains Mono">PC5</text></g>
+            </g>
+            <circle cx="190" cy="120" r="16" fill="#0891A8"/>
+            <text x="190" y="124" text-anchor="middle" fill="white" font-size="11" font-weight="700">DB</text>
+            <circle cx="190" cy="120" r="16" fill="none" stroke="#0891A8" stroke-opacity=".5" class="lan__pulse"/>
+            <circle cx="190" cy="120" r="16" fill="none" stroke="#0EAFCA" stroke-opacity=".5" class="lan__pulse" style="animation-delay:.6s"/>
+          </svg>
+        </div>
+      </article>
+
+      <article class="tile">
+        <div class="tile__copy">
+          <h3>Reports the CA loves.</h3>
+          <p>Party ledgers, P&amp;L, balance sheet, cash flow, aging, fast/slow movers.</p>
+        </div>
+        <div class="tile__viz">
+          <div class="rep">
+            <div class="rep__r"><span>P&amp;L · Apr</span><span class="up">+24%</span></div>
+            <div class="rep__r"><span>Balance sheet</span><span>Auto</span></div>
+            <div class="rep__r"><span>GSTR-1</span><span>Export</span></div>
+            <div class="rep__r"><span>Aging analysis</span><span>3 overdue</span></div>
+            <div class="rep__r"><span>Top customers</span><span>+15</span></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="tile">
+        <div class="tile__copy">
+          <h3>Backup, hourly.</h3>
+          <p>Compressed, encrypted, restorable. Critical operations always back up first.</p>
+        </div>
+        <div class="tile__viz">
+          <div class="bk">
+            <div class="bk__row"><span>02 Apr · 18:00</span><i></i></div>
+            <div class="bk__row"><span>02 Apr · 17:00</span><i></i></div>
+            <div class="bk__row"><span>02 Apr · 16:00</span><i></i></div>
+            <div class="bk__row"><span>02 Apr · 15:00</span><i></i></div>
+            <div class="bk__row bk__row--now"><span>now · running</span><i class="bk__spin"></i></div>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────  SPEED RACE  ───────────────────────────── -->
+  <section class="speed">
+    <div class="cap reveal">
+      <span class="kicker">Side by side</span>
+      <h2 class="display">A bill that used to take a <em>minute</em>, <br/>now takes <span class="accent">six seconds.</span></h2>
+      <p>Watch a single invoice get billed two ways. One stopwatch, two methods.</p>
+    </div>
+
+    <div class="race reveal">
+      <div class="lane lane--slow">
+        <div class="lane__hd">
+          <span class="lane__name">Old way</span>
+          <span class="lane__time" id="slowT">00:00.0</span>
+        </div>
+        <div class="lane__bar"><i id="slowBar"></i></div>
+        <ul class="lane__steps" id="slowSteps">
+          <li>Write party name in book</li>
+          <li>Calculate item rate × qty</li>
+          <li>Add GST manually</li>
+          <li>Round off &amp; sum</li>
+          <li>Copy total to ledger</li>
+          <li>Hand-write the receipt</li>
+        </ul>
+      </div>
+      <div class="lane lane--fast">
+        <div class="lane__hd">
+          <span class="lane__name">Billing ERP</span>
+          <span class="lane__time" id="fastT">00:00.0</span>
+        </div>
+        <div class="lane__bar"><i id="fastBar"></i></div>
+        <ul class="lane__steps" id="fastSteps">
+          <li>Type party · auto-search</li>
+          <li>Scan barcode</li>
+          <li>Press Enter</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="race__cta">
+      <button class="btn btn--ghost" id="raceBtn">▶  Run the race</button>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────  KEYBOARD  ───────────────────────────── -->
+  <section class="keys">
+    <div class="cap reveal">
+      <span class="kicker">Made for the keyboard</span>
+      <h2 class="display">Hands stay <em>where they belong.</em></h2>
+      <p>Press the keys on your actual keyboard.</p>
+    </div>
+
+    <div class="keys__stage reveal">
+      <div class="keys__board">
+        <div class="krow"><kbd data-key="N" class="kd">N</kbd><span>New sales bill</span></div>
+        <div class="krow"><kbd data-key="B" class="kd">B</kbd><span>Focus barcode</span></div>
+        <div class="krow"><kbd data-key="P" class="kd">P</kbd><span>Payment entry</span></div>
+        <div class="krow"><kbd data-key="F" class="kd">F</kbd><span>Find a party</span></div>
+        <div class="krow"><kbd data-key="R" class="kd">R</kbd><span>Reports hub</span></div>
+        <div class="krow"><kbd data-key="S" class="kd">S</kbd><span>Save bill</span></div>
+      </div>
+      <div class="keys__preview">
+        <div class="kp">
+          <div class="kp__bar">Billing ERP</div>
+          <div class="kp__screen" id="kpScreen">
+            <div class="kp__msg">Press any letter above ↑</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────  REPORTS  ───────────────────────────── -->
+  <section class="reports">
+    <div class="cap reveal">
+      <span class="kicker">Reports gallery</span>
+      <h2 class="display">Every number, <em>picture-perfect.</em></h2>
+      <p>Drag, scroll, swipe.</p>
+    </div>
+
+    <div class="reports__rail">
+      <article class="rep__card">
+        <div class="rep__head"><strong>Sales Summary</strong><span>Apr 2026</span></div>
+        <div class="big-num">₹ 18,42,500 <small class="up">+24%</small></div>
+        <div class="rep__bars">
+          <div><i style="--h:30%"></i><span>W1</span></div>
+          <div><i style="--h:48%"></i><span>W2</span></div>
+          <div><i style="--h:74%"></i><span>W3</span></div>
+          <div><i style="--h:96%"></i><span>W4</span></div>
+        </div>
+      </article>
+
+      <article class="rep__card">
+        <div class="rep__head"><strong>Party Ledger</strong><span>ABC Wholesale</span></div>
+        <table class="rep__tbl">
+          <tr><th>Date</th><th>Particulars</th><th>Dr</th><th>Cr</th></tr>
+          <tr><td>02 Apr</td><td>Opening</td><td>—</td><td>1,24,000</td></tr>
+          <tr><td>02 Apr</td><td>INV-9823</td><td>84,500</td><td>—</td></tr>
+          <tr><td>02 Apr</td><td>UPI receipt</td><td>—</td><td>50,000</td></tr>
+          <tr class="hl"><td colspan="2">Closing</td><td colspan="2">₹ 1,58,500 Cr</td></tr>
+        </table>
+      </article>
+
+      <article class="rep__card">
+        <div class="rep__head"><strong>GSTR-1</strong><span>Q4 2025-26</span></div>
+        <div class="rep__sum">
+          <div><span>Total taxable</span><strong>₹ 84,12,500</strong></div>
+          <div><span>CGST</span><strong>₹ 2,10,300</strong></div>
+          <div><span>SGST</span><strong>₹ 2,10,300</strong></div>
+          <div><span>IGST</span><strong>₹ 1,82,400</strong></div>
+        </div>
+        <button class="btn btn--primary btn--sm btn--full">Export to JSON / Excel</button>
+      </article>
+
+      <article class="rep__card">
+        <div class="rep__head"><strong>Aging Analysis</strong><span>Receivables</span></div>
+        <div class="age">
+          <div class="age__row"><span>0–30 days</span><div class="bar"><i style="--w:78%;--c:#2D8856"></i></div><strong>₹ 5,42,000</strong></div>
+          <div class="age__row"><span>31–60 days</span><div class="bar"><i style="--w:52%;--c:#0891A8"></i></div><strong>₹ 3,18,500</strong></div>
+          <div class="age__row"><span>61–90 days</span><div class="bar"><i style="--w:30%;--c:#C28534"></i></div><strong>₹ 1,82,000</strong></div>
+          <div class="age__row"><span>90+ days</span><div class="bar"><i style="--w:14%;--c:#DC2626"></i></div><strong>₹ 84,200</strong></div>
+        </div>
+      </article>
+
+      <article class="rep__card">
+        <div class="rep__head"><strong>Fast &amp; Slow Movers</strong><span>This quarter</span></div>
+        <div class="movers">
+          <div class="mv mv--fast">
+            <span class="mv__h">Fast</span>
+            <div class="mv__r"><span>Cotton Shirt · L</span><strong>1,284 sold</strong></div>
+            <div class="mv__r"><span>Linen Trouser</span><strong>982 sold</strong></div>
+            <div class="mv__r"><span>Denim · 32</span><strong>740 sold</strong></div>
+          </div>
+          <div class="mv mv--slow">
+            <span class="mv__h">Slow</span>
+            <div class="mv__r"><span>Wool Scarf · Beige</span><strong>12 sold</strong></div>
+            <div class="mv__r"><span>Silk Saree · Gold</span><strong>9 sold</strong></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="rep__card">
+        <div class="rep__head"><strong>P&amp;L</strong><span>FY 2025-26</span></div>
+        <div class="pnl">
+          <div class="pnl__r"><span>Revenue</span><strong>₹ 4.2 Cr</strong></div>
+          <div class="pnl__r"><span>COGS</span><strong>₹ 2.9 Cr</strong></div>
+          <div class="pnl__r"><span>Gross profit</span><strong>₹ 1.3 Cr</strong></div>
+          <div class="pnl__r"><span>Operating exp.</span><strong>₹ 38 L</strong></div>
+          <div class="pnl__r pnl__total"><span>Net profit</span><strong class="up">₹ 92 L</strong></div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────  PLATFORMS  ───────────────────────────── -->
+  <section id="platforms" class="plats">
+    <div class="cap reveal">
+      <span class="kicker">Same data. Every screen.</span>
+      <h2 class="display">Your shop. Your warehouse. <br/><em>Your pocket.</em></h2>
+      <p>Native on Windows and Mac. Real apps on iOS and Android. The web, anywhere a browser opens.</p>
+    </div>
+
+    <div class="plats__row">
+      <article class="pcard reveal" data-tilt>
+        <div class="pcard__device">
+          <div class="mac">
+            <div class="mac__bar"><span></span><span></span><span></span></div>
+            <div class="mac__screen">
+              <div class="mac__side"><i class="on"></i><i></i><i></i><i></i><i></i></div>
+              <div class="mac__body">
+                <div class="mac__chart"><svg viewBox="0 0 100 40" preserveAspectRatio="none"><path d="M0,30 L20,18 L40,24 L60,12 L80,20 L100,6" stroke="#0891A8" stroke-width="1.4" fill="none"/></svg></div>
+                <div class="mac__rows"><i></i><i></i><i></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h3>Windows &amp; macOS</h3>
+        <p>Electron-built native app. Offline-first, system tray, auto-updates.</p>
+      </article>
+
+      <article class="pcard reveal" data-tilt>
+        <div class="pcard__device">
+          <div class="iphone">
+            <div class="iphone__notch"></div>
+            <div class="iphone__screen">
+              <div class="ph">
+                <div class="ph__hd">Scan</div>
+                <div class="ph__vf">
+                  <div class="ph__frame"></div>
+                  <div class="ph__beam"></div>
+                </div>
+                <div class="ph__hit"><span>Linen · 34</span><strong>₹1,200</strong></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h3>iOS &amp; Android</h3>
+        <p>MLKit barcode scanner. Share sheets. Offline cache.</p>
+      </article>
+
+      <article class="pcard reveal" data-tilt>
+        <div class="pcard__device">
+          <div class="br">
+            <div class="br__bar"><span></span><span></span><span></span><div class="br__url">billingerp.app</div></div>
+            <div class="br__screen">
+              <div class="br__row"><span>Today</span><strong>₹ 4.8L</strong></div>
+              <div class="br__row"><span>SKUs</span><strong>2,184</strong></div>
+              <div class="br__row"><span>Pending</span><strong>14</strong></div>
+              <div class="br__grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            </div>
+          </div>
+        </div>
+        <h3>Web</h3>
+        <p>Open in any modern browser. From your CA's office, from home.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────  TESTIMONIALS  ───────────────────────────── -->
+  <section class="testi">
+    <div class="cap reveal">
+      <span class="kicker">From the shop floor</span>
+      <h2 class="display">Loved by people who <br/>actually <em>bill all day.</em></h2>
+    </div>
+
+    <div class="testi__grid">
+      <article class="tcard reveal" data-tilt>
+        <p>"Saturday rush used to be panic. Now we bill faster than the queue forms. The keyboard shortcuts alone changed how we work."</p>
+        <div class="tcard__by">
+          <span class="av av--a">RJ</span>
+          <div><strong>Rohit Jain</strong><span>Garments wholesaler · Mumbai</span></div>
+        </div>
+      </article>
+      <article class="tcard reveal" data-tilt>
+        <p>"GST returns used to be a two-day project. Now we click 'Export GSTR-1' and we're done. My CA tells everyone."</p>
+        <div class="tcard__by">
+          <span class="av av--b">PS</span>
+          <div><strong>Priya Shetty</strong><span>FMCG distributor · Bengaluru</span></div>
+        </div>
+      </article>
+      <article class="tcard reveal" data-tilt>
+        <p>"Five computers on the same LAN, never a single conflict. Stock numbers match across the warehouse, the godown and the front desk."</p>
+        <div class="tcard__by">
+          <span class="av av--c">AM</span>
+          <div><strong>Anil Mehta</strong><span>Textile importer · Surat</span></div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────  PRICING  ───────────────────────────── -->
+  <section id="pricing" class="prc">
+    <div class="cap reveal">
+      <span class="kicker">Pricing</span>
+      <h2 class="display">One license. <em>All modules.</em> <br/>No surprises.</h2>
+    </div>
+
+    <div class="plans">
+      <article class="plan reveal" data-tilt>
+        <h3>Starter</h3>
+        <div class="plan__price"><span>₹</span>0<small>/mo</small></div>
+        <p>For solo shopkeepers just getting going.</p>
+        <ul>
+          <li>1 user, 1 device</li>
+          <li>Sales, purchase, parties</li>
+          <li>Basic reports</li>
+          <li>Local backup</li>
+        </ul>
+        <a href="#download" class="btn btn--ghost btn--full">Download free</a>
+      </article>
+
+      <article class="plan plan--hot reveal" data-tilt>
+        <div class="plan__badge">Most popular</div>
+        <h3>Business</h3>
+        <div class="plan__price"><span>₹</span>1,499<small>/mo</small></div>
+        <p>For growing wholesale shops with a team.</p>
+        <ul>
+          <li>Up to 5 users · LAN sync</li>
+          <li>GST, multi-warehouse, batches</li>
+          <li>Mobile barcode scanner</li>
+          <li>All reports &amp; exports</li>
+          <li>Hourly auto-backup</li>
+        </ul>
+        <a href="#download" class="btn btn--primary btn--full">Start 30-day trial</a>
+      </article>
+
+      <article class="plan reveal" data-tilt>
+        <h3>Industrial</h3>
+        <div class="plan__price"><span>₹</span>2,999<small>/mo</small></div>
+        <p>For distributors and multi-branch operations.</p>
+        <ul>
+          <li>Up to 10 users · LAN sync</li>
+          <li>Manufacturing module</li>
+          <li>Bank reconciliation</li>
+          <li>Audit trail · role-based</li>
+          <li>Priority support</li>
+        </ul>
+        <a href="#download" class="btn btn--ghost btn--full">Talk to sales</a>
+      </article>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────  MEGA CTA  ───────────────────────────── -->
+  <section id="download" class="mega">
+    <div class="mega__card reveal">
+      <div class="mega__copy">
+        <h2 class="display">Bill smarter. <em>Starting today.</em></h2>
+        <p>Free to download. No credit card. Set up in minutes.</p>
+      </div>
+      <div class="mega__btns">
+        <a href="#" class="dl">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3 5.5 10.5 4.5v7H3v-6zM3 12.5h7.5v7L3 18.5v-6zM11.5 4.4 21 3v8.5h-9.5V4.4zM11.5 12.5H21V21l-9.5-1.4v-7.1z"/></svg>
+          <span><small>Download for</small><strong>Windows</strong></span>
+        </a>
+        <a href="#" class="dl">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M16.4 2c0 1.2-.5 2.4-1.3 3.3-.9.9-2.2 1.5-3.4 1.4-.1-1.2.5-2.4 1.3-3.2C13.9 2.6 15.2 2.1 16.4 2zM20 17.4c-.6 1.3-.9 1.9-1.7 3.1-1.1 1.6-2.7 3.6-4.6 3.6-1.7 0-2.2-1.1-4.5-1.1-2.3 0-2.8 1.1-4.5 1.1-1.9 0-3.4-1.8-4.5-3.4-3.1-4.5-3.4-9.7-1.5-12.5 1.3-2 3.4-3.2 5.4-3.2 2 0 3.3 1.1 4.9 1.1 1.6 0 2.6-1.1 4.9-1.1 1.8 0 3.7.9 5 2.6-4.4 2.4-3.7 8.7.1 9.8z"/></svg>
+          <span><small>Download for</small><strong>macOS</strong></span>
+        </a>
+        <a href="#" class="dl">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M17.5 12.5c0-2.7 2.2-4 2.3-4-1.3-1.8-3.2-2.1-3.9-2.1-1.6-.2-3.2.9-4 .9-.8 0-2.1-.9-3.5-.9-1.8 0-3.5 1-4.4 2.7-1.9 3.3-.5 8.1 1.4 10.8.9 1.3 2 2.7 3.4 2.7 1.4-.1 1.9-.9 3.6-.9 1.7 0 2.1.9 3.6.9 1.5 0 2.4-1.3 3.3-2.6 1-1.5 1.5-2.9 1.5-3 0-.1-2.8-1.1-2.8-4.3z"/></svg>
+          <span><small>Download on</small><strong>App Store</strong></span>
+        </a>
+        <a href="#" class="dl">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3.6 1.7c-.3.3-.5.8-.5 1.5v17.6c0 .6.2 1.1.5 1.5l11.2-10.3L3.6 1.7zM15.8 12l3.8-2.2c1.2-.7 1.2-1.8 0-2.5l-3.5-2L13 12l3.1 6.7 3.5-2c1.2-.7 1.2-1.8 0-2.5L15.8 12zM4.4 22.6c.3 0 .6-.1 1-.3l11.4-6.6-2.6-2.4-9.8 9.3zM4.4 1.4l9.8 9.4 2.6-2.4L5.4 1.7c-.4-.2-.7-.3-1-.3z"/></svg>
+          <span><small>Get it on</small><strong>Google Play</strong></span>
+        </a>
+        <a href="#" class="dl dl--web">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+          <span><small>Open in</small><strong>Browser</strong></span>
+        </a>
+      </div>
+      <div class="mega__sys">v1.0 · Windows 10+ · macOS 12+ · iOS 15+ · Android 9+</div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────  FOOTER  ───────────────────────────── -->
+  <footer class="foot">
+    <div class="foot__big">BILLING ERP</div>
+    <div class="foot__top">
+      <div class="foot__brand">
+        <span class="logo">
+          <svg viewBox="0 0 36 36" fill="none">
+            <defs>
+              <linearGradient id="lg-f" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#0EAFCA"/><stop offset="1" stop-color="#0891A8"/>
+              </linearGradient>
+            </defs>
+            <rect x="2" y="2" width="32" height="32" rx="9" fill="url(#lg-f)"/>
+            <g fill="white" opacity=".98">
+              <rect x="9"    y="11" width="1.4" height="14" rx=".5"/>
+              <rect x="11.4" y="11" width="2.2" height="14" rx=".5"/>
+              <rect x="14.4" y="11" width="1"   height="14" rx=".5"/>
+              <rect x="16.2" y="11" width="2"   height="14" rx=".5"/>
+              <rect x="19"   y="11" width="1.4" height="14" rx=".5"/>
+              <rect x="21.2" y="11" width="2.6" height="14" rx=".5"/>
+              <rect x="24.6" y="11" width="1.2" height="14" rx=".5"/>
+            </g>
+          </svg>
+        </span>
+        <div>
+          <div class="foot__name">Billing ERP</div>
+          <div class="foot__by">Made for wholesalers, by wholesalers.</div>
+        </div>
+      </div>
+      <div class="foot__cols">
+        <div>
+          <h5>Product</h5>
+          <a href="#features">Features</a>
+          <a href="#platforms">Platforms</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#download">Download</a>
+        </div>
+        <div>
+          <h5>Modules</h5>
+          <a href="#">Sales &amp; Billing</a>
+          <a href="#">Inventory</a>
+          <a href="#">Accounting</a>
+          <a href="#">Manufacturing</a>
+        </div>
+        <div>
+          <h5>Company</h5>
+          <a href="#">About</a>
+          <a href="#">Support</a>
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+        </div>
+      </div>
+    </div>
+    <div class="foot__bot">
+      <span>© <span id="yr">2026</span> Billing ERP. All rights reserved.</span>
+      <span>v1.0 · Mumbai · Pune · Bengaluru</span>
+    </div>
+  </footer>
+
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MicroVisuals — Mockup</title>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<!-- GSAP (matches the React project's parallax library) -->
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+
+<style>
+  /* =====================================================
+     Inlined CSS — identical to src/index.css in the
+     React project, plus a graceful static-background
+     fallback for the mockup.
+     ===================================================== */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { height: 100%; }
+  body {
+    font-family: 'Barlow', sans-serif;
+    background: #000;
+    color: #fff;
+    overflow-x: hidden;
+    cursor: default;
+  }
+
+  /* ---- Background layer (video + canvas + fallback gradient) ---- */
+  #videoBg {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    transform: scale(1.08);
+    transform-origin: center;
+    will-change: transform;
+  }
+  #videoBg video,
+  #videoBg canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  /* Animated fallback (shows until/unless the video loads) */
+  #fallback {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(60% 80% at 30% 30%, #6b46ff 0%, transparent 60%),
+      radial-gradient(50% 70% at 70% 60%, #00d4ff 0%, transparent 60%),
+      radial-gradient(70% 60% at 50% 90%, #ff5a7a 0%, transparent 60%),
+      radial-gradient(60% 60% at 80% 20%, #fbbf24 0%, transparent 60%),
+      linear-gradient(180deg, #0a0a18, #1a0033 50%, #001830 100%);
+    background-size: 200% 200%, 220% 220%, 240% 240%, 200% 200%, 100% 100%;
+    animation: shift 24s ease-in-out infinite;
+    filter: blur(20px) saturate(140%);
+  }
+  @keyframes shift {
+    0%,100% { background-position: 0% 0%, 100% 100%, 50% 50%, 0% 100%, 0 0; }
+    33%     { background-position: 50% 80%, 30% 20%, 80% 30%, 60% 30%, 0 0; }
+    66%     { background-position: 100% 50%, 0% 60%, 20% 80%, 30% 70%, 0 0; }
+  }
+  /* Subtle film grain on top */
+  #grain {
+    position: absolute; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+    opacity: .08;
+    mix-blend-mode: overlay;
+    pointer-events: none;
+  }
+
+  /* ---- Liquid glass primitives (verbatim from spec) ---- */
+  .liquid-glass {
+    background: rgba(255,255,255,0.01);
+    background-blend-mode: luminosity;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: none;
+    box-shadow: inset 0 1px 1px rgba(255,255,255,0.1);
+    position: relative;
+    overflow: hidden;
+  }
+  .liquid-glass::before {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(180deg,
+      rgba(255,255,255,0.45) 0%,
+      rgba(255,255,255,0.15) 20%,
+      rgba(255,255,255,0)    40%,
+      rgba(255,255,255,0)    60%,
+      rgba(255,255,255,0.15) 80%,
+      rgba(255,255,255,0.45) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+  }
+  .liquid-glass-strong {
+    background: rgba(255,255,255,0.01);
+    background-blend-mode: luminosity;
+    backdrop-filter: blur(50px);
+    -webkit-backdrop-filter: blur(50px);
+    border: none;
+    box-shadow: 4px 4px 4px rgba(0,0,0,0.05), inset 0 1px 1px rgba(255,255,255,0.15);
+    position: relative;
+    overflow: hidden;
+  }
+  .liquid-glass-strong::before {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(180deg,
+      rgba(255,255,255,0.5) 0%,
+      rgba(255,255,255,0.2) 20%,
+      rgba(255,255,255,0)   40%,
+      rgba(255,255,255,0)   60%,
+      rgba(255,255,255,0.2) 80%,
+      rgba(255,255,255,0.5) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* ---- Hero title (verbatim) ---- */
+  .hero-title {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: clamp(96px, 18vw, 280px);
+    line-height: 0.92;
+    letter-spacing: -0.02em;
+    color: white;
+    text-align: center;
+  }
+
+  /* ---- Layout helpers (matches Tailwind classes used in App.tsx) ---- */
+  .pill { border-radius: 9999px; }
+  .nav {
+    position: fixed;
+    top: 20px; left: 50%; transform: translateX(-50%);
+    z-index: 50;
+    white-space: nowrap;
+  }
+  .nav__inner {
+    display: flex; align-items: center; gap: 24px;
+    padding: 10px 16px;
+  }
+  .nav__links {
+    display: flex; align-items: center; gap: 20px;
+  }
+  .nav a, .nav__inner a {
+    color: rgba(255,255,255,.7);
+    font-size: 14px; font-weight: 300;
+    text-decoration: none;
+    transition: color .2s;
+  }
+  .nav a:hover, .nav__inner a:hover { color: #fff; }
+  .nav__right { display: flex; align-items: center; gap: 12px; margin-left: 16px; }
+  .nav__cta {
+    color: #fff !important;
+    font-size: 14px; font-weight: 500;
+    padding: 6px 16px;
+    transition: all .2s;
+    text-decoration: none;
+    display: inline-block;
+  }
+  .nav__cta:hover {
+    transform: scale(1.04);
+    box-shadow: 0 0 16px 2px rgba(255,255,255,.12);
+  }
+  .nav__cta:active { transform: scale(.97); }
+
+  .hero {
+    position: fixed; left: 0; right: 0;
+    top: 126px;
+    z-index: 20;
+    width: 100%;
+    padding: 0 16px;
+    opacity: 0; transform: translateY(24px);
+    transition: opacity 1s ease, transform 1s ease;
+  }
+  .hero.in { opacity: 1; transform: translateY(0); }
+
+  .bottom {
+    position: fixed;
+    bottom: 48px; left: 0; right: 0;
+    padding: 0 40px;
+    display: flex; align-items: flex-end; justify-content: space-between;
+    z-index: 20;
+    opacity: 0; transform: translateY(24px);
+    transition: opacity 1s ease .3s, transform 1s ease .3s;
+  }
+  .bottom.in { opacity: 1; transform: translateY(0); }
+  .bottom p {
+    font-size: 14px; font-weight: 300;
+    color: rgba(255,255,255,.75);
+    max-width: 220px; line-height: 1.55;
+  }
+  .bottom .right { text-align: right; }
+
+  .center-ctas {
+    position: absolute;
+    left: 50%; bottom: 0;
+    transform: translateX(-50%);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .btn {
+    font-family: 'Barlow', sans-serif;
+    font-size: 14px; font-weight: 500;
+    padding: 12px 24px;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: all .2s;
+    position: relative;
+    overflow: hidden;
+    border: none;
+  }
+  .btn--primary {
+    background: #fff; color: #000;
+    box-shadow: 0 0 0 0 rgba(255,255,255,0);
+  }
+  .btn--primary:hover {
+    transform: scale(1.03);
+    box-shadow: 0 0 24px 4px rgba(255,255,255,.25);
+  }
+  .btn--primary:active { transform: scale(.97); }
+  .btn--primary .overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, #fff, rgba(255,255,255,.85));
+    opacity: 0;
+    transition: opacity .2s;
+  }
+  .btn--primary:hover .overlay { opacity: 1; }
+  .btn--primary .label { position: relative; z-index: 1; }
+
+  .btn--ghost {
+    color: #fff;
+  }
+  .btn--ghost:hover {
+    transform: scale(1.03);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,.2), 0 0 20px 2px rgba(255,255,255,.07);
+  }
+  .btn--ghost:active { transform: scale(.97); }
+
+  /* Mockup-only label badge bottom-right corner */
+  .mockup-badge {
+    position: fixed; right: 14px; top: 14px;
+    z-index: 100;
+    font-family: 'Barlow', sans-serif;
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.6);
+    background: rgba(0,0,0,.4);
+    border: 1px solid rgba(255,255,255,.12);
+    padding: 6px 12px;
+    border-radius: 9999px;
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- Mockup tag (mockup-only — strip when comparing to React) -->
+<div class="mockup-badge">Hero · Mockup</div>
+
+<!-- Background layer -->
+<div id="videoBg">
+  <div id="fallback"></div>
+  <div id="grain"></div>
+  <video id="video" muted playsinline preload="auto" crossorigin="anonymous"
+         src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260511_080827_a9e5ad52-b6ee-4e79-b393-d936f179cfd7.mp4"
+         style="display:none"></video>
+  <canvas id="display" style="display:none"></canvas>
+</div>
+
+<!-- Nav -->
+<nav class="nav">
+  <div class="nav__inner liquid-glass pill">
+    <!-- LogoMark: 44×26, three white rects -->
+    <svg width="44" height="26" viewBox="0 0 44 26" fill="none">
+      <rect x="0"  y="3" width="14" height="20" rx="3" fill="#fff"/>
+      <rect x="16" y="3" width="12" height="20" rx="3" fill="#fff"/>
+      <rect x="30" y="3" width="14" height="20" rx="3" fill="#fff"/>
+    </svg>
+
+    <div class="nav__links">
+      <a href="#">Gallery</a>
+      <a href="#">Styles</a>
+      <a href="#">API</a>
+      <a href="#">Pricing</a>
+      <a href="#">Blog</a>
+    </div>
+
+    <div class="nav__right">
+      <a href="#">Sign in</a>
+      <a href="#" class="nav__cta liquid-glass-strong pill">Try it free</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero title -->
+<div class="hero" id="hero">
+  <h1 class="hero-title">MicroVisuals</h1>
+</div>
+
+<!-- Bottom row -->
+<div class="bottom" id="bottom">
+  <p>Forma's AI understands context, composition, and style like a creative director would.</p>
+
+  <div class="center-ctas">
+    <button class="btn btn--primary pill">
+      <span class="overlay"></span>
+      <span class="label">Start generating</span>
+    </button>
+    <button class="btn btn--ghost liquid-glass pill">See templates</button>
+  </div>
+
+  <p class="right">Describe what you see in your head — get images that actually match.</p>
+</div>
+
+<script>
+/* =====================================================
+   Mockup behaviour — same logic as App.tsx, vanilla JS.
+   - Tries to capture frames from the spec'd video
+   - On end: switches to a forward/reverse "boomerang" canvas
+   - If the video fails (CORS / 403 / network), the
+     animated fallback gradient stays visible — design
+     still looks right.
+   - GSAP parallax on the whole background layer.
+   ===================================================== */
+(() => {
+  // Fade in hero + bottom row
+  requestAnimationFrame(() => {
+    document.getElementById('hero').classList.add('in');
+    document.getElementById('bottom').classList.add('in');
+  });
+
+  const video   = document.getElementById('video');
+  const display = document.getElementById('display');
+  const bg      = document.getElementById('videoBg');
+  const fallback = document.getElementById('fallback');
+
+  // ----- Frame capture -----
+  let capturing = true;
+  let lastTime = -1;
+  const MAX_WIDTH = 960;
+  const frames = [];
+  let rafId = 0, vfcId = 0;
+  let framesReady = false;
+
+  const supportsVFC = typeof video.requestVideoFrameCallback === 'function';
+
+  function captureFrame() {
+    if (!capturing) return;
+    if (video.readyState < 2) return;
+    if (video.currentTime === lastTime) return;
+    lastTime = video.currentTime;
+    const scale = Math.min(1, MAX_WIDTH / video.videoWidth);
+    const w = video.videoWidth * scale;
+    const h = video.videoHeight * scale;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    try {
+      ctx.drawImage(video, 0, 0, w, h);
+      frames.push(c);
+    } catch (_) {
+      // Canvas tainted by CORS — abort frame capture, keep fallback.
+      capturing = false;
+    }
+  }
+  function loop() {
+    if (!capturing) return;
+    captureFrame();
+    if (supportsVFC) vfcId = video.requestVideoFrameCallback(loop);
+    else rafId = requestAnimationFrame(loop);
+  }
+  function onLoaded() {
+    video.style.display = 'block';
+    video.play().catch(() => {/* autoplay blocked — fallback stays */});
+    loop();
+  }
+  function onEnded() {
+    capturing = false;
+    if (frames.length === 0) return;
+    framesReady = true;
+    // Switch from <video> to canvas
+    video.style.display = 'none';
+    display.style.display = 'block';
+    display.width  = frames[0].width;
+    display.height = frames[0].height;
+    const ctx = display.getContext('2d');
+    let index = 0, direction = 1, last = performance.now();
+    const interval = 1000 / 30;
+    function render(now) {
+      if (now - last >= interval) {
+        last = now;
+        ctx.drawImage(frames[index], 0, 0);
+        index += direction;
+        if (index >= frames.length - 1) { index = frames.length - 1; direction = -1; }
+        else if (index <= 0)            { index = 0;                 direction =  1; }
+      }
+      requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+  }
+  function onError() {
+    // Network/CORS failure — keep the animated gradient.
+    capturing = false;
+    video.style.display = 'none';
+  }
+  video.addEventListener('loadedmetadata', onLoaded);
+  video.addEventListener('ended', onEnded);
+  video.addEventListener('error', onError);
+  // Some browsers don't fire 'ended' if the video is short and the play()
+  // promise resolves quickly — bail after 60 s of capturing as a safety net.
+  setTimeout(() => { if (capturing && frames.length > 30) onEnded(); }, 60000);
+
+  // If readyState already >= 1 (cached), kick off immediately.
+  if (video.readyState >= 1) onLoaded();
+
+  // ----- Parallax (GSAP) -----
+  const strength = 20;
+  let tx = 0, ty = 0, cx = 0, cy = 0;
+  window.addEventListener('mousemove', (e) => {
+    const halfW = window.innerWidth  / 2;
+    const halfH = window.innerHeight / 2;
+    tx = ((e.clientX - halfW) / halfW) * strength;
+    ty = ((e.clientY - halfH) / halfH) * strength;
+  });
+  function tick() {
+    cx += (tx - cx) * 0.06;
+    cy += (ty - cy) * 0.06;
+    if (window.gsap) window.gsap.set(bg, { x: cx, y: cy });
+    else bg.style.transform = `scale(1.08) translate(${cx}px, ${cy}px)`;
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+
+</body>
+</html>
