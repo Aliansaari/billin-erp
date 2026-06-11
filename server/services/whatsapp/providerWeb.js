@@ -106,7 +106,7 @@ async function startSocket(authDir, handlers = {}) {
     ...(version ? { version } : {}),
     auth: state,
     logger,
-    browser: ['Billing ERP', 'Chrome', '1.0.0'],
+    browser: ['ZEHEN', 'Chrome', '1.0.0'],
     markOnlineOnConnect: false,
     syncFullHistory: false,
     getMessage: async () => undefined,

@@ -1,5 +1,5 @@
 /**
- * License verification configuration for Billing ERP.
+ * License verification configuration for ZEHEN.
  * ─────────────────────────────────────────────────────
  *
  * The Ed25519 PUBLIC key below is the one that comes out of License

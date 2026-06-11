@@ -1,5 +1,5 @@
 /**
- * End-to-end license activation test for Billing ERP.
+ * End-to-end license activation test for ZEHEN.
  *
  * Generates a fresh Ed25519 keypair, builds a signed license envelope
  * (matching License Studio's exact canonical-JSON format), then drives
@@ -83,7 +83,7 @@ async function http(method, path, { body } = {}) {
   console.log('  PUB  =', PUB);
   console.log('  PRIV =', PRIV.slice(0, 20) + '… (truncated)');
   console.log('');
-  console.log('Spawning Billing ERP server with LICENSE_PUBLIC_KEY=<test>');
+  console.log('Spawning ZEHEN server with LICENSE_PUBLIC_KEY=<test>');
   console.log('('+'wait ~10s for boot)');
   console.log('');
 

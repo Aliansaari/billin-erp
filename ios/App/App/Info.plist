@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Billing ERP</string>
+        <string>ZEHEN</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -46,9 +46,9 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Billing ERP uses the camera to scan product barcodes and QR codes.</string>
+	<string>ZEHEN uses the camera to scan product barcodes and QR codes.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Billing ERP connects to your local Billing ERP server on the same Wi-Fi network.</string>
+	<string>ZEHEN connects to your local ZEHEN server on the same Wi-Fi network.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

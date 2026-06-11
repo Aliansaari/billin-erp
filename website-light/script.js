@@ -1,5 +1,5 @@
 /* =====================================================================
-   Billing ERP — light-mode interactions
+   ZEHEN — light-mode interactions
    - Theme toggle (Classic ⇄ Modern)
    - Reveal on scroll · count-ups · tilt cards
    - Cinematic bill assembly

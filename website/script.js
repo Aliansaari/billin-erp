@@ -1,5 +1,5 @@
 /* ===================================================================
-   Billing ERP — site interactions
+   ZEHEN — site interactions
    Custom cursor · magnetic CTAs · 3D tilt · scroll cinematic
    keyboard interactive · speed race · reveal · nav hide
    =================================================================== */

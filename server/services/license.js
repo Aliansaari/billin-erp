@@ -1,5 +1,5 @@
 /**
- * License verification + activation for Billing ERP.
+ * License verification + activation for ZEHEN.
  * ────────────────────────────────────────────────────
  *
  * Every authenticated request runs through licenseGate which calls
@@ -36,6 +36,25 @@ const path = require('path');
 const crypto = require('crypto');
 const nacl = require('tweetnacl');
 const { LICENSE_PUBLIC_KEY, resolveLicensePath, RECHECK_INTERVAL_SECONDS } = require('../config/license');
+
+// ── License envelope parsing ─────────────────────────────────────────
+// Accepted on-disk / pasted formats, newest first:
+//   ZEHEN-LIC:<base64>           current brand
+//   ZEHEN-LIC-V1:<base64>
+//   BILLINGERP-LIC:<base64>      pre-rebrand keys already in the field —
+//   BILLINGERP-LIC-V1:<base64>   must keep validating forever
+//   plain JSON                   oldest installs
+const LICENSE_PREFIXES = ['ZEHEN-LIC-V1:', 'ZEHEN-LIC:', 'BILLINGERP-LIC-V1:', 'BILLINGERP-LIC:'];
+function parseLicenseEnvelope(text) {
+  const trimmed = String(text).trim();
+  for (const prefix of LICENSE_PREFIXES) {
+    if (trimmed.startsWith(prefix)) {
+      const json = Buffer.from(trimmed.slice(prefix.length), 'base64').toString('utf8');
+      return JSON.parse(json);
+    }
+  }
+  return JSON.parse(trimmed);
+}
 
 // ── State (in-process cache) ─────────────────────────────────────────
 let _cache = null;
@@ -103,20 +122,7 @@ function readLicenseFromDisk() {
   let raw, env, payload;
   try {
     raw = fs.readFileSync(file, 'utf8').trim();
-    // Support opaque format (BILLINGERP-LIC:<base64>),
-    // legacy V1 prefix (BILLINGERP-LIC-V1:<base64>),
-    // and plain-JSON for backward compatibility.
-    if (raw.startsWith('BILLINGERP-LIC:')) {
-      const b64 = raw.slice('BILLINGERP-LIC:'.length);
-      const json = Buffer.from(b64, 'base64').toString('utf8');
-      env = JSON.parse(json);
-    } else if (raw.startsWith('BILLINGERP-LIC-V1:')) {
-      const b64 = raw.slice('BILLINGERP-LIC-V1:'.length);
-      const json = Buffer.from(b64, 'base64').toString('utf8');
-      env = JSON.parse(json);
-    } else {
-      env = JSON.parse(raw);
-    }
+    env = parseLicenseEnvelope(raw);
   } catch (e) {
     return { ok: false, code: 'invalid_format', detail: e.message };
   }
@@ -269,19 +275,7 @@ function computeStatusUncached() {
 function activateFromEnvelope(envelopeText) {
   let envelope, payload;
   try {
-    const trimmed = envelopeText.trim();
-    // Support opaque (BILLINGERP-LIC:<base64>), legacy V1, and plain JSON
-    if (trimmed.startsWith('BILLINGERP-LIC:')) {
-      const b64 = trimmed.slice('BILLINGERP-LIC:'.length);
-      const json = Buffer.from(b64, 'base64').toString('utf8');
-      envelope = JSON.parse(json);
-    } else if (trimmed.startsWith('BILLINGERP-LIC-V1:')) {
-      const b64 = trimmed.slice('BILLINGERP-LIC-V1:'.length);
-      const json = Buffer.from(b64, 'base64').toString('utf8');
-      envelope = JSON.parse(json);
-    } else {
-      envelope = JSON.parse(trimmed);
-    }
+    envelope = parseLicenseEnvelope(envelopeText);
     if (envelope.kind !== 'license-studio.license' || envelope.v !== 1) {
       return { ok: false, code: 'invalid_format', message: 'Not a License Studio license file' };
     }

@@ -1,5 +1,5 @@
 /**
- * First-run setup service for Billing ERP.
+ * First-run setup service for ZEHEN.
  * ─────────────────────────────────────────
  *
  * Helps the user get from "fresh install" to "working app" without

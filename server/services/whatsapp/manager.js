@@ -360,7 +360,7 @@ async function sendTest(companyId, to) {
   const number = pacing.normalizeNumber(to);
   if (!number) throw new Error('Invalid phone number');
   const settings = await loadSettings(companyId);
-  const body = 'WhatsApp connected successfully — this is a test message from Billing ERP.';
+  const body = 'WhatsApp connected successfully — this is a test message from ZEHEN.';
   if (settings.provider === 'web') {
     const s = ensureState(companyId);
     if (!s.sock || s.state !== 'connected') throw new Error('WhatsApp Web is not connected');

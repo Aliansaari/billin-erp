@@ -2,7 +2,7 @@
  * Phase 2 — full integration test.
  * ─────────────────────────────────
  *
- * Drives the Billing ERP server through every Phase-2 surface in one
+ * Drives the ZEHEN server through every Phase-2 surface in one
  * end-to-end run. Spawns its own server with a test keypair so we can
  * sign real licenses for activation.
  *
@@ -236,7 +236,7 @@ async function killServer(child) {
 
   // ── D. License Studio mark-activated parser (re-implementation) ────
   section('D. Activation report parser');
-  // Build the same single-line report the Billing ERP UI shows.
+  // Build the same single-line report the ZEHEN UI shows.
   const report = [
     'customer_id=C-2026-9001',
     'customer_name=Phase 2 Test',

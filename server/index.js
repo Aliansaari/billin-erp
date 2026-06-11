@@ -301,7 +301,7 @@ app.get('/api/server-info', (req, res) => {
   // render "3 of 10 clients active" without polling a separate endpoint.
   const { getActiveClients } = require('./middleware/lanGate');
   res.json({
-    name: 'Billing ERP',
+    name: 'ZEHEN',
     version: SERVER_VERSION,
     hostname: os.hostname(),
     platform: process.platform,
@@ -400,9 +400,9 @@ if (distExists) {
   // No build yet: hint the admin instead of returning a blank 404.
   app.get('/', (req, res) => {
     res.type('html').send(
-      `<!doctype html><meta charset="utf-8"><title>Billing ERP</title>` +
+      `<!doctype html><meta charset="utf-8"><title>ZEHEN</title>` +
       `<body style="font-family:system-ui;padding:40px;max-width:560px;margin:auto">` +
-      `<h2 style="margin-top:0">Billing ERP — API only</h2>` +
+      `<h2 style="margin-top:0">ZEHEN — API only</h2>` +
       `<p>The server is running and the API is live at <code>/api</code>.</p>` +
       `<p>To serve the web UI to browser-only clients on your LAN, build the frontend first:</p>` +
       `<pre style="background:#f4f4f5;padding:12px;border-radius:6px">npm run build</pre>` +
@@ -428,7 +428,7 @@ async function startServer() {
     if (!setupSvc.isSetupComplete()) {
       console.log('[setup] no config.json — entering setup mode');
       const httpServer = app.listen(PORT, '0.0.0.0', () => {
-        console.log(`Billing ERP setup mode on port ${PORT} — open the UI to finish first-run setup.`);
+        console.log(`ZEHEN setup mode on port ${PORT} — open the UI to finish first-run setup.`);
       });
       const shutdown = () => { try { httpServer.close(); } catch {}; process.exit(0); };
       process.on('SIGTERM', shutdown);
@@ -3324,7 +3324,7 @@ async function startServer() {
       const lan = getLanAddresses();
       console.log('');
       console.log('┌───────────────────────────────────────────────────────────┐');
-      console.log('│  Billing ERP server is running                            │');
+      console.log('│  ZEHEN server is running'.padEnd(60) + '│');
       console.log('├───────────────────────────────────────────────────────────┤');
       console.log(`│  Local:    http://localhost:${PORT}`.padEnd(60) + '│');
       if (lan.length === 0) {

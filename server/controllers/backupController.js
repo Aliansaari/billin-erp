@@ -471,7 +471,7 @@ exports.restoreBackup = async (req, res) => {
         backupPayload = JSON.parse(decrypted);
       } catch (e) {
         return res.status(400).json({
-          error: 'This backup file is corrupted or was not created by Billing ERP.',
+          error: 'This backup file is corrupted or was not created by ZEHEN.',
         });
       }
     } else {

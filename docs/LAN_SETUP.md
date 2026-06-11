@@ -1,6 +1,6 @@
-# Billing ERP — LAN deployment guide
+# ZEHEN — LAN deployment guide
 
-This guide gets Billing ERP running across an office with 10–20 PCs / laptops / tablets, all billing into a single PostgreSQL database in real time.
+This guide gets ZEHEN running across an office with 10–20 PCs / laptops / tablets, all billing into a single PostgreSQL database in real time.
 
 There are **two roles** any computer can play:
 
@@ -63,7 +63,7 @@ This produces a `dist/` folder. The server will auto-detect it and serve the web
 
 The server listens on TCP port 3001 (HTTP) on every network interface. Allow it through the OS firewall:
 
-* **Windows**: `netsh advfirewall firewall add rule name="Billing ERP" dir=in action=allow protocol=TCP localport=3001`
+* **Windows**: `netsh advfirewall firewall add rule name="ZEHEN" dir=in action=allow protocol=TCP localport=3001`
 * **macOS**: System Settings → Network → Firewall → Options → add Node, allow incoming.
 * **Ubuntu**: `sudo ufw allow 3001/tcp`
 
@@ -77,7 +77,7 @@ You should see something like:
 
 ```
 ┌───────────────────────────────────────────────────────────┐
-│  Billing ERP server is running                            │
+│  ZEHEN server is running                                  │
 ├───────────────────────────────────────────────────────────┤
 │  Local:    http://localhost:3001                          │
 │  LAN:      http://192.168.1.50:3001   (Wi-Fi)             │

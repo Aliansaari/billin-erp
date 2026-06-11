@@ -1,4 +1,4 @@
-// One-shot: export the Billing ERP completion audit as xlsx + pdf.
+// One-shot: export the ZEHEN completion audit as xlsx + pdf.
 // Uses project-local exceljs + jspdf (already declared deps); drops both
 // files in the user's Downloads folder.
 
@@ -42,7 +42,7 @@ const overallPct = Math.round(weighted / totalWeight * 100 * 10) / 10;
 /* ────────────────── XLSX ────────────────── */
 (async () => {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Billing ERP Audit';
+  wb.creator = 'ZEHEN Audit';
   wb.created = new Date();
 
   // Sheet 1 — Module completion
@@ -106,7 +106,7 @@ const overallPct = Math.round(weighted / totalWeight * 100 * 10) / 10;
     if (opts.bold) row.getCell(2).font = { bold: true, size: opts.size || 11 };
     if (opts.size) row.getCell(2).font = { ...(row.getCell(2).font || {}), size: opts.size };
   };
-  addLine('Billing ERP — Completion Audit', { bold: true, size: 16 });
+  addLine('ZEHEN — Completion Audit', { bold: true, size: 16 });
   addLine(`Generated ${new Date().toLocaleString()}`);
   addLine('');
   addLine(`Overall completion: ${overallPct}%`, { bold: true, size: 14 });
@@ -131,7 +131,7 @@ const overallPct = Math.round(weighted / totalWeight * 100 * 10) / 10;
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   doc.setFontSize(20);
   doc.setFont(undefined, 'bold');
-  doc.text('Billing ERP — Completion Audit', 40, 54);
+  doc.text('ZEHEN — Completion Audit', 40, 54);
   doc.setFont(undefined, 'normal');
   doc.setFontSize(10);
   doc.setTextColor(90);

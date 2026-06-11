@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Old-software data migration → Billing ERP production database.
+ * Old-software data migration → ZEHEN production database.
  *
  * Usage:
  *   node scripts/import-old-data.js --dry-run   (validate only, no DB writes)
