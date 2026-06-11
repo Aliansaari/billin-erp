@@ -9,7 +9,7 @@
  * Activation is intentionally OPEN (no auth) because at activation
  * time there's no user session yet — the app is locked at the
  * activation screen. The cryptographic signature check on the file
- * is the only auth we need; only License Studio (the vendor's
+ * is the only auth we need; only ZEHEN License Studio (the vendor's
  * machine) can produce a file that verifies.
  */
 const express = require('express');

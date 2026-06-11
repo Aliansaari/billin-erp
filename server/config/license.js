@@ -2,19 +2,19 @@
  * License verification configuration for ZEHEN.
  * ─────────────────────────────────────────────────────
  *
- * The Ed25519 PUBLIC key below is the one that comes out of License
- * Studio (your in-house license generator). License Studio holds the
+ * The Ed25519 PUBLIC key below is the one that comes out of ZEHEN
+ * License Studio (your in-house license generator). It holds the
  * matching PRIVATE key — only that machine can sign new licenses.
  *
  * To rotate / replace this key:
- *   1. In License Studio, go to Settings → Security → Public key
+ *   1. In ZEHEN License Studio, go to Settings → Security → Public key
  *   2. Click "Copy public key"
  *   3. Paste the value into LICENSE_PUBLIC_KEY below (single line, base64)
  *   4. Restart the server
  *
  * After rotating: every existing customer's old license will fail
  * verification. They'll see the "License invalid" screen and need a
- * fresh .dat issued from License Studio.
+ * fresh .dat issued from ZEHEN License Studio.
  *
  * Allow override via env so a developer / staging build can use a
  * test keypair without editing source.

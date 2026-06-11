@@ -27,9 +27,9 @@
  *      - assert each expected DB has a .dump file
  *      - assert the marker is cleared
  *
- *   D. License Studio activation report → mark-activated round-trip
+ *   D. ZEHEN License Studio activation report → mark-activated round-trip
  *      - generate a fake activation report
- *      - parse it through the same logic License Studio's IPC handler
+ *      - parse it through the same logic ZEHEN License Studio's IPC handler
  *        uses (we re-implement here since we can't touch the encrypted
  *        DB without the user's password)
  *
@@ -107,7 +107,7 @@ async function killServer(child) {
 
 (async () => {
   // Generate a test keypair so we can sign real licenses without
-  // depending on the user's License Studio.
+  // depending on the user's ZEHEN License Studio.
   const kp = nacl.sign.keyPair();
   const PUB  = b64.encode(kp.publicKey);
   const PRIV = b64.encode(kp.secretKey);
@@ -234,7 +234,7 @@ async function killServer(child) {
        'files=' + JSON.stringify(files));
   }
 
-  // ── D. License Studio mark-activated parser (re-implementation) ────
+  // ── D. ZEHEN License Studio mark-activated parser (re-implementation) ────
   section('D. Activation report parser');
   // Build the same single-line report the ZEHEN UI shows.
   const report = [

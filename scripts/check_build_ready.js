@@ -38,7 +38,7 @@ if (src.includes('REPLACE_ME_WITH_LICENSE_STUDIO_PUBLIC_KEY')) {
   console.error('');
   console.error('  ✗ Build aborted — public key not configured.');
   console.error('');
-  console.error('  Open License Studio → Settings → Security → Copy public key,');
+  console.error('  Open ZEHEN License Studio → Settings → Security → Copy public key,');
   console.error('  then paste it into:');
   console.error('');
   console.error('      ' + path.relative(ROOT, licConfig));

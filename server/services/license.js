@@ -149,7 +149,7 @@ function readLicenseFromDisk() {
 
 /**
  * Verify the Ed25519 signature on the envelope's payload string.
- * The payload was signed verbatim — see License Studio's
+ * The payload was signed verbatim — see ZEHEN License Studio's
  * crypto.buildLicensePayload (canonical sorted JSON).
  */
 function verifySignature(envelope) {
@@ -277,7 +277,7 @@ function activateFromEnvelope(envelopeText) {
   try {
     envelope = parseLicenseEnvelope(envelopeText);
     if (envelope.kind !== 'license-studio.license' || envelope.v !== 1) {
-      return { ok: false, code: 'invalid_format', message: 'Not a License Studio license file' };
+      return { ok: false, code: 'invalid_format', message: 'Not a ZEHEN License Studio license file' };
     }
     payload = JSON.parse(envelope.payload);
   } catch (e) {

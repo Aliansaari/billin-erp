@@ -17,7 +17,7 @@ import api from '../../api';
  *   • Customer ID + name (from signed payload)
  *   • License type, issued + expires dates, days-left countdown
  *   • Machine fingerprint (for vendor support)
- *   • Activation report — copyable block for License Studio
+ *   • Activation report — copyable block for ZEHEN License Studio
  *
  * Replace flow uses the same /api/license/activate endpoint as first
  * activation; it's idempotent.
@@ -229,7 +229,7 @@ function ActivationReportCard({ info, copied, setCopied }) {
       <div className="lic-set-card-head">
         <div>
           <h3>Activation report</h3>
-          <span className="lic-set-card-sub">For vendor — paste into License Studio</span>
+          <span className="lic-set-card-sub">For vendor — paste into ZEHEN License Studio</span>
         </div>
         <button
           type="button"

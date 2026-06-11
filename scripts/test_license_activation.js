@@ -2,7 +2,7 @@
  * End-to-end license activation test for ZEHEN.
  *
  * Generates a fresh Ed25519 keypair, builds a signed license envelope
- * (matching License Studio's exact canonical-JSON format), then drives
+ * (matching ZEHEN License Studio's exact canonical-JSON format), then drives
  * the running server through the full activation flow:
  *
  *   1. Pre-activation: every gated endpoint returns 403 license_block
@@ -42,7 +42,7 @@ const b64 = {
   decode: (s)  => new Uint8Array(Buffer.from(s, 'base64')),
 };
 
-// Stable JSON — must match License Studio's crypto.stableJson exactly
+// Stable JSON — must match ZEHEN License Studio's crypto.stableJson exactly
 function stableJson(obj) {
   if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
   if (Array.isArray(obj)) return '[' + obj.map(stableJson).join(',') + ']';
