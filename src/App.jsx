@@ -535,7 +535,7 @@ export default function App() {
       if (exitPromptOpen.current) return;
       exitPromptOpen.current = true;
       const ok = await confirmDialog({
-        title: 'Exit Billing ERP?',
+        title: 'Exit ZEHEN?',
         message: 'You will be signed out and the app will close.',
         confirmText: 'Exit & sign out',
         cancelText:  'Stay',

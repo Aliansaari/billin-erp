@@ -112,7 +112,7 @@ export default function ServerSetup({ onDone, allowSkip = false }) {
             Server Setup
           </Title>
           <Text type="secondary" style={{ fontSize: 14 }}>
-            Tell Billing ERP where to find its database. You only do this once per computer.
+            Tell ZEHEN where to find its database. You only do this once per computer.
           </Text>
         </div>
 
@@ -266,7 +266,7 @@ function ConfigureStep({ mode, input, setInput, candidate, onBack, onNext }) {
         <Alert
           type="info"
           showIcon
-          message="Make sure PostgreSQL and the Billing ERP server are running"
+          message="Make sure PostgreSQL and the ZEHEN server are running"
           description={
             <span>
               Run <code>npm run server</code> on this machine, or use the bundled Electron build.
@@ -289,7 +289,7 @@ function ConfigureStep({ mode, input, setInput, candidate, onBack, onNext }) {
   return (
     <div>
       <Paragraph>
-        Type the address of the computer that runs the Billing ERP server. Ask the office admin —
+        Type the address of the computer that runs the ZEHEN server. Ask the office admin —
         they can read it off their copy of this app under Settings → Network. It usually looks like
         {' '}<code>http://192.168.1.50:3001</code>.
       </Paragraph>
@@ -312,7 +312,7 @@ function ConfigureStep({ mode, input, setInput, candidate, onBack, onNext }) {
         type="warning"
         showIcon
         message="Both computers must be on the same Wi-Fi or LAN"
-        description="If you can browse to the host's URL in your normal web browser and see a Billing ERP page, this app will connect too."
+        description="If you can browse to the host's URL in your normal web browser and see a ZEHEN page, this app will connect too."
         style={{ marginTop: 16 }}
       />
 

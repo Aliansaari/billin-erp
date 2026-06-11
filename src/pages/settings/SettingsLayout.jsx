@@ -91,7 +91,7 @@ const SETTINGS_GROUPS = [
     // stays visible regardless.
     label: 'Data & Integrations',
     items: [
-      // LAN access — share this PC's Billing ERP with other PCs / phones
+      // LAN access — share this PC's ZEHEN with other PCs / phones
       // on the same Wi-Fi. Admin-level (super admin / company manager).
       { path: 'network',       icon: <WifiOutlined />,        label: 'LAN & Network',     perm: 'settings.manage_company' },
       // Send invoices / statements to customers on WhatsApp (Web link or official Cloud-API).

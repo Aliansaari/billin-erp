@@ -9,7 +9,7 @@ import { refreshSystemSettings } from '../../hooks/useSystemSettings';
 import './LanSettings.css';
 
 /*
- * LAN & Network — share this Billing ERP with other PCs and phones on the
+ * LAN & Network — share this ZEHEN with other PCs and phones on the
  * same Wi-Fi.
  *
  * Two access paths, both pointing at the SAME http://<ip>:<port> URL:
@@ -135,7 +135,7 @@ export default function LanSettings() {
       <header className="lan-head">
         <div>
           <h1 className="lan-title">LAN &amp; Network</h1>
-          <p className="lan-sub">Let other PCs and phones on the same Wi-Fi use this Billing ERP — no extra server needed.</p>
+          <p className="lan-sub">Let other PCs and phones on the same Wi-Fi use this ZEHEN — no extra server needed.</p>
         </div>
         <Button icon={<ReloadOutlined />} onClick={() => { loadSettings(); loadInfo(); }} loading={loading}>
           Refresh
@@ -226,7 +226,7 @@ export default function LanSettings() {
                     <span className="lan-method-ttl">From the installed app</span>
                   </div>
                   <ol className="lan-steps">
-                    <li>Install Billing ERP on the other PC.</li>
+                    <li>Install ZEHEN on the other PC.</li>
                     <li>On first launch, open <b>Server Setup</b>.</li>
                     <li>Paste this address and connect:</li>
                   </ol>

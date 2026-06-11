@@ -4,6 +4,7 @@ import { UserOutlined, LockOutlined, BankOutlined } from '@ant-design/icons';
 import { authAPI, companyAPI } from '../api';
 import useAuthStore from '../store/authStore';
 import useCompanyStore from '../store/companyStore';
+import { ZehenMark } from '../components/ZehenLogo';
 
 /**
  * Login — editorial Modern with multi-company picker.
@@ -191,6 +192,11 @@ export default function Login() {
 
       <div className="erp-login-stage">
         <div className="erp-login-card">
+          <div className="erp-login-brand">
+            <ZehenMark size={54} className="erp-login-brand-mark" />
+            <div className="erp-login-brand-name">ZEHEN</div>
+            <div className="erp-login-brand-tag">Smart billing &amp; business management software</div>
+          </div>
           <h2 className="erp-login-h">Welcome back.</h2>
           <div className="erp-login-sub">Sign in to continue to your firm.</div>
 
@@ -389,6 +395,21 @@ const loginCss = `
 }
 @keyframes erpLoginCardIn {
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.erp-login-brand {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; margin-bottom: 28px;
+}
+.erp-login-brand-mark { display: block; filter: drop-shadow(0 6px 16px rgba(177,71,47,0.35)); }
+.erp-login-brand-name {
+  font-family: 'Source Sans 3', sans-serif;
+  font-size: 28px; font-weight: 700; letter-spacing: 4px;
+  color: #F5EEE2; margin-top: 12px;
+}
+.erp-login-brand-tag {
+  font-family: 'Source Sans 3', sans-serif;
+  font-size: 12px; letter-spacing: 0.4px; color: #8F8372;
+  margin-top: 5px;
 }
 .erp-login-h {
   font-family: 'Source Sans 3', sans-serif;

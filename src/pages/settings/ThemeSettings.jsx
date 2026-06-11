@@ -87,7 +87,7 @@ export default function ThemeSettings() {
           <div>
             <h1 className="theme-page-title">Theme</h1>
             <p className="theme-page-sub">
-              Customize how Billing ERP looks. Changes apply instantly — no restart needed.
+              Customize how ZEHEN looks. Changes apply instantly — no restart needed.
             </p>
           </div>
           <span className="theme-page-current" title="Active theme mode">
@@ -321,7 +321,7 @@ function PreviewFrame({ layout }) {
       <div className="theme-preview-frame">
         <div className="theme-preview-topnav">
           <span className="theme-preview-topnav-brand">B</span>
-          <span className="theme-preview-topnav-title">Billing ERP</span>
+          <span className="theme-preview-topnav-title">ZEHEN</span>
           <span className="theme-preview-topnav-pill">Home</span>
           <span className="theme-preview-topnav-pill active">Sales</span>
           <span className="theme-preview-topnav-pill">Purchase</span>

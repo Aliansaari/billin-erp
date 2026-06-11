@@ -111,7 +111,7 @@ export default function LicenseActivation() {
             </div>
             <div>
               <div className="lic-act-wordmark">manas</div>
-              <div className="lic-act-tagline">Billing ERP</div>
+              <div className="lic-act-tagline">ZEHEN</div>
             </div>
           </header>
 

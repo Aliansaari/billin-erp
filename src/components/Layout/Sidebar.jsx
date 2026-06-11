@@ -9,10 +9,10 @@ import { resolveMode } from '../../theme/tokens';
 import { useMenuItems, getOpenKeys, filterMenuByPermissions, getRouteIcon } from './menuConfig';
 import useFavoritesStore from '../../store/favoritesStore';
 import useFilteredAltMenus from '../../hooks/useFilteredAltMenus';
+import { ZehenMark } from '../ZehenLogo';
 import {
   SettingOutlined,
   UserOutlined,
-  ThunderboltOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   LogoutOutlined,
@@ -316,11 +316,11 @@ export default function Sidebar({ collapsed, setCollapsed }) {
         {/* Logo + collapse toggle */}
         <div className={`erp-sidebar-logo${collapsed ? ' collapsed' : ''}`}>
           {collapsed ? (
-            <ThunderboltOutlined className="erp-sidebar-logo-icon" />
+            <ZehenMark size={30} className="erp-sidebar-logo-icon" />
           ) : (
             <div className="erp-sidebar-logo-full">
-              <ThunderboltOutlined className="erp-sidebar-logo-icon" />
-              <span className="erp-sidebar-logo-text">Billing ERP</span>
+              <ZehenMark size={26} className="erp-sidebar-logo-icon" />
+              <span className="erp-sidebar-logo-text">ZEHEN</span>
             </div>
           )}
           <button

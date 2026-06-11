@@ -85,7 +85,7 @@ export default function PostgresSetup({ onDone }) {
             <DatabaseOutlined />
           </div>
           <div>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Set up Billing ERP</h2>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Set up ZEHEN</h2>
             <div style={{ color: '#64748b', fontSize: 13 }}>One-time database configuration. Takes about a minute.</div>
           </div>
         </div>
@@ -186,7 +186,7 @@ function DetectStep({ busy, detection, onRetry, onContinue }) {
         message="Postgres not found on this machine"
         description={(
           <div>
-            <div>Billing ERP needs PostgreSQL 14 or newer. Install it from the
+            <div>ZEHEN needs PostgreSQL 14 or newer. Install it from the
               <a href="https://www.postgresql.org/download/" target="_blank" rel="noreferrer" style={{ marginLeft: 4 }}>
                 official site
               </a>, then click "Re-check".
@@ -213,7 +213,7 @@ function ConnectStep({ conn, setConn, busy, testResult, onTest, onBack, onContin
       <p style={{ color: '#475569', fontSize: 13, margin: '0 0 12px' }}>
         Where is Postgres running? Enter the superuser credentials. We'll
         connect to the cluster's <code>postgres</code> admin database to
-        verify, then create the Billing ERP master database in the next step.
+        verify, then create the ZEHEN master database in the next step.
       </p>
       <Form layout="vertical" size="middle">
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>

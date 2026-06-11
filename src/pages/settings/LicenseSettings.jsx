@@ -367,7 +367,7 @@ function statusHelp(s) {
     case 'no_license':
       return 'Click "Replace license" above to activate this installation.';
     case 'expired':
-      return `Renew your license to continue using Billing ERP. Contact your vendor with customer ID: ${s.customer_id || '—'}.`;
+      return `Renew your license to continue using ZEHEN. Contact your vendor with customer ID: ${s.customer_id || '—'}.`;
     case 'machine_mismatch':
       return 'This license was issued for another machine. Ask your vendor for a fresh license bound to this PC.';
     case 'clock_tampered':
