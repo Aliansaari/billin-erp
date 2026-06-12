@@ -163,6 +163,13 @@ ipcMain.handle('client:set-server-url', (_e, raw) => {
 ipcMain.on('ui-settings:load-sync', (e) => { e.returnValue = readUiSettingsFile(); });
 ipcMain.handle('ui-settings:save', (_e, obj) => { writeUiSettingsFile(obj); return true; });
 
+// Full app relaunch — used by the "Retry" button on the database-port
+// conflict screen. The DB port is probed once at startup in the main
+// process, so a renderer reload can't re-attempt it; only a fresh launch
+// re-runs startEmbeddedPostgres. app.exit(0) bypasses the close-confirm
+// (there's no session to protect on the error screen).
+ipcMain.on('zehen:restart-app', () => { try { app.relaunch(); } catch {} app.exit(0); });
+
 // ── File logging for packaged builds ────────────────────────────────
 //
 // Packaged Electron apps don't write to a console anywhere by default,
@@ -867,7 +874,7 @@ app.whenReady().then(async () => {
     <div style="width:64px;height:64px;margin:0 auto 20px;border-radius:18px;background:linear-gradient(135deg,#B1472F,#8a3522);display:flex;align-items:center;justify-content:center;font-size:30px">⚠️</div>
     <h1 style="margin:0 0 10px;font-weight:700;letter-spacing:-.5px">Database port is in use</h1>
     <p style="margin:0 0 22px;color:#cbd5e1;font-size:15px;line-height:1.6">${msg}</p>
-    <button onclick="location.reload()" style="background:#B1472F;color:#fff;border:none;padding:11px 26px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Retry</button>
+    <button onclick="(window.electronAPI&&window.electronAPI.restartApp)?window.electronAPI.restartApp():location.reload()" style="background:#B1472F;color:#fff;border:none;padding:11px 26px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Retry</button>
     <p style="margin:20px 0 0;color:#64748b;font-size:12px">After closing the other program, click Retry — or restart this PC and open ZEHEN again.</p>
   </div>
 </body>`;

@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('app:confirm-exit', handler);
   },
   confirmExit: () => ipcRenderer.send('app:exit-confirmed'),
+
+  // Full relaunch — used by the Retry button on the DB-port-conflict
+  // screen, where a plain page reload can't re-attempt the database.
+  restartApp: () => ipcRenderer.send('zehen:restart-app'),
 });
 
 // ── UI-settings persistence mirror ──────────────────────────────────
