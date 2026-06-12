@@ -842,13 +842,38 @@ app.whenReady().then(async () => {
   // execFileSync + pg_ctl -w, so the event loop stays free the whole
   // time postgres is starting up (which can take 30-75 s on machines
   // where Windows Defender scans the binaries on first exec).
+  let pgResult = null;
   try {
     const pgStart = Date.now();
-    const r = await startEmbeddedPostgres({ clientMode: CLIENT_MODE });
+    pgResult = await startEmbeddedPostgres({ clientMode: CLIENT_MODE });
     console.log(`[perf] postgres ready +${Date.now() - bootStart}ms (pg took ${Date.now() - pgStart}ms)`);
-    console.log('[main] embedded postgres:', JSON.stringify(r));
+    console.log('[main] embedded postgres:', JSON.stringify(pgResult));
   } catch (e) {
     console.error('[main] startEmbeddedPostgres threw (continuing):', e);
+  }
+
+  // ── 2b. Port conflict: a DIFFERENT database program holds our port ───
+  // Booting the server now would just fail to authenticate and leave the
+  // user staring at a blank screen after a 30 s timeout. Show a clear,
+  // actionable message instead (this is the classic "old Billing ERP still
+  // running" case after a rebrand migration).
+  if (pgResult && pgResult.reason === 'port-conflict' && app.isPackaged && !CLIENT_MODE) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const msg = (pgResult.message || `Another program is using the database port on this PC.`)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const html = `<!doctype html><meta charset="utf-8"><title>ZEHEN — database in use</title>
+<body style="margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px">
+  <div style="max-width:560px">
+    <div style="width:64px;height:64px;margin:0 auto 20px;border-radius:18px;background:linear-gradient(135deg,#B1472F,#8a3522);display:flex;align-items:center;justify-content:center;font-size:30px">⚠️</div>
+    <h1 style="margin:0 0 10px;font-weight:700;letter-spacing:-.5px">Database port is in use</h1>
+    <p style="margin:0 0 22px;color:#cbd5e1;font-size:15px;line-height:1.6">${msg}</p>
+    <button onclick="location.reload()" style="background:#B1472F;color:#fff;border:none;padding:11px 26px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Retry</button>
+    <p style="margin:20px 0 0;color:#64748b;font-size:12px">After closing the other program, click Retry — or restart this PC and open ZEHEN again.</p>
+  </div>
+</body>`;
+      await mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    }
+    return; // do NOT boot the server into a guaranteed failure
   }
 
   // ── 3. Boot the API server ───────────────────────────────────────────

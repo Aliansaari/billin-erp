@@ -71,6 +71,26 @@ function waitForPort(port, totalMs = 90000) {
   });
 }
 
+// Verify the Postgres currently listening on `port` is OUR cluster, by
+// authenticating with our saved password. initdb gives every cluster a
+// unique random password, so a clean auth + query proves the running
+// server is the one we initialised. Any failure — wrong password (a
+// FOREIGN Postgres squatting the port, classically an old "Billing ERP"
+// embedded PG that grabbed it first) or unreachable — returns false.
+function clusterIsOurs(port, password) {
+  return new Promise((resolve) => {
+    try {
+      const env = { ...pgEnv(), PGPASSWORD: password, PGCONNECT_TIMEOUT: '5' };
+      execFile(
+        path.join(binDir, 'psql.exe'),
+        ['-h', '127.0.0.1', '-p', String(port), '-U', 'postgres', '-d', 'postgres', '-w', '-tAc', 'SELECT 1'],
+        { timeout: 9000, env, windowsHide: true },
+        (err, stdout) => resolve(!err && String(stdout).trim() === '1'),
+      );
+    } catch { resolve(false); }
+  });
+}
+
 // Is a TCP port already accepting connections on 127.0.0.1?
 function portBusy(port, timeoutMs = 600) {
   return new Promise((resolve) => {
@@ -239,13 +259,28 @@ async function startEmbeddedPostgres({ clientMode } = {}) {
     // in under a second. This avoids Windows Defender re-scanning
     // pg_ctl.exe + postgres.exe on every launch, which costs 30-75 s.
     if (await portBusy(port, 800)) {
-      log(`port ${port} already accepting connections — skipping pg_ctl`);
-      process.env.DB_HOST = '127.0.0.1';
-      process.env.DB_PORT = String(port);
-      process.env.DB_USER = 'postgres';
-      process.env.DB_PASSWORD = password;
-      try { writeAppConfig(port, password); } catch (e) { warn('writeAppConfig:', e.message); }
-      return { used: true, port };
+      // Something is already on our port. Confirm it's OUR cluster before
+      // trusting it — otherwise we'd hand the server a Postgres it can't
+      // authenticate against, and the app dies on an opaque
+      // "password authentication failed" + blank screen (exactly the
+      // failure an old "Billing ERP" install causes by grabbing 5433 with
+      // a different password).
+      if (await clusterIsOurs(port, password)) {
+        log(`port ${port} already serving our cluster — skipping pg_ctl`);
+        process.env.DB_HOST = '127.0.0.1';
+        process.env.DB_PORT = String(port);
+        process.env.DB_USER = 'postgres';
+        process.env.DB_PASSWORD = password;
+        try { writeAppConfig(port, password); } catch (e) { warn('writeAppConfig:', e.message); }
+        return { used: true, port };
+      }
+      warn(`port ${port} is held by a DIFFERENT Postgres (auth with our key failed) — refusing to reuse it`);
+      return {
+        used: false,
+        reason: 'port-conflict',
+        port,
+        message: `Another program is already using the database port ${port} on this PC — usually an old "Billing ERP" install still running in the background. Close or uninstall it (Settings → Apps → Billing ERP → Uninstall), then reopen ZEHEN.`,
+      };
     }
 
     // Start postgres without -w so pg_ctl exits immediately after forking

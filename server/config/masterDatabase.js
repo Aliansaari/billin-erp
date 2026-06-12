@@ -1,4 +1,7 @@
-require('dotenv').config();
+// Fixed-path .env load (see config/database.js) — never read ./.env from
+// the process CWD, so launching the packaged app from a dir with a stray
+// dev .env can't override the real DB config.
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 const { Sequelize } = require('sequelize');
 
 /* ── Master database ───────────────────────────────────────────────────

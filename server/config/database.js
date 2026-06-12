@@ -1,4 +1,11 @@
-require('dotenv').config();
+// Load .env from a FIXED path (repo root in dev), never the process CWD.
+// Plain dotenv.config() reads ./.env relative to wherever the app was
+// launched from — so launching the packaged app from a folder that happens
+// to contain a dev .env would silently override the real DB config (e.g.
+// DB_NAME=billing_erp_dev). In the packaged build this path resolves inside
+// the asar (no .env there), so production simply uses the env vars the
+// Electron main process injects from ~/.zehen/config.json.
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 const { Sequelize } = require('sequelize');
 
 /* Connection pool sizing for LAN deployments
