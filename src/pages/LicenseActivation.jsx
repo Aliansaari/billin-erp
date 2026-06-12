@@ -106,12 +106,12 @@ export default function LicenseActivation() {
           <header className="lic-act-logo">
             <div className="lic-act-logo-mark">
               <svg viewBox="0 0 80 80" width="32" height="32" aria-hidden="true">
-                <path d="M 19 60 L 19 22 L 40 48 L 61 22 L 61 60" stroke="#fff" strokeWidth="6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M 24 25 L 56 25 L 24 55 L 56 55" stroke="#fff" strokeWidth="6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
             <div>
-              <div className="lic-act-wordmark">manas</div>
-              <div className="lic-act-tagline">ZEHEN</div>
+              <div className="lic-act-wordmark">ZEHEN</div>
+              <div className="lic-act-tagline">Smart billing</div>
             </div>
           </header>
 
@@ -121,7 +121,7 @@ export default function LicenseActivation() {
               Awaiting activation
             </div>
             <h1>
-              Welcome to <span className="lic-act-hero-accent">Manas</span>.
+              Welcome to <span className="lic-act-hero-accent">ZEHEN</span>.
             </h1>
             <p>One quick step before you can start billing — activate this installation with the license your vendor sent you.</p>
           </div>
@@ -300,7 +300,7 @@ export default function LicenseActivation() {
           </div>
 
           <footer className="lic-act-bottom">
-            <span>© {new Date().getFullYear()} Manas Software</span>
+            <span>© {new Date().getFullYear()} ZEHEN</span>
             <span className="lic-act-bottom-sep" />
             <span>Need a license? <a href="#" onClick={(e) => e.preventDefault()}>Contact your vendor</a></span>
           </footer>
@@ -343,7 +343,7 @@ const LIC_STYLES = `
   position: relative;
   overflow: hidden;
   color: #fff;
-  background: linear-gradient(165deg, #0B1120 0%, #0F172A 45%, #1e1b4b 100%);
+  background: linear-gradient(165deg, #0B1120 0%, #0F172A 45%, #3a1a12 100%);
   display: flex;
   align-items: center;
 }
@@ -368,12 +368,12 @@ const LIC_STYLES = `
 .lic-act-orb-1 {
   width: 480px; height: 480px;
   top: -120px; left: -120px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.35), transparent 70%);
+  background: radial-gradient(circle, rgba(177, 71, 47, 0.35), transparent 70%);
 }
 .lic-act-orb-2 {
   width: 420px; height: 420px;
   bottom: -100px; right: -100px;
-  background: radial-gradient(circle, rgba(168, 85, 247, 0.25), transparent 70%);
+  background: radial-gradient(circle, rgba(214, 119, 87, 0.25), transparent 70%);
   animation-delay: -7s;
 }
 @keyframes lic-orb-float {
@@ -442,7 +442,7 @@ const LIC_STYLES = `
   color: #fff;
 }
 .lic-act-hero-accent {
-  background: linear-gradient(135deg, #a5b4fc 0%, #c4b5fd 50%, #ddd6fe 100%);
+  background: linear-gradient(135deg, #e3a892 0%, #d98768 50%, #f0c9b8 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -470,9 +470,9 @@ const LIC_STYLES = `
 }
 .lic-act-feat-icon .anticon { font-size: 26px; }
 .lic-act-feat-icon-indigo {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(99, 102, 241, 0.06));
-  border: 1px solid rgba(165, 180, 252, 0.22);
-  color: #a5b4fc;
+  background: linear-gradient(135deg, rgba(177, 71, 47, 0.18), rgba(177, 71, 47, 0.06));
+  border: 1px solid rgba(227, 168, 146, 0.25);
+  color: #e3a892;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 .lic-act-feat-icon-amber {
@@ -511,8 +511,8 @@ const LIC_STYLES = `
   display: flex; align-items: center; justify-content: center;
   padding: 48px 40px;
   background:
-    radial-gradient(900px 600px at 100% 0%, rgba(99, 102, 241, 0.05), transparent 50%),
-    radial-gradient(700px 500px at 0% 100%, rgba(168, 85, 247, 0.04), transparent 55%),
+    radial-gradient(900px 600px at 100% 0%, rgba(177, 71, 47, 0.05), transparent 50%),
+    radial-gradient(700px 500px at 0% 100%, rgba(214, 119, 87, 0.04), transparent 55%),
     linear-gradient(180deg, #fbfbfd 0%, #f6f7fb 100%);
   position: relative;
 }
@@ -619,35 +619,35 @@ const LIC_STYLES = `
 .lic-act-dropzone::before {
   content: '';
   position: absolute; inset: 0;
-  background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.06), transparent 60%);
+  background: radial-gradient(circle at 50% 0%, rgba(177, 71, 47, 0.06), transparent 60%);
   opacity: 0; transition: opacity 0.25s ease;
   pointer-events: none;
 }
 .lic-act-dropzone:hover:not(:disabled),
 .lic-act-dropzone.is-drag {
-  border-color: #6366f1;
+  border-color: #B1472F;
   background: linear-gradient(180deg, #fff 0%, #fafbff 100%);
   transform: translateY(-1px);
-  box-shadow: 0 12px 30px -12px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 12px 30px -12px rgba(177, 71, 47, 0.25);
 }
 .lic-act-dropzone:hover:not(:disabled)::before,
 .lic-act-dropzone.is-drag::before { opacity: 1; }
 .lic-act-dropzone.is-drag { border-style: solid; }
 .lic-act-dropzone:focus-visible {
   outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+  border-color: #B1472F;
+  box-shadow: 0 0 0 4px rgba(177, 71, 47, 0.15);
 }
 .lic-act-dropzone:disabled { opacity: 0.7; cursor: wait; }
 .lic-act-dz-icon-wrap {
   width: 56px; height: 56px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: 14px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #B1472F 0%, #d97757 100%);
   color: #fff;
   font-size: 26px;
   margin-bottom: 16px;
-  box-shadow: 0 10px 24px -8px rgba(99, 102, 241, 0.45);
+  box-shadow: 0 10px 24px -8px rgba(177, 71, 47, 0.45);
   transition: transform 0.2s ease;
 }
 .lic-act-dropzone:hover:not(:disabled) .lic-act-dz-icon-wrap,
@@ -662,7 +662,7 @@ const LIC_STYLES = `
   font-size: 13px; color: #64748b;
 }
 .lic-act-dz-link {
-  color: #6366f1; font-weight: 500; text-decoration: underline;
+  color: #B1472F; font-weight: 500; text-decoration: underline;
   text-underline-offset: 2px;
 }
 .lic-act-dz-hint {
@@ -697,26 +697,26 @@ const LIC_STYLES = `
 }
 .lic-act-textarea.ant-input:focus,
 .lic-act-textarea.ant-input-focused {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12) !important;
+  border-color: #B1472F !important;
+  box-shadow: 0 0 0 3px rgba(177, 71, 47, 0.12) !important;
   background: #fff !important;
 }
 .lic-act-submit.ant-btn-primary {
   margin-top: 14px !important;
   height: 48px !important;
-  background: linear-gradient(135deg, #0F172A 0%, #1e293b 100%) !important;
-  border-color: #0F172A !important;
+  background: linear-gradient(135deg, #B1472F 0%, #c25638 100%) !important;
+  border-color: #B1472F !important;
   border-radius: 10px !important;
   font-weight: 600 !important;
   font-size: 14px !important;
   letter-spacing: 0.01em !important;
-  box-shadow: 0 8px 22px -8px rgba(15, 23, 42, 0.5) !important;
+  box-shadow: 0 8px 22px -8px rgba(177, 71, 47, 0.45) !important;
   transition: all 0.18s ease !important;
 }
 .lic-act-submit.ant-btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
+  background: linear-gradient(135deg, #c25638 0%, #9c3d28 100%) !important;
   transform: translateY(-1px);
-  box-shadow: 0 12px 28px -8px rgba(15, 23, 42, 0.55) !important;
+  box-shadow: 0 12px 28px -8px rgba(177, 71, 47, 0.5) !important;
 }
 .lic-act-submit.ant-btn-primary:disabled {
   background: #f1f5f9 !important;
@@ -796,9 +796,9 @@ const LIC_STYLES = `
   white-space: nowrap;
 }
 .lic-act-fp-copy:hover:not(:disabled) {
-  border-color: #6366f1;
-  color: #6366f1;
-  background: rgba(99, 102, 241, 0.04);
+  border-color: #B1472F;
+  color: #B1472F;
+  background: rgba(177, 71, 47, 0.04);
 }
 .lic-act-fp-copy.is-copied {
   border-color: #10b981;
