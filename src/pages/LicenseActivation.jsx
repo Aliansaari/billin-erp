@@ -7,6 +7,7 @@ import {
   LockOutlined, CloudUploadOutlined, KeyOutlined,
 } from '@ant-design/icons';
 import api from '../api';
+import { ZehenMark } from '../components/ZehenLogo';
 
 /**
  * License Activation — first-impression screen.
@@ -104,11 +105,7 @@ export default function LicenseActivation() {
 
         <div className="lic-act-brand-inner">
           <header className="lic-act-logo">
-            <div className="lic-act-logo-mark">
-              <svg viewBox="0 0 80 80" width="32" height="32" aria-hidden="true">
-                <path d="M 24 25 L 56 25 L 24 55 L 56 55" stroke="#fff" strokeWidth="6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
+            <ZehenMark size={46} className="lic-act-logo-mark" />
             <div>
               <div className="lic-act-wordmark">ZEHEN</div>
               <div className="lic-act-tagline">Smart billing</div>
@@ -398,12 +395,8 @@ const LIC_STYLES = `
   margin-bottom: 80px;
 }
 .lic-act-logo-mark {
-  width: 44px; height: 44px;
   border-radius: 12px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  display: inline-flex; align-items: center; justify-content: center;
-  backdrop-filter: blur(8px);
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.45));
 }
 .lic-act-wordmark {
   font-size: 24px; font-weight: 800; letter-spacing: -1.2px;
