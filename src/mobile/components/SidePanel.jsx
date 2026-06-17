@@ -365,7 +365,7 @@ export default function SidePanel({ open, onClose }) {
             </button>
             <button className="sp-nav-row" onClick={() => { animateClose(); }}>
               <div className="sp-nav-icon">{I.info}</div>
-              <span className="sp-nav-label">About billin·erp</span>
+              <span className="sp-nav-label">About ZEHEN</span>
               <div className="sp-nav-chev">{I.chev}</div>
             </button>
           </div>
@@ -378,7 +378,7 @@ export default function SidePanel({ open, onClose }) {
               <span className="sp-signout-hint">this device</span>
             </button>
             <div className="sp-footer-line">
-              <span className="sp-version">v0.1.0 <span className="sp-acc">·</span> billin·erp</span>
+              <span className="sp-version">v0.1.0 <span className="sp-acc">·</span> ZEHEN</span>
               <span className="sp-sync-status">
                 <span className="sp-sync-dot" />
                 synced
