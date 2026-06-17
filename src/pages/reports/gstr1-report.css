@@ -362,7 +362,10 @@
 .g1-tbl thead th:nth-child(2),
 .g1-tbl thead th:nth-child(3) { text-align: left; }
 .g1-tbl tbody td {
-  padding: 12px 14px;
+  /* Matched to the sales-list / report row height (~8px vertical) for
+     cross-report consistency. Was 12px. Also covers GSTR-3B (reuses these
+     styles). */
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
   text-align: right;

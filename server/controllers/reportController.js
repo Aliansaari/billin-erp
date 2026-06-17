@@ -2,7 +2,7 @@ const { Op, fn, col, literal } = require('sequelize');
 const sequelize = require('../config/database');
 const { SalesBill, SalesBillItem, PurchaseBill, PurchaseBillItem, Party, Product, Category, PaymentReceipt, StockLedger, SalesReturnBill, SalesReturnBillItem, PurchaseReturnBill, PurchaseReturnBillItem, SystemSettings, ProductGodownStock } = require('../models');
 const { sanitizePagination, escapeLike, respondWithError } = require('../utils/helpers');
-const { aggregateAging } = require('../utils/aging');
+const { aggregateAging, distributeOpenBalanceFifo, round2 } = require('../utils/aging');
 const { fetchBatchAggregate, computeDisplayCost, attachDisplayCost } = require('../utils/displayCost');
 const { scopeWhereByGodown, effectiveGodownIds } = require('../middleware/godownScope');
 
@@ -2575,7 +2575,7 @@ function _agingBounds(settings) {
 // paid yesterday showed as fully paid on a March 31 aging. The reconciliation
 // banner already filtered correctly, so the banner would flag drift but the
 // aging table itself was wrong. Now both legs use the same temporal cut.
-async function _loadAgingBills(partyType, asOf) {
+async function _loadAgingBills(partyType, asOf, openingDate) {
   const isCustomer = partyType === 'Customer';
   const Bill = isCustomer ? SalesBill : PurchaseBill;
   const billIdKey = isCustomer ? 'sales_bill_id' : 'purchase_bill_id';
@@ -2600,82 +2600,125 @@ async function _loadAgingBills(partyType, asOf) {
       where: { is_system_cash: { [Op.or]: [false, null] } },
       required: true,
       attributes: ['party_id', 'party_name', 'mobile_1', 'city', 'state',
-                   'credit_days', 'credit_limit'],
+                   'credit_days', 'credit_limit',
+                   'current_balance', 'opening_balance', 'opening_balance_type'],
     }],
     order: [['bill_date', 'ASC']],
   });
 
   if (rows.length === 0) return [];
 
-  // Allocation sums dated <= asOf, keyed by bill_id. We join through
-  // payments_receipts so we only count allocations whose underlying
-  // receipt was created on/before asOf AND is not cancelled. If asOf
-  // is null (no temporal cut), we still respect is_cancelled=false on
-  // the parent receipt.
-  const billIds = rows.map((r) => r[billIdKey]);
-  const allocSql = `
-    SELECT bpa.bill_id, COALESCE(SUM(bpa.allocated_amount), 0)::float AS alloc_sum
-      FROM bill_payment_allocations bpa
-      JOIN payments_receipts pr ON pr.transaction_id = bpa.transaction_id
-     WHERE bpa.bill_type = :bt
-       AND bpa.bill_id IN (:ids)
-       AND pr.is_cancelled = false
-       ${asOf ? 'AND pr.transaction_date <= :as_of' : ''}
-     GROUP BY bpa.bill_id
-  `;
-  const allocRows = await sequelize.query(allocSql, {
-    replacements: { bt: billType, ids: billIds, as_of: asOf },
-    type: sequelize.QueryTypes.SELECT,
-  });
-  const allocByBill = new Map(allocRows.map((a) => [a.bill_id, Number(a.alloc_sum) || 0]));
+  // ── Ledger-anchored aging ─────────────────────────────────────────────
+  // Each party's total MUST equal its true open balance (current_balance /
+  // Sundry Debtors-Creditors ledger), not the gross sum of unpaid bills.
+  // On this dataset many receipts are recorded on-account (never tagged to
+  // a bill) and opening balances aren't bills, so Σ(bill balance) does not
+  // equal the real receivable. We take current_balance as truth and lay it
+  // back over each party's charge timeline (opening, then bills oldest-
+  // first): credits pay the oldest charges, whatever remains is aged by its
+  // own date. Compute-only — no data is written.
+  //
+  // Opening balance is aged from the financial-year start (its carry-
+  // forward date). NOTE: current_balance is the balance as of *today*, so
+  // for a historical as_of the distribution is an approximation; the
+  // default (today) is exact.
+  const FALLBACK_OPENING_DATE = '2000-04-01';
+  const openDt = (openingDate && /^\d{4}-\d{2}-\d{2}$/.test(String(openingDate).slice(0, 10)))
+    ? String(openingDate).slice(0, 10) : FALLBACK_OPENING_DATE;
 
-  const mapped = rows.map((r) => {
-    const billId = r[billIdKey];
-    const total = Number(r.total_amount) || 0;
-    const paidAtBilling = Number(r.paid_amount) || 0;  // immutable at-billing snapshot
-    const ret  = Number(r.return_amount) || 0;
-    const allocAsOf = allocByBill.get(billId) || 0;
-    // Historical balance on `asOf`. paid_amount on the row may already
-    // include the at-billing auto-receipt; we DO NOT double-count because
-    // the auto-receipt's transaction_date == bill_date and its allocation
-    // IS in bill_payment_allocations only when written through allocateForReceipt
-    // (audit B2). The historical formula uses paid_amount (which is the
-    // at-billing snapshot — immutable per balanceHelper contract) PLUS
-    // allocAsOf (post-billing receipts up to asOf). Subtracting both from
-    // total gives the open balance on asOf.
-    //
-    // We subtract the auto-receipt's contribution from allocAsOf to avoid
-    // double-counting: the auto-receipt is always allocated 1:1 with
-    // paid_amount on bill_date. Its allocation row therefore equals
-    // paid_amount, and it's already in allocByBill.
-    //
-    // Net: historical_balance = total - return - max(paid_at_billing, allocByAutoReceipt) - alloc(manual_only)
-    // Simpler model: total - return - alloc(all). paid_amount is the at-billing
-    // portion captured by the auto-receipt's bill_payment_allocations row, so
-    // allocByBill already includes it. Don't subtract paid_amount separately.
-    const balanceAsOf = Math.max(0, total - ret - allocAsOf);
-    return {
-      bill_id: billId,
-      bill_number: r.bill_number,
-      bill_date: r.bill_date,                  // Sequelize DATEONLY → YYYY-MM-DD
-      due_date: r.due_date || null,
-      total_amount: total,
-      paid_amount: paidAtBilling,
-      balance_amount: +balanceAsOf.toFixed(2),
-      party: r[partyAssoc] ? {
-        party_id:     r[partyAssoc].party_id,
-        party_name:   r[partyAssoc].party_name,
-        mobile_1:     r[partyAssoc].mobile_1,
-        city:         r[partyAssoc].city,
-        state:        r[partyAssoc].state,
-        credit_days:  r[partyAssoc].credit_days,
-        credit_limit: Number(r[partyAssoc].credit_limit) || 0,
-      } : null,
+  // Bills grouped by party (only parties that have ≥ 1 bill on/before asOf).
+  const billsByParty = new Map();
+  for (const r of rows) {
+    const p = r[partyAssoc];
+    if (!p) continue;
+    if (!billsByParty.has(p.party_id)) billsByParty.set(p.party_id, []);
+    billsByParty.get(p.party_id).push(r);
+  }
+
+  // Master party list: EVERY party that owes (receivable) / is owed
+  // (payable) per its ledger balance — INCLUDING parties with only an
+  // opening balance or on-account debits and no bills, so the report's
+  // grand total reconciles to the Sundry Debtors/Creditors ledger rather
+  // than just the subset of parties that happen to have open bills.
+  const sign     = isCustomer ? 1 : -1;          // receivable +, payable −
+  const typeList = isCustomer ? ['Customer', 'Both'] : ['Supplier', 'Both'];
+  const openType = isCustomer ? 'Receivable' : 'Payable';
+  const partyRows = await sequelize.query(
+    `SELECT party_id, party_name, mobile_1, city, state, credit_days, credit_limit,
+            current_balance, opening_balance, opening_balance_type
+       FROM parties
+      WHERE (is_system_cash IS NULL OR is_system_cash = false)
+        AND party_type IN (:types)
+        AND ${isCustomer ? 'current_balance > 0.005' : 'current_balance < -0.005'}`,
+    { replacements: { types: typeList }, type: sequelize.QueryTypes.SELECT },
+  );
+
+  const out = [];
+  for (const party of partyRows) {
+    // Authoritative open balance (positive on this report's axis).
+    const openBalance = Math.max(0, round2(sign * (Number(party.current_balance) || 0)));
+    if (openBalance <= 0.005) continue;
+
+    // Charge timeline oldest-first: opening debit (if any), then each
+    // bill's net invoice value (total − return).
+    const charges = [];
+    const openingDebit = (String(party.opening_balance_type) === openType)
+      ? (Number(party.opening_balance) || 0) : 0;
+    // Opening sorts oldest ('0001-01-01') so on-account credits pay it down
+    // before any invoice (FIFO oldest-first); its display date is openDt.
+    if (openingDebit > 0.005) {
+      charges.push({ date: '0001-01-01', amount: openingDebit, meta: { __opening: true } });
+    }
+    for (const b of (billsByParty.get(party.party_id) || [])) {
+      const charge = (Number(b.total_amount) || 0) - (Number(b.return_amount) || 0);
+      if (charge > 0.005) {
+        charges.push({
+          date: String(b.bill_date).slice(0, 10),
+          amount: charge,
+          meta: {
+            bill_id: b[billIdKey], bill_number: b.bill_number,
+            bill_date: b.bill_date, due_date: b.due_date || null,
+            total_amount: Number(b.total_amount) || 0,
+          },
+        });
+      }
+    }
+    // Balance with no charges to hang it on (pure on-account / opening with
+    // no opening_balance row) → carry it forward as a single oldest item so
+    // the party still appears and the grand total reconciles.
+    if (charges.length === 0) {
+      charges.push({ date: '0001-01-01', amount: openBalance, meta: { __opening: true } });
+    }
+
+    const openItems = distributeOpenBalanceFifo(charges, openBalance);
+    const partyLite = {
+      party_id: party.party_id, party_name: party.party_name,
+      mobile_1: party.mobile_1, city: party.city, state: party.state,
+      credit_days: party.credit_days, credit_limit: Number(party.credit_limit) || 0,
     };
-  });
 
-  // Drop bills whose historical balance ≤ 0 — they were paid off before asOf.
-  return mapped.filter((b) => b.balance_amount > 0.005);
+    for (const item of openItems) {
+      const m = item.meta || {};
+      if (m.__opening) {
+        out.push({
+          bill_id: `opening-${party.party_id}`, bill_number: 'Opening / B-F',
+          bill_date: openDt, due_date: openDt,
+          total_amount: round2(item.amount), paid_amount: 0,
+          balance_amount: round2(item.amount),
+          is_opening: true, is_onaccount: true, party: partyLite,
+        });
+      } else {
+        out.push({
+          bill_id: m.bill_id, bill_number: m.bill_number,
+          bill_date: m.bill_date, due_date: m.due_date,
+          total_amount: round2(m.total_amount),
+          paid_amount: round2((m.total_amount || 0) - item.amount),
+          balance_amount: round2(item.amount), party: partyLite,
+        });
+      }
+    }
+  }
+  return out;
 }
 
 // ── Aging reconciliation ───────────────────────────────────────────────
@@ -2724,20 +2767,19 @@ async function _agingReconciliation(partyType, asOf) {
   // by an amount that never appeared on the party-ledger side,
   // surfacing as a drift on the reconciliation banner (the long-
   // standing -₹85 in the seed data was a single ₹85 cash sale).
-  // Under post-fix semantics (audit C1/C2), bill.paid_amount is the
-  // immutable at-billing snapshot — it does NOT include receipts allocated
-  // later. The banner formula needs ALL money applied to the bill
-  // (at-billing + reconciled receipts), which is exactly
-  //   total_amount - return_amount - balance_amount
-  // (sales) or
-  //   total_amount - balance_amount
-  // (purchase, no return). Deriving from those three columns keeps the
-  // banner correct regardless of how reconcile splits the cash across
-  // paid_amount vs balance_amount.
+  // bill term = gross billed not yet open = SUM(total_amount - balance_amount),
+  // i.e. all money applied to the bill (at-billing + reconciled receipts).
+  // We do NOT subtract return_amount here: the sale posts the FULL total to
+  // the party ledger (sales_bill Dr = total), and returns are reflected
+  // separately by the sales_return_bill ledger credits captured in
+  // `returns_offset` below. Subtracting return_amount in BOTH places
+  // double-counted returns and left a drift exactly equal to
+  // SUM(return_amount) (purchase already used total - balance, so this
+  // brings the two sides into agreement).
   const [billRow] = await sequelize.query(
     isCustomer
       ? `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
-                COALESCE(SUM(b.total_amount - b.return_amount - b.balance_amount), 0)::float paid_in_bills
+                COALESCE(SUM(b.total_amount - b.balance_amount), 0)::float paid_in_bills
            FROM sales_bills b
            JOIN parties p ON p.party_id = b.customer_id
           WHERE b.is_cancelled = false
@@ -2782,6 +2824,35 @@ async function _agingReconciliation(partyType, asOf) {
     { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT },
   );
   const returnsOffset = r2(returnsRow.v);
+
+  // Refund offset — a cash refund against a sales/purchase return posts a
+  // SECOND voucher that touches the party sub_group again
+  // (sales_return_refund Dr Sundry Debtors / purchase_return_refund Cr
+  // Sundry Creditors). returns_offset above only captures the credit-note
+  // leg, so without this term the refund leg is unmatched and surfaces as
+  // drift. Signed onto the outstanding axis: customer refunds are Dr (raise
+  // receivable), supplier refunds are Cr (raise payable).
+  const [refundsRow] = await sequelize.query(
+    isCustomer
+      ? `SELECT COALESCE(SUM(le.debit_amount - le.credit_amount), 0)::float v
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE la.sub_group = 'Sundry Debtors'
+            AND le.source_type = 'sales_return_refund'
+            AND le.reversal_of_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+            AND le.entry_date <= :as_of`
+      : `SELECT COALESCE(SUM(le.credit_amount - le.debit_amount), 0)::float v
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE la.sub_group = 'Sundry Creditors'
+            AND le.source_type = 'purchase_return_refund'
+            AND le.reversal_of_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+            AND le.entry_date <= :as_of`,
+    { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT },
+  );
+  const refunds = r2(refundsRow.v);
 
   // Ledger side — Σ Sundry Debtors/Creditors net.
   const [ledgerRow] = await sequelize.query(
@@ -2847,7 +2918,7 @@ async function _agingReconciliation(partyType, asOf) {
   const openingCr = r2(isCustomer ? openingRow.opening_cr : openingRow.opening_dr);
 
   const expectedLedger = r2(
-    billOutstanding + paidInBills - unallocated - returnsOffset + openingDr - openingCr
+    billOutstanding + paidInBills - unallocated - returnsOffset + openingDr - openingCr + refunds
   );
   const difference = r2(ledgerOutstanding - expectedLedger);
 
@@ -2857,6 +2928,7 @@ async function _agingReconciliation(partyType, asOf) {
     paid_in_bills:       paidInBills,
     unallocated_receipts: unallocated,
     returns_offset:      returnsOffset,
+    refunds,
     opening_dr:          openingDr,
     opening_cr:          openingCr,
     expected_ledger_outstanding: expectedLedger,
@@ -2879,7 +2951,7 @@ exports.agingReport = async (req, res) => {
       ? req.query.as_of
       : localDateString();
 
-    const bills = await _loadAgingBills(partyType, asOf);
+    const bills = await _loadAgingBills(partyType, asOf, settings && settings.financial_year_start);
     const result = aggregateAging(bills, asOf, bounds);
     const reconciliation = await _agingReconciliation(partyType, asOf);
 
@@ -2900,7 +2972,7 @@ exports.exportAgingReport = async (req, res) => {
       ? req.query.as_of
       : localDateString();
 
-    const bills = await _loadAgingBills(partyType, asOf);
+    const bills = await _loadAgingBills(partyType, asOf, settings && settings.financial_year_start);
     const { rows, grand, bucket_labels } = aggregateAging(bills, asOf, bounds);
 
     const wb = new ExcelJS.Workbook();
@@ -2918,6 +2990,7 @@ exports.exportAgingReport = async (req, res) => {
       { header: bucket_labels.b2,           key: 'b2',            width: 12 },
       { header: bucket_labels.b3,           key: 'b3',            width: 12 },
       { header: bucket_labels.b4,           key: 'b4',            width: 12 },
+      { header: bucket_labels.on_account || 'On A/c', key: 'on_account', width: 12 },
       { header: 'Total',                    key: 'total',         width: 14 },
     ];
     ws.getRow(1).font = { bold: true };
@@ -2927,7 +3000,7 @@ exports.exportAgingReport = async (req, res) => {
       party_name: 'TOTAL',
       mobile_1: '', city: '', credit_days: '', bill_count: '', oldest_days: '',
       current: grand.current, b1: grand.b1, b2: grand.b2, b3: grand.b3,
-      b4: grand.b4, total: grand.total,
+      b4: grand.b4, on_account: grand.on_account, total: grand.total,
     });
     totalRow.font = { bold: true };
     totalRow.border = { top: { style: 'medium' } };

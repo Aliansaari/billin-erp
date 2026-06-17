@@ -7,6 +7,7 @@ import {
   purchaseReturnAPI, purchaseAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI,
 } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import useBack from '../../hooks/useBack';
 import { useMultiWarehouseEnabled } from '../../hooks/useSystemSettings';
 import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import { printDocument } from '../../services/printer';
@@ -546,6 +547,7 @@ export default function PurchaseReturnForm() {
 
   const dirty = items.length > 0 || amountOnly > 0;
   const confirmLeave = useUnsavedChangesWarning(dirty);
+  const goBack = useBack('/purchase-returns');
 
   /* ── F-key handlers (driven by ActionStrip below) ───────────────── */
   // F1 Save — saves, then asks "Print debit note?" with Enter / Esc.
@@ -1034,8 +1036,8 @@ export default function PurchaseReturnForm() {
             + prints the debit note; F2 saves only. F6 jumps to Refund ₹. */}
         <ActionStrip
           actions={[
-            { id: 'back', key: 'Esc', label: 'Back',
-              onAction: () => confirmLeave(() => navigate('/purchase-returns')) },
+            { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+              onAction: () => confirmLeave(goBack) },
             { id: 'date', key: 'F2', label: 'Date',
               onAction: f2DatePopup,
               title: 'Open the smart-input date popup' },

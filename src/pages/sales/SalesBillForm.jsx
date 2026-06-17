@@ -6,6 +6,7 @@ import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI
 import { printDocument, shareBillViaWhatsApp, whatsappReady } from '../../services/printer';
 import { whatsappAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import useBack from '../../hooks/useBack';
 import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled, useMultiColorEnabled, useSystemSettings } from '../../hooks/useSystemSettings';
 import CustomerInsightPanel from '../../components/CustomerInsightPanel';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
@@ -101,6 +102,7 @@ export default function SalesBillForm() {
   // and the user lands back on the page they came from instead of always
   // dropping into the Sales list.
   const backTarget = location.state?.from || '/sales';
+  const goBack = useBack(backTarget);
 
   const [form]    = Form.useForm();
   const [items, setItems]       = useState([]);
@@ -3133,7 +3135,11 @@ export default function SalesBillForm() {
                 <div className="sbf-tot-lines">
                   <div className="sbf-tot-line total-row">
                     <span className="k">Total</span>
-                    <span className="sbf-val-box">{fmtN(taxableAmt)}</span>
+                    {/* Gross subtotal (sum of items) — BEFORE bill discount, GST,
+                        extras and return. The Net Total on the Payment card is the
+                        final payable after all of those, so the two differ as soon
+                        as any adjustment exists. */}
+                    <span className="sbf-val-box">{fmtN(subTotal)}</span>
                   </div>
                   <div className="sbf-tot-line with-pct">
                     <span className="k" title="Combined CGST + SGST rate. Typed value is split half/half into the two columns on save.">GST (C+S)</span>
@@ -3329,8 +3335,8 @@ export default function SalesBillForm() {
             saves and prints; F2 just saves. */}
         <ActionStrip
           actions={[
-            { id: 'back', key: 'Esc', label: 'Back',
-              onAction: () => confirmLeave(() => navigate(backTarget)) },
+            { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+              onAction: () => confirmLeave(goBack) },
             { id: 'date', key: 'F2', label: 'Date',
               onAction: f2DatePopup,
               title: 'Open the smart-input date popup' },

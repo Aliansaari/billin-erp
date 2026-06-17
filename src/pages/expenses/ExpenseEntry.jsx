@@ -47,6 +47,7 @@ import { expenseAPI, ledgerAPI, partyAPI, bankAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import useBack from '../../hooks/useBack';
 import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 
@@ -122,6 +123,7 @@ export default function ExpenseEntry() {
 
   const dirty = !!(lines[0]?.expense_ledger_id || lines[0]?.taxable_amount);
   const confirmLeave = useUnsavedChangesWarning(dirty);
+  const goBack = useBack('/expenses');
   const { openDate } = useDatePopup();
 
   // Fiscal-lock override flow (compliance mode). Same hook as Sales /
@@ -675,8 +677,8 @@ export default function ExpenseEntry() {
 
       <ActionStrip
         actions={[
-          { id: 'back', key: 'Esc', label: 'Back',
-            onAction: () => confirmLeave(() => navigate('/expenses')) },
+          { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+            onAction: () => confirmLeave(goBack) },
           { id: 'date', key: 'F2', label: 'Date',
             onAction: () => openDate({
               title: 'Voucher Date',

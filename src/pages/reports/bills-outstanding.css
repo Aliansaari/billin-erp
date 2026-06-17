@@ -218,6 +218,19 @@
   content: '✓';
   background: var(--success, #10B981);
 }
+/* Informational (not a warning) — neutral/muted treatment so it reads as
+   a note, not an alarm. Used by the allocation-provenance banner, whose
+   totals are correct. */
+.bo-banner-info {
+  border-color: var(--border);
+  border-left-color: var(--fg-tertiary, #9ca3af);
+  background: var(--bg-panel);
+}
+.bo-banner-info::before {
+  content: 'i';
+  background: var(--fg-tertiary, #9ca3af);
+  font-style: italic;
+}
 .bo-banner > :nth-child(2) { flex: 1; line-height: 1.55; color: var(--fg-secondary); }
 .bo-banner b { color: var(--fg-primary); font-weight: 700; }
 .bo-banner code {
@@ -447,6 +460,20 @@
 }
 .bo-tablewrap .ant-table-tbody > tr:hover > td {
   background: var(--bg-hover) !important;
+}
+/* Compact body rows — match the Aging report's tighter density (it uses
+   ~7px vertical padding at 12.5px). The bills table runs in Antd v5
+   `virtual` mode, whose rows are <div role="row"> / .ant-table-cell rather
+   than <tr><td>, so cover both layouts. Header (.ant-table-thead) is left
+   alone. Row height is measured at runtime by VirtualReportTable, so the
+   scroll math adapts automatically. */
+.bo-tablewrap .ant-table-tbody > tr > td,
+.bo-tablewrap .ant-table-tbody-virtual .ant-table-cell,
+.bo-tablewrap .ant-table-row > .ant-table-cell {
+  padding-top: 5px !important;
+  padding-bottom: 5px !important;
+  font-size: 12.5px;
+  line-height: 1.35;
 }
 
 /* Cell typography — Source Sans 3 throughout, tabular nums for

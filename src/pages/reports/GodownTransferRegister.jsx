@@ -385,7 +385,7 @@ export default function GodownTransferRegister() {
             dataSource={transfers}
             columns={cols}
             pagination={false}
-            size="middle"
+            size="small"
             scroll={{ y: 'calc(100vh - 360px)' }}
             summary={(pageData) => {
               if (!pageData?.length) return null;

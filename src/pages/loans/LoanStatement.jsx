@@ -16,10 +16,10 @@
 // page while logging the next EMI.
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Button, message } from 'antd';
+import { Button, message, Modal } from 'antd';
 import {
   ReloadOutlined, ArrowLeftOutlined, DollarOutlined,
-  CheckCircleFilled, FieldTimeOutlined,
+  CheckCircleFilled, FieldTimeOutlined, RollbackOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -97,6 +97,31 @@ export default function LoanStatement() {
     URL.revokeObjectURL(url);
   };
 
+  // Cancel the most recently recorded EMI. The backend posts a reversing
+  // voucher on the EMI's original date, so the books stay balanced. To "edit"
+  // a wrong EMI (amount or date), cancel it here then Record EMI again with the
+  // corrected values — the standard double-entry way to amend a posted voucher.
+  const paidCount = sched?.paid_count || 0;
+  const handleCancelLastEmi = useCallback(() => {
+    if (paidCount < 1) return;
+    Modal.confirm({
+      title: 'Cancel the last recorded EMI?',
+      content: 'This reverses the most recent EMI (a reversing voucher is posted on its original date). You can then Record EMI again with the correct amount or date.',
+      okText: 'Cancel EMI',
+      okButtonProps: { danger: true },
+      cancelText: 'Keep it',
+      onOk: async () => {
+        try {
+          await loanAPI.reverseEmi(ledger_id);
+          message.success('Last EMI cancelled');
+          load();
+        } catch (e) {
+          message.error(e.response?.data?.error || 'Failed to cancel EMI');
+        }
+      },
+    });
+  }, [paidCount, ledger_id, load]);
+
   // Build a "loan-shaped" object for the RecordEMIModal so it doesn't
   // need to refetch separately. The modal reads loan.ledger_id +
   // loan.loan_type + loan.name.
@@ -141,9 +166,20 @@ export default function LoanStatement() {
             Refresh
           </Button>
           <Button
+            className="rpt-btn" danger icon={<RollbackOutlined />}
+            onClick={handleCancelLastEmi}
+            disabled={paidCount < 1}
+          >
+            Cancel Last EMI
+          </Button>
+          <Button
             className="rpt-btn" type="primary" icon={<DollarOutlined />}
             onClick={() => setEmiOpen(true)}
-            disabled={!loanForModal || (sched && sched.paid_count >= sched.total_count)}
+            // Only treat "fully paid" as a block when a schedule actually
+            // exists — for a loan with no computed schedule total_count is 0,
+            // and the old `paid_count >= total_count` (0 >= 0) silently
+            // disabled the button.
+            disabled={!loanForModal || (sched && sched.total_count > 0 && sched.paid_count >= sched.total_count)}
           >
             Record EMI
           </Button>
@@ -271,8 +307,13 @@ export default function LoanStatement() {
           },
           {
             id: 'emi', key: 'F6', label: 'Record EMI',
-            disabled: !loanForModal || (sched && sched.paid_count >= sched.total_count),
+            disabled: !loanForModal || (sched && sched.total_count > 0 && sched.paid_count >= sched.total_count),
             onAction: () => setEmiOpen(true),
+          },
+          {
+            id: 'cancel-emi', key: 'F7', label: 'Cancel EMI',
+            disabled: paidCount < 1,
+            onAction: handleCancelLastEmi,
           },
           {
             id: 'print', key: 'F9', label: 'Print',

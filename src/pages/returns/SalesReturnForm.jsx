@@ -7,6 +7,7 @@ import {
   salesReturnAPI, salesAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI,
 } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import useBack from '../../hooks/useBack';
 import { useMultiWarehouseEnabled } from '../../hooks/useSystemSettings';
 import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import { printDocument } from '../../services/printer';
@@ -577,6 +578,7 @@ export default function SalesReturnForm() {
 
   const dirty = items.length > 0 || amountOnly > 0;
   const confirmLeave = useUnsavedChangesWarning(dirty);
+  const goBack = useBack('/sales-returns');
 
   /* ── F-key handlers (driven by ActionStrip below) ───────────────── */
   // F1 Save — saves, then asks "Print credit note?" with Enter / Esc.
@@ -1095,8 +1097,8 @@ export default function SalesReturnForm() {
             field — no auto-fill at the button. F6 jumps to that field. */}
         <ActionStrip
           actions={[
-            { id: 'back', key: 'Esc', label: 'Back',
-              onAction: () => confirmLeave(() => navigate('/sales-returns')) },
+            { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+              onAction: () => confirmLeave(goBack) },
             { id: 'date', key: 'F2', label: 'Date',
               onAction: f2DatePopup,
               title: 'Open the smart-input date popup' },

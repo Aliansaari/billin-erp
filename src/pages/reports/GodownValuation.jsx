@@ -158,7 +158,7 @@ export default function GodownValuation() {
             dataSource={summary}
             columns={summaryCols}
             pagination={false}
-            size="middle"
+            size="small"
             onRow={(r) => ({
               onClick: () => drillToStockReport(r.godown_id),
               style: { cursor: 'pointer' },

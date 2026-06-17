@@ -747,7 +747,7 @@ function CashFlowMonthStrip({ goBack, month, onPickMonth, onDrill, canDrill }) {
   return (
     <ActionStrip
       actions={[
-        { id: 'back', key: 'Esc', label: 'Back',
+        { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
           onAction: goBack },
         { id: 'period', key: 'F2', label: 'Month',
           onAction: () => openDate({
@@ -1136,7 +1136,7 @@ function CashFlowGroupView() {
 
       <ActionStrip
         actions={[
-          { id: 'back', key: 'Esc', label: 'Back',
+          { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
             onAction: goBack },
           { id: 'period', key: 'F2', label: 'Period',
             onAction: () => openDate({

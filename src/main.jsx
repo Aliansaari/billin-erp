@@ -5,6 +5,7 @@ import '@fontsource-variable/source-sans-3';
 import ThemeProvider from './theme/ThemeProvider';
 import MainApp from './App';
 import AppErrorBoundary from './AppErrorBoundary';
+import ViewportFit from './components/ViewportFit';
 import { MenuPopupProvider } from './components/keyboard/MenuPopup';
 import { DatePopupProvider } from './components/keyboard/DatePopup';
 import './styles/global.css';
@@ -50,6 +51,7 @@ try {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <AppErrorBoundary>
+      <ViewportFit />
       <BrowserRouter>
         <ThemeProvider>
           <MenuPopupProvider>

@@ -119,7 +119,13 @@ export function useVirtualizedReport({
   useEffect(() => { cacheKeyRef.current = cacheKey; }, [cacheKey]);
 
   // Internal fetch. Idempotent on (cacheKey, chunkIdx) via inFlightRef.
-  const fetchChunk = useCallback(async (chunkIdx) => {
+  //
+  // `force` bypasses the "already cached" short-circuit so an explicit
+  // Refresh re-hits the server. Without it, refresh() — which keeps the
+  // visible chunk 0 in cache to avoid a flash — would hit the cache-present
+  // guard below and return the SAME stale rows, making the Refresh button
+  // a no-op on every virtualized list/report.
+  const fetchChunk = useCallback(async (chunkIdx, force = false) => {
     const key = cacheKeyRef.current;
     const k = `${key}:${chunkIdx}`;
 
@@ -127,9 +133,10 @@ export function useVirtualizedReport({
     // collapse onto the same fetch.
     if (inFlightRef.current.has(k)) return inFlightRef.current.get(k);
 
-    // Already resolved and present — done.
+    // Already resolved and present — done. (Skipped under `force`, so a
+    // user-triggered Refresh always goes to the server.)
     const entry = cacheRef.current.get(key);
-    if (entry && entry.chunks.has(chunkIdx)) return entry.chunks.get(chunkIdx);
+    if (!force && entry && entry.chunks.has(chunkIdx)) return entry.chunks.get(chunkIdx);
 
     const promise = (async () => {
       try {
@@ -297,7 +304,10 @@ export function useVirtualizedReport({
       if (ch0) e.chunks.set(0, ch0);   // keep visible chunk until new one lands
       e.lastUsed = 0;                   // mark stale so cache-fresh path skips it
     }
-    fetchChunk(0);
+    // force=true — chunk 0 is still in cache (kept above for a no-flash
+    // refresh), so without forcing, fetchChunk would return it as-is and
+    // never re-hit the server.
+    fetchChunk(0, true);
   }, [fetchChunk]);
 
   return { rows, totalCount, summary, meta, ensureChunk, loading, error, refresh };

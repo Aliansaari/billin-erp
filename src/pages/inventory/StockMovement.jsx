@@ -617,7 +617,7 @@ export default function StockMovement() {
         actions={[
           {
             id: 'back', key: 'Esc', label: 'Back',
-            onAction: () => navigate(-1),
+            onAction: () => navigate('/stock-report'),
           },
           {
             id: 'find', key: 'F4', label: 'Find',

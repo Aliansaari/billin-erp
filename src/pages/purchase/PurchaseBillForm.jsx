@@ -10,6 +10,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import useBack from '../../hooks/useBack';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 import { partySelectProps } from '../../utils/partySelectProps';
 
@@ -1722,6 +1723,7 @@ export default function PurchaseBillForm() {
   // unsaved-work confirmation. Amount-mode counts as dirty when an amount > 0.
   const dirty = items.length > 0 || (billMode === 'amount' && parseFloat(amountVal) > 0);
   const confirmLeave = useUnsavedChangesWarning(dirty);
+  const goBack = useBack('/purchases');
 
   // F1 / F2 / F3 / F4 / F5 / F6 / F9 / Esc / Ctrl+Enter (alias of F1) /
   // Ctrl+L (Drafts) — all bound by the <ActionStrip> at the bottom of
@@ -2804,8 +2806,8 @@ export default function PurchaseBillForm() {
             the operator types in the Payment Card. */}
         <ActionStrip
           actions={[
-            { id: 'back', key: 'Esc', label: 'Back',
-              onAction: () => confirmLeave(() => navigate('/purchases')) },
+            { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+              onAction: () => confirmLeave(goBack) },
             { id: 'date', key: 'F2', label: 'Date',
               onAction: f2DatePopup,
               title: 'Open the smart-input date popup' },

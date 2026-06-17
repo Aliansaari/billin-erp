@@ -66,16 +66,17 @@ async function main() {
   const recon = r.body.reconciliation;
   check('2.1 BR: reconciliation sub_group = Sundry Debtors',
     recon.sub_group === 'Sundry Debtors');
-  check('2.2 BR: 6 terms present (bill/paid/unalloc/returns/openDr/openCr)',
+  check('2.2 BR: terms present (bill/paid/unalloc/returns/refunds/openDr/openCr)',
     typeof recon.bill_outstanding === 'number'
     && typeof recon.paid_in_bills === 'number'
     && typeof recon.unallocated_receipts === 'number'
     && typeof recon.returns_offset === 'number'
+    && typeof recon.refunds === 'number'
     && typeof recon.opening_dr === 'number'
     && typeof recon.opening_cr === 'number');
-  check('2.3 BR: expected = bill + paid − unalloc − returns + openDr − openCr (paisa-exact)',
+  check('2.3 BR: expected = bill + paid − unalloc − returns + refunds + openDr − openCr (paisa-exact)',
     Math.abs(r2(recon.bill_outstanding + recon.paid_in_bills - recon.unallocated_receipts
-              - recon.returns_offset + recon.opening_dr - recon.opening_cr)
+              - recon.returns_offset + recon.refunds + recon.opening_dr - recon.opening_cr)
              - r2(recon.expected_ledger_outstanding)) < 0.01);
   check('2.4 BR: difference = ledger − expected (paisa-exact)',
     Math.abs(r2(recon.ledger_outstanding - recon.expected_ledger_outstanding)

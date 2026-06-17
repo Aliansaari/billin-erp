@@ -173,14 +173,15 @@ export default function AgingReport({ partyType = 'Customer' }) {
   const visibleTotals = useMemo(() => {
     return visibleRows.reduce(
       (g, r) => ({
-        total:   g.total   + r.total,
-        current: g.current + r.current,
-        b1:      g.b1      + r.b1,
-        b2:      g.b2      + r.b2,
-        b3:      g.b3      + r.b3,
-        b4:      g.b4      + r.b4,
+        total:      g.total      + r.total,
+        current:    g.current    + r.current,
+        b1:         g.b1         + r.b1,
+        b2:         g.b2         + r.b2,
+        b3:         g.b3         + r.b3,
+        b4:         g.b4         + r.b4,
+        on_account: g.on_account + (r.on_account || 0),
       }),
-      { total: 0, current: 0, b1: 0, b2: 0, b3: 0, b4: 0 }
+      { total: 0, current: 0, b1: 0, b2: 0, b3: 0, b4: 0, on_account: 0 }
     );
   }, [visibleRows]);
 
@@ -236,7 +237,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
   /* KPI derivations — computed from grand totals (not visible) so the
    * numbers don't flicker on every search keystroke. */
   const kpi = useMemo(() => {
-    const overdue = grand.b1 + grand.b2 + grand.b3 + grand.b4;
+    const overdue = grand.b1 + grand.b2 + grand.b3 + grand.b4 + (grand.on_account || 0);
     const pctOverdue = grand.total > 0 ? (overdue / grand.total * 100) : 0;
     const parties = rows.length;
     const oldestDays = rows.reduce((m, r) => Math.max(m, r.oldest_days || 0), 0);
@@ -429,6 +430,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
       <col style={{ width: 115 }} />                          {/* 31-60 */}
       <col style={{ width: 115 }} />                          {/* 61-90 */}
       <col style={{ width: 115 }} />                          {/* 90+ */}
+      <col style={{ width: 120 }} />                          {/* On A/c */}
       <col style={{ width: 135 }} />                          {/* Total */}
     </colgroup>
   );
@@ -446,6 +448,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
       <col style={{ width: 110 }} />                          {/* 31-60 */}
       <col style={{ width: 110 }} />                          {/* 61-90 */}
       <col style={{ width: 110 }} />                          {/* 90+ */}
+      <col style={{ width: 110 }} />                          {/* On A/c */}
       <col style={{ width: 105 }} />                          {/* Due On */}
     </colgroup>
   );
@@ -535,6 +538,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
               {' + paid '}₹{fmt(r.paid_in_bills)}
               {' − receipts '}₹{fmt(r.unallocated_receipts)}
               {' − returns '}₹{fmt(r.returns_offset)}
+              {r.refunds != null && <>{' + refunds '}₹{fmt(r.refunds)}</>}
               {' + opening Dr '}₹{fmt(r.opening_dr)}
               {' − opening Cr '}₹{fmt(r.opening_cr)}
               {' = expected '}<b>₹{fmt(r.expected_ledger_outstanding)}</b>
@@ -553,11 +557,12 @@ export default function AgingReport({ partyType = 'Customer' }) {
         // mini distribution bar. If grand.total is 0 each segment is 0%.
         const pct = (v) => grand.total > 0 ? (v / grand.total * 100) : 0;
         const bucketPcts = {
-          current: pct(grand.current),
-          b1:      pct(grand.b1),
-          b2:      pct(grand.b2),
-          b3:      pct(grand.b3),
-          b4:      pct(grand.b4),
+          current:    pct(grand.current),
+          b1:         pct(grand.b1),
+          b2:         pct(grand.b2),
+          b3:         pct(grand.b3),
+          b4:         pct(grand.b4),
+          on_account: pct(grand.on_account || 0),
         };
         return (
           <div className="ar-kpis">
@@ -575,6 +580,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
                 <span style={{ width: `${bucketPcts.b2}%`,      background: '#f59e0b' }} />
                 <span style={{ width: `${bucketPcts.b3}%`,      background: '#f97316' }} />
                 <span style={{ width: `${bucketPcts.b4}%`,      background: '#dc2626' }} />
+                <span style={{ width: `${bucketPcts.on_account}%`, background: '#94a3b8' }} title="On account / opening" />
               </div>
               <div className="ar-kpi-legend">
                 <span><i style={{ background: '#10b981' }} />{bucketPcts.current.toFixed(1)}%</span>
@@ -582,6 +588,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
                 <span><i style={{ background: '#f59e0b' }} />{bucketPcts.b2.toFixed(1)}%</span>
                 <span><i style={{ background: '#f97316' }} />{bucketPcts.b3.toFixed(1)}%</span>
                 <span><i style={{ background: '#dc2626' }} />{bucketPcts.b4.toFixed(1)}%</span>
+                <span><i style={{ background: '#94a3b8' }} />{bucketPcts.on_account.toFixed(1)}%</span>
               </div>
             </div>
 
@@ -661,6 +668,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
                     <th>{labels.b2}</th>
                     <th>{labels.b3}</th>
                     <th>{labels.b4}</th>
+                    <th>{labels.on_account || 'On A/c'}</th>
                     <th>Total</th>
                   </tr>
                 </thead>
@@ -688,6 +696,9 @@ export default function AgingReport({ partyType = 'Customer' }) {
                             {r[k] === 0 ? '—' : fmt(r[k])}
                           </td>
                         ))}
+                        <td className={`ar-amt on_account ${(r.on_account || 0) === 0 ? 'ar-amt-zero' : ''}`}>
+                          {(r.on_account || 0) === 0 ? '—' : fmt(r.on_account)}
+                        </td>
                         <td className="ar-amt-total">{fmt(r.total)}</td>
                       </tr>
 
@@ -717,6 +728,9 @@ export default function AgingReport({ partyType = 'Customer' }) {
                               {b.bucket === k ? fmt(b.balance_amount) : ''}
                             </td>
                           ))}
+                          <td className={`ar-amt on_account ${b.bucket !== 'on_account' ? 'ar-amt-zero' : ''}`}>
+                            {b.bucket === 'on_account' ? fmt(b.balance_amount) : ''}
+                          </td>
                           <td className="ar-amt-total">{fmt(b.balance_amount)}</td>
                         </tr>
                         );
@@ -757,6 +771,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
                     <th>{labels.b2}</th>
                     <th>{labels.b3}</th>
                     <th>{labels.b4}</th>
+                    <th>{labels.on_account || 'On A/c'}</th>
                     <th style={{cursor:'pointer'}} onClick={() => toggleBillSort('due_date')}>Due On{sortIndicator('due_date')}</th>
                   </tr>
                 </thead>
@@ -783,6 +798,9 @@ export default function AgingReport({ partyType = 'Customer' }) {
                           {b.bucket === k ? fmt(b.balance_amount) : ''}
                         </td>
                       ))}
+                      <td className={`ar-amt on_account ${b.bucket !== 'on_account' ? 'ar-amt-zero' : ''}`}>
+                        {b.bucket === 'on_account' ? fmt(b.balance_amount) : ''}
+                      </td>
                       <td>{fmtDate(b.due_date)}</td>
                     </tr>
                     );
@@ -817,6 +835,9 @@ export default function AgingReport({ partyType = 'Customer' }) {
                       {visibleTotals[k] > 0 ? fmt(visibleTotals[k]) : ''}
                     </td>
                   ))}
+                  <td className="ar-amt on_account">
+                    {(visibleTotals.on_account || 0) > 0 ? fmt(visibleTotals.on_account) : ''}
+                  </td>
                   <td className="ar-amt-total">{fmt(visibleTotals.total)}</td>
                 </tr>
               </tbody>
@@ -835,6 +856,9 @@ export default function AgingReport({ partyType = 'Customer' }) {
                       {billTotals[k] > 0 ? fmt(billTotals[k]) : ''}
                     </td>
                   ))}
+                  <td className="ar-amt on_account">
+                    {(billTotals.on_account || 0) > 0 ? fmt(billTotals.on_account) : ''}
+                  </td>
                   <td></td>
                 </tr>
               </tbody>

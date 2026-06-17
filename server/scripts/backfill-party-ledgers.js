@@ -28,6 +28,27 @@ async function backfillOne(party) {
       return { skipped: true, reason: 'already linked' };
     }
 
+    // System Cash party must link to the Cash-in-Hand ledger, NOT an
+    // auto-created Sundry Debtors/Creditors party-ledger. Without this
+    // guard the Cash party gets a "Cash (#N)" ledger in the Sundry
+    // Debtors sub_group, so every cash sale booked against it pollutes
+    // the Sundry Debtors control account and surfaces as a reconciliation
+    // drift. Mirrors the is_system_cash branch in the Party afterCreate
+    // hook (models/Party.js).
+    if (party.is_system_cash) {
+      const cashLedger = await LedgerAccount.findOne({
+        where: { ledger_name: 'Cash' }, transaction: t,
+      });
+      if (cashLedger) {
+        await Party.update(
+          { ledger_account_id: cashLedger.ledger_id },
+          { where: { party_id: party.party_id }, transaction: t, hooks: false },
+        );
+        await t.commit();
+        return { skipped: false, systemCash: true };
+      }
+    }
+
     const isSupplierOnly = party.party_type === 'Supplier';
     const ledgerGroup = isSupplierOnly ? 'Liabilities' : 'Assets';
     const subGroup    = isSupplierOnly ? 'Sundry Creditors' : 'Sundry Debtors';

@@ -80,7 +80,7 @@
    11px vertical padding + tabular-nums = identical row-rhythm to
    Sales Report. */
 .ls-table td {
-  padding: 11px 14px;
+  padding: 6px 14px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
   overflow: hidden;

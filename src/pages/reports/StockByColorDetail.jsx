@@ -13,12 +13,14 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import { productAPI, productColorAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import useBack from '../../hooks/useBack';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const fmtR = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function StockByColorDetail() {
   const navigate = useNavigate();
+  const goBack = useBack('/reports/stock-by-color');
   const { productId } = useParams();
   const [product, setProduct] = useState(null);
   const [colors, setColors]   = useState([]);
@@ -140,7 +142,7 @@ export default function StockByColorDetail() {
             <Button
               className="rpt-btn"
               icon={<ArrowLeftOutlined />}
-              onClick={() => navigate('/reports/stock-by-color')}
+              onClick={goBack}
               size="small"
             >
               Back

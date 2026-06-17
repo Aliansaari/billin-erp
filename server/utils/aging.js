@@ -140,13 +140,20 @@ function aggregateAging(bills, asOfDate, bounds) {
     const bal = Number(bill.balance_amount) || 0;
     if (bal <= 0) continue;   // skip fully-paid rows
 
-    const overdueDays = computeOverdueDays(
+    // On-account / opening items aren't invoice-dated — they go to a
+    // dedicated `on_account` column instead of a day-bucket. This is the
+    // standard bill-wise presentation: un-referenced opening balances and
+    // unallocated receipts show as "on account", while actual invoices age
+    // by their own date. The per-party total (and grand total) still equals
+    // the ledger balance — on_account is just another column of it.
+    const isOnAccount = bill.is_onaccount === true;
+    const overdueDays = isOnAccount ? 0 : computeOverdueDays(
       asOfDate,
       bill.bill_date,
       bill.due_date,
       party.credit_days
     );
-    const key = bucketFor(overdueDays, { b1, b2, b3 });
+    const key = isOnAccount ? 'on_account' : bucketFor(overdueDays, { b1, b2, b3 });
 
     let row = byParty.get(party.party_id);
     if (!row) {
@@ -158,7 +165,7 @@ function aggregateAging(bills, asOfDate, bounds) {
         state: party.state || '',
         credit_days: Number(party.credit_days) || 0,
         credit_limit: Number(party.credit_limit) || 0,
-        total: 0, current: 0, b1: 0, b2: 0, b3: 0, b4: 0,
+        total: 0, current: 0, b1: 0, b2: 0, b3: 0, b4: 0, on_account: 0,
         oldest_days: 0,
         bill_count: 0,
         bills: [],
@@ -193,6 +200,7 @@ function aggregateAging(bills, asOfDate, bounds) {
     r.b2      = round2(r.b2);
     r.b3      = round2(r.b3);
     r.b4      = round2(r.b4);
+    r.on_account = round2(r.on_account);
     // Order each party's bills by bill_date ascending, so the drill-down
     // reads top-down from oldest to newest.
     r.bills.sort((a, b) => a.bill_date.localeCompare(b.bill_date));
@@ -201,24 +209,83 @@ function aggregateAging(bills, asOfDate, bounds) {
 
   const grand = rows.reduce(
     (g, r) => ({
-      total:   g.total   + r.total,
-      current: g.current + r.current,
-      b1:      g.b1      + r.b1,
-      b2:      g.b2      + r.b2,
-      b3:      g.b3      + r.b3,
-      b4:      g.b4      + r.b4,
+      total:      g.total      + r.total,
+      current:    g.current    + r.current,
+      b1:         g.b1         + r.b1,
+      b2:         g.b2         + r.b2,
+      b3:         g.b3         + r.b3,
+      b4:         g.b4         + r.b4,
+      on_account: g.on_account + r.on_account,
     }),
-    { total: 0, current: 0, b1: 0, b2: 0, b3: 0, b4: 0 }
+    { total: 0, current: 0, b1: 0, b2: 0, b3: 0, b4: 0, on_account: 0 }
   );
   for (const k of Object.keys(grand)) grand[k] = round2(grand[k]);
 
   return {
     as_of_date: asOfDate,
     buckets: { b1, b2, b3 },
-    bucket_labels: bucketLabels({ b1, b2, b3 }),
+    bucket_labels: { ...bucketLabels({ b1, b2, b3 }), on_account: 'On A/c' },
     rows,
     grand,
   };
+}
+
+/**
+ * FIFO-distribute a party's true open balance across its dated charges so
+ * the aging report's per-party total equals the Customer-Ledger balance
+ * (instead of the gross sum of unpaid bills). Compute-only — no data is
+ * mutated; this just decides, for display, WHICH charges are still open
+ * and by how much.
+ *
+ * Why: on this dataset many receipts are recorded on-account (not tagged
+ * to a bill), and opening balances aren't bills at all. So Σ(bill
+ * balance_amount) ≠ the party's real balance. `current_balance` (and the
+ * Sundry Debtors ledger) IS correct. We take that as the truth and lay it
+ * back over the charge timeline oldest-first: credits pay off the oldest
+ * charges, whatever remains (newest-first) is what's still open and gets
+ * aged by its own date.
+ *
+ * @param {{date:string, amount:number, meta?:object}[]} charges
+ *        Dated debit events (opening balance, then each bill total−return),
+ *        in ANY order — sorted oldest-first internally.
+ * @param {number} openBalance  The authoritative open balance to reproduce
+ *        (party.current_balance, clamped ≥ 0).
+ * @returns {{date:string, amount:number, meta?:object}[]}  charges with
+ *        `amount` reduced to the still-open portion, dropping fully-paid
+ *        ones, sorted oldest-first. Σ(amount) === round2(openBalance).
+ *        If openBalance exceeds Σcharges (advance/data quirk), the excess
+ *        is attached to the oldest charge so the total still reconciles.
+ */
+function distributeOpenBalanceFifo(charges, openBalance) {
+  const target = Math.max(0, round2(openBalance));
+  const sorted = [...charges].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const totalCharges = round2(sorted.reduce((s, c) => s + (Number(c.amount) || 0), 0));
+
+  // Credits (payments) applied oldest-first. Never negative; capped so we
+  // can't "pay" more than the charges on the books.
+  let credits = round2(totalCharges - target);
+  if (credits < 0) credits = 0;
+  if (credits > totalCharges) credits = totalCharges;
+
+  const out = [];
+  for (const c of sorted) {
+    const amt = round2(Number(c.amount) || 0);
+    if (credits >= amt) { credits = round2(credits - amt); continue; } // fully paid
+    const open = round2(amt - credits);
+    credits = 0;
+    if (open > 0.005) out.push({ ...c, amount: open });
+  }
+
+  // openBalance > Σcharges → unbilled advance/credit or a recalc quirk.
+  // Park the remainder on the oldest charge (or a synthetic opening) so
+  // the per-party total still equals current_balance to the paisa.
+  const placed = round2(out.reduce((s, c) => s + c.amount, 0));
+  const residual = round2(target - placed);
+  if (residual > 0.005) {
+    if (out.length) out[0] = { ...out[0], amount: round2(out[0].amount + residual) };
+    else if (sorted.length) out.push({ ...sorted[0], amount: residual });
+  }
+  return out;
 }
 
 module.exports = {
@@ -226,5 +293,6 @@ module.exports = {
   bucketFor,
   bucketLabels,
   aggregateAging,
+  distributeOpenBalanceFifo,
   round2,
 };

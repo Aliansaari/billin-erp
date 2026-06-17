@@ -469,8 +469,17 @@ async function processRow(s, models, settings, row) {
     const party = await models.Party.findByPk(row.party_id, { attributes: ['party_id', 'whatsapp_opt_out'] });
     if (party && party.whatsapp_opt_out) { await row.update({ status: 'skipped', error: 'recipient opted out' }); return; }
   }
-  const buffer = Buffer.from(row.payload_base64 || '', 'base64');
-  if (!buffer.length) { await row.update({ status: 'failed', error: 'empty payload' }); return; }
+  // Text rows (e.g. paced payment reminders) carry their message in `caption`
+  // and have no PDF payload; document rows carry base64 bytes. Same queue, same
+  // pacing/caps/opt-out — only the send call differs.
+  const isText = !row.payload_base64;
+  let buffer = null;
+  if (isText) {
+    if (!row.caption) { await row.update({ status: 'failed', error: 'empty text' }); return; }
+  } else {
+    buffer = Buffer.from(row.payload_base64, 'base64');
+    if (!buffer.length) { await row.update({ status: 'failed', error: 'empty payload' }); return; }
+  }
 
   await row.update({ status: 'sending', attempts: row.attempts + 1 });
   try {
@@ -484,9 +493,13 @@ async function processRow(s, models, settings, row) {
         jid = resolved;
       }
       jid = jid || pacing.toJid(row.to_number);
-      messageId = await web.sendDocument(s.sock, jid, buffer, row.file_name, row.caption);
+      messageId = isText
+        ? await web.sendText(s.sock, jid, row.caption)
+        : await web.sendDocument(s.sock, jid, buffer, row.file_name, row.caption);
     } else {
-      messageId = await official.sendDocument(officialCfg(settings), row.to_number, buffer, row.file_name, row.caption);
+      messageId = isText
+        ? await official.sendText(officialCfg(settings), row.to_number, row.caption)
+        : await official.sendDocument(officialCfg(settings), row.to_number, buffer, row.file_name, row.caption);
     }
     await row.update({ status: 'sent', sent_at: new Date(), wa_message_id: messageId, payload_base64: null, error: null });
     if (!settings.warmup_started_on) { await settings.update({ warmup_started_on: new Date() }); }

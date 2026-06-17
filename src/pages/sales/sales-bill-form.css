@@ -820,7 +820,7 @@
   border-bottom: 1px solid var(--border-subtle) !important;
   border-right: 1px solid var(--border-subtle) !important;
   padding: 0 !important;
-  height: 34px;
+  height: 28px;
   color: var(--fg-primary) !important;
   position: relative;
 }
@@ -1048,7 +1048,7 @@
    is 0 now. The child span in readCell() already applies padding. */
 .sbf-tbl-wrap .ant-table-tbody > tr > td > span {
   display: inline-block;
-  padding: 7px 8px;
+  padding: 4px 8px;
   width: 100%;
   box-sizing: border-box;
 }
@@ -1270,73 +1270,79 @@
     inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
-/* Totals card */
-.sbf-totals { width: 260px; padding-left: 10px; padding-right: 10px; }
+/* ── Totals card — clean & comfortable ───────────────────────────────────
+   Roomy rows, readable labels, computed figures flat in one right-aligned
+   number column, and proper filled input fields (consistent with the Payment
+   card) with a soft accent focus ring. Two subtle dividers group base → tax →
+   charges. The card stretches to the Payment card's height (flex stretch). */
+.sbf-totals { width: 286px; padding-left: 14px; padding-right: 14px; }   /* compact — no wasted horizontal gap */
 .sbf-tot-lines { display: flex; flex-direction: column; }
 .sbf-tot-line {
+  box-sizing: border-box;
   display: grid;
-  grid-template-columns: 64px 1fr;
+  grid-template-columns: 82px 1fr;
   align-items: center;
-  gap: 8px;
-  padding: 5px 0;
+  gap: 10px;
+  padding: 6px 0;
   font-size: 13px;
-  min-height: 34px;
+  min-height: 40px;
 }
-.sbf-tot-line.with-pct {
-  grid-template-columns: 64px 48px 1fr;
-  gap: 5px;
-}
-/* Extras row: label + two compact inline inputs (Other / Freight).
-   Keeps the same height as a single-input row so the 6-row Totals card
-   aligns to the Payment card, no scroll. */
-.sbf-tot-line.extras {
-  grid-template-columns: 64px 1fr 1fr;
-  gap: 5px;
-}
+.sbf-tot-line.with-pct { grid-template-columns: 82px 66px 1fr; gap: 10px; }
+.sbf-tot-line.extras   { grid-template-columns: 82px 1fr 1fr; gap: 10px; }
+
+/* Labels — readable and calm */
 .sbf-tot-line .k {
   color: var(--fg-secondary);
   font-weight: 500;
-  font-size: 12.5px;
+  font-size: 13px;
+  white-space: nowrap;
 }
 .sbf-tot-line.total-row .k,
 .sbf-tot-line.gst-total .k { color: var(--fg-primary); font-weight: 600; }
 
+/* Computed figures — flat, right-aligned; one clean number column */
 .sbf-val-box {
-  height: 32px;
-  padding: 0 10px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 5px;
+  height: 34px;
+  padding: 0 2px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
   color: var(--fg-primary);
-  font-size: 13px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   text-align: right;
   font-weight: 600;
   display: flex; align-items: center; justify-content: flex-end;
-  box-shadow: 0 1px 2px rgba(45, 31, 21, 0.04);
 }
-.sbf-val-box.gst-val { color: var(--warning); font-weight: 700; }
+/* Subtotal — emphasised, with a divider separating it from the tax block */
+.sbf-tot-line.total-row { border-bottom: 1px solid var(--border-subtle); }
+.sbf-tot-line.total-row .sbf-val-box { font-size: 18px; font-weight: 700; }
+/* Tax sum — amber, reads as the sum of the two rate rows above it */
+.sbf-val-box.gst-val { color: var(--warning); font-weight: 700; font-size: 15px; }
+/* Divider before the charges / discount rows */
+.sbf-tot-line.extras { border-top: 1px solid var(--border-subtle); }
 
-/* Pct input chip inside tot line */
-.sbf-page .ant-input-number.sbf-pct-in {
-  height: 32px !important;
-}
-.sbf-page .sbf-pct-in .ant-input-number-input {
-  text-align: right;
-  font-weight: 600 !important;
-  font-size: 12px !important;
-}
-
-/* Inline amount input inside tot line */
+/* Input fields — deliberately left to the app's own InputNumber theme
+   (colorBgContainer / colorBorder / radius 8 / accent focus) so they look
+   IDENTICAL to the Payment card's fields. We only set the compact height,
+   right alignment, and hide the spinners. */
+.sbf-page .ant-input-number.sbf-pct-in,
 .sbf-page .ant-input-number.sbf-amt-in {
   height: 32px !important;
 }
+.sbf-page .sbf-pct-in .ant-input-number-input,
 .sbf-page .sbf-amt-in .ant-input-number-input {
   text-align: right !important;
   font-weight: 600 !important;
-  font-size: 13px !important;
+  font-size: 13.5px !important;
   font-variant-numeric: tabular-nums !important;
 }
+/* Disabled rate (product-wise GST) — dim it, reads as inert */
+.sbf-page .ant-input-number.sbf-pct-in.ant-input-number-disabled { opacity: 0.55; }
+/* No hover spinners — values are typed */
+.sbf-page .sbf-pct-in .ant-input-number-handler-wrap,
+.sbf-page .sbf-amt-in .ant-input-number-handler-wrap { display: none !important; }
 
 /* Payment card */
 .sbf-payment { width: 320px; }

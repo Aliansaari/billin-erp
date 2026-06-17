@@ -10,6 +10,7 @@ import { paymentAPI, partyAPI, whatsappAPI } from '../../api';
 import { printDocument, shareBillViaWhatsApp } from '../../services/printer';
 import confirmPrint, { confirmPrintWithSend } from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import useBack from '../../hooks/useBack';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
@@ -74,6 +75,7 @@ export default function ReceiptEntry() {
 
   const dirty = !!(selectedParty || payAmt);
   const confirmLeave = useUnsavedChangesWarning(dirty);
+  const goBack = useBack('/payments');
   const { openDate } = useDatePopup();
 
   // Fiscal-lock override flow — same hook the Payment form uses.
@@ -746,8 +748,8 @@ export default function ReceiptEntry() {
           to actual handlers via the bottom strip. */}
       <ActionStrip
         actions={[
-          { id: 'back', key: 'Esc', label: 'Back',
-            onAction: () => confirmLeave(() => navigate('/payments')) },
+          { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+            onAction: () => confirmLeave(goBack) },
           { id: 'reset', key: 'F5', label: 'Reset',
             onAction: handleReset },
           { id: 'date', key: 'F2', label: 'Date',

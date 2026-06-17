@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import './ActionStrip.css';
 
 // Classic accounting-style bottom action strip.
@@ -23,6 +24,15 @@ import './ActionStrip.css';
 //   maps to the same handler as the visible F1 button.
 // Actions with `disabled: true` ARE rendered (greyed) but the key
 //   binding is suppressed — both click and keypress are no-ops.
+//
+// The action with `id: 'back'` is special: it is history-aware. When
+//   there's a previous in-app screen to return to, triggering it does
+//   navigate(-1) so the user lands back exactly where they came from;
+//   its declared `onAction` is the fallback used only when there's no
+//   history (deep link / hard refresh / first screen). Pages whose Back
+//   must run side effects first (an unsaved-changes confirm, or a
+//   multi-level in-page drill-up) opt out with `historyBack: false` and
+//   keep their own handler.
 //
 // Tone presets:
 //   default — neutral panel
@@ -82,6 +92,27 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
   const actionsRef = useRef(actions);
   useEffect(() => { actionsRef.current = actions; });
 
+  // History-aware "Back". The action with `id: 'back'` returns the user
+  // to the exact screen they came from (navigate(-1)) whenever there's
+  // an in-app history entry to go back to; its declared `onAction` is
+  // used only as a fallback for the no-history case (deep link, hard
+  // refresh, first screen of the session). location.key is the string
+  // 'default' only for that first entry, so key !== 'default' ⇔ there's
+  // somewhere to go back to.
+  //
+  // Pages whose Back must run side effects first — an unsaved-changes
+  // confirm, or a multi-level in-page drill-up — opt out with
+  // `historyBack: false` on the action and keep their own handler.
+  //
+  // Refs are used so the once-attached keydown listener always reads the
+  // freshest navigate fn + history state without re-binding.
+  const navigate = useNavigate();
+  const { key: locationKey } = useLocation();
+  const navigateRef = useRef(navigate);
+  const canGoBackRef = useRef(locationKey !== 'default');
+  useEffect(() => { navigateRef.current = navigate; });
+  useEffect(() => { canGoBackRef.current = locationKey !== 'default'; }, [locationKey]);
+
   // Pre-parse bindings once per render so the keydown handler doesn't
   // re-parse strings on every keypress.
   const parsed = useMemo(() => actions.map(a => ({
@@ -116,6 +147,11 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
         // contract). `hidden` actions stay active so they can alias a
         // visible button.
         if (a.disabled) return;
+        // History-aware Back (see note above the navigate refs).
+        if (a.id === 'back' && a.historyBack !== false && canGoBackRef.current) {
+          navigateRef.current(-1);
+          return;
+        }
         try { a.onAction?.(e); }
         catch (err) { console.error('[ActionStrip]', a.id, err); }
         return;
@@ -136,7 +172,14 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
             key={a.id}
             type="button"
             className={`astrip-btn tone-${a.tone || 'default'}`}
-            onClick={(e) => { e.preventDefault(); a.onAction?.(e); }}
+            onClick={(e) => {
+              e.preventDefault();
+              if (a.id === 'back' && a.historyBack !== false && canGoBackRef.current) {
+                navigateRef.current(-1);
+                return;
+              }
+              a.onAction?.(e);
+            }}
             disabled={!!a.disabled}
             title={a.title || (a.label && a.key ? `${a.label} (${a.key})` : a.label)}
           >

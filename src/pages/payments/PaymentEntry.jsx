@@ -8,6 +8,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { paymentAPI, partyAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import useBack from '../../hooks/useBack';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
@@ -64,6 +65,7 @@ export default function PaymentEntry() {
 
   const dirty = !!(selectedParty || payAmt);
   const confirmLeave = useUnsavedChangesWarning(dirty);
+  const goBack = useBack('/payments');
   const { openDate } = useDatePopup();
 
   // Fiscal-lock override-modal flow — opens when the server returns
@@ -673,8 +675,8 @@ export default function PaymentEntry() {
           bill form's F6 = jump-to-money convention. */}
       <ActionStrip
         actions={[
-          { id: 'back', key: 'Esc', label: 'Back',
-            onAction: () => confirmLeave(() => navigate('/payments')) },
+          { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+            onAction: () => confirmLeave(goBack) },
           { id: 'reset', key: 'F5', label: 'Reset',
             onAction: handleReset },
           { id: 'date', key: 'F2', label: 'Date',

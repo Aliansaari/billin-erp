@@ -35,6 +35,14 @@ function getSession(key) {
 function setSession(key, data) { SESSIONS.set(key, { ...data, expiresAt: Date.now() + SESSION_TTL }); }
 function clearSession(key) { SESSIONS.delete(key); }
 
+// Last WhatsApp-created entry per owner — powers "undo". Longer-lived than a
+// conversation session so a mistake can be reversed minutes later.
+const LAST_ENTRY = new Map();
+const LAST_ENTRY_TTL = 24 * 60 * 60 * 1000;
+function setLastEntry(key, data) { LAST_ENTRY.set(key, { ...data, expiresAt: Date.now() + LAST_ENTRY_TTL }); }
+function getLastEntry(key) { const e = LAST_ENTRY.get(key); if (!e) return null; if (Date.now() > e.expiresAt) { LAST_ENTRY.delete(key); return null; } return e; }
+function clearLastEntry(key) { LAST_ENTRY.delete(key); }
+
 // ── Per-sender rate limit ──
 const RL = new Map();
 function allow(key, perMin = 12, perHour = 100) {
@@ -88,16 +96,44 @@ function parseDateStr(s) {
   if (m && MONTHS[m[1].slice(0, 3)]) return `${new Date().getFullYear()}-${pad(MONTHS[m[1].slice(0, 3)])}-${pad(+m[2])}`;
   return null;
 }
-function parseAmt(s) { return parseFloat(String(s || '').replace(/,/g, '').trim()) || 0; }
+// Parse a money token, including Indian shorthand:
+//   5000 · 5,000 · 5k · 1.5k · 2 lakh · 2.5L · 1cr · 50 hazaar
+function parseAmt(s) {
+  const v = String(s || '').toLowerCase().replace(/,/g, '').replace(/[₹]|rs\.?|rupees?|inr/g, '').trim();
+  const m = v.match(/^(\d*\.?\d+)\s*(k|thousand|hazaar|hajar|lakhs?|lacs?|cr|crores?|l)?$/);
+  if (!m) return parseFloat(v) || 0;
+  let n = parseFloat(m[1]) || 0; const u = m[2] || '';
+  if (/^(k|thousand|hazaar|hajar)$/.test(u)) n *= 1e3;
+  else if (/^(lakhs?|lacs?|l)$/.test(u)) n *= 1e5;
+  else if (/^(cr|crores?)$/.test(u)) n *= 1e7;
+  return Math.round(n * 100) / 100;
+}
 function normaliseMode(s) {
   const k = String(s || '').toLowerCase().replace(/\s+/g, '');
   if (['upi', 'gpay', 'phonepe', 'phonepay', 'paytm'].includes(k)) return 'UPI';
   if (['bank', 'banktransfer', 'neft', 'rtgs', 'imps', 'transfer'].includes(k)) return 'Bank Transfer';
   return 'Cash';
 }
-function looksLikeEntryIntent(text) {
-  return /^(?:rec(?:eived?)?|rcvd|pay(?:ment)?|paid?|exp(?:ense)?|kharch[a]?)\s/i.test(text.trim());
-}
+/* Shared sub-patterns for owner entry parsing (kept DRY).
+ *   AMT  — a money token, shorthand-aware: 5000 · 5,000 · 5k · 1.5k · 2 lakh · 2.5L · 1cr · 50 hazaar
+ *   GAVE — Hinglish "gave / paid" verbs     GOT — Hinglish "received / came in" verbs
+ */
+const AMT  = '(\\d[\\d,.]*\\s*(?:k|thousand|hazaar|hajar|lakhs?|lacs?|cr|crores?|l)?)';
+const GAVE = '(?:de\\s*diya|de\\s*diye|diya|diye|bhej\\s*diya|bheja|bheje|chukaya|chukaye|paid)';
+const GOT  = '(?:aa\\s*gaya|aa\\s*gaye|aaya|aaye|aagaya|mila|mile|jama|jma)';
+const RE_RECEIPT_FROM = new RegExp('^(?:received?|recvd|rcvd|rec|got)\\s+' + AMT + '\\s+(?:from|frm|se)\\s+(.+)$', 'i');
+const RE_RECEIPT_NE   = new RegExp('^(.+?)\\s+(?:ne|has|have)\\s+' + AMT + '\\s+' + GAVE + '$', 'i');
+const RE_RECEIPT_PAID = new RegExp('^(.+?)\\s+paid\\s+' + AMT + '$', 'i');
+const RE_RECEIPT_SE   = new RegExp('^(.+?)\\s+se\\s+' + AMT + '\\s+' + GOT + '$', 'i');
+const RE_PAY_TO       = new RegExp('^(?:pay(?:ment)?|paid)\\s+' + AMT + '\\s+(?:to|ko)\\s+(.+)$', 'i');
+const RE_PAY_KO       = new RegExp('^(.+?)\\s+ko\\s+' + AMT + '\\s+' + GAVE + '$', 'i');
+const RE_EXP_1        = new RegExp('^(?:expense|exp|kharch[ae]?)\\s+' + AMT + '(?:\\s+(?:for|ka|ke|ki))?\\s+(.+)$', 'i');
+const RE_EXP_2        = new RegExp('^(?:paid|pay|spent|spend)\\s+' + AMT + '\\s+for\\s+(.+)$', 'i');
+const RE_MODE = /(?:\s+(?:by|via|in|through))?\s+(cash|upi|gpay|phonepe|phonepay|paytm|bank\s*transfer|neft|rtgs|imps|transfer)$/i;
+// Bill reference: "for bill 1234" / "against bill 4521" / "bill no 99". Ref must
+// start with a digit so a description like "bill print" is never mistaken for one.
+const RE_BILL = /\s+(?:for|against|vs|towards?)?\s*bill\s*(?:no\.?|number|#)?\s*([0-9][A-Za-z0-9\-\/]*)\s*$/i;
+
 function parseOwnerIntent(raw) {
   let rest = raw.trim();
   let date = dayOffset(0);
@@ -106,41 +142,37 @@ function parseOwnerIntent(raw) {
   const dm = rest.match(/\s+(?:on|dated?|date|tarikh)\s+([\d\/\-]+(?:\s+\w+)?|\w+(?:\s+\d+)?|today|yesterday|kal|aaj|parso)/i);
   if (dm) { const p = parseDateStr(dm[1]); if (p) { date = p; rest = rest.replace(dm[0], '').trim(); } }
 
-  // Strip trailing payment mode "by upi" / "via cash" / "cash" / "upi"
-  let paymentMode = 'Cash';
-  const mm = rest.match(/(?:\s+(?:by|via))?\s+(cash|upi|gpay|phonepe|paytm|bank\s*transfer|neft|rtgs|imps|transfer)$/i);
-  if (mm) { paymentMode = normaliseMode(mm[1]); rest = rest.replace(mm[0], '').trim(); }
+  // Strip trailing payment-mode ("by upi" / "cash") and bill-ref ("for bill 1234")
+  // suffixes — looped so they can appear in either order.
+  let paymentMode = 'Cash', billRef = null, changed = true;
+  while (changed) {
+    changed = false;
+    const mm = rest.match(RE_MODE); if (mm) { paymentMode = normaliseMode(mm[1]); rest = rest.replace(mm[0], '').trim(); changed = true; }
+    const bm = rest.match(RE_BILL); if (bm) { billRef = bm[1]; rest = rest.replace(bm[0], '').trim(); changed = true; }
+  }
 
   let m;
 
-  // ── RECEIPT ──
-  // "received 5000 from Ahmed" / "rec 5000 from Ahmed" / "rcvd 5000 from Ahmed"
-  m = rest.match(/^(?:received?|rcvd|rec)\s+(\d[\d,.]*)\s+(?:from|frm|se)\s+(.+)$/i);
-  if (m) return { type: 'receipt', amount: parseAmt(m[1]), partyQuery: m[2].trim(), date, paymentMode };
+  // ── RECEIPT (money IN, from a customer) ──
+  // "received 5000 from Ahmed" / "rec 5k from Ahmed" / "got 5000 from Ahmed"
+  if ((m = rest.match(RE_RECEIPT_FROM))) return { type: 'receipt', amount: parseAmt(m[1]), partyQuery: m[2].trim(), date, paymentMode, billRef };
+  // party-first Hinglish: "Ahmed ne 5000 diya / de diya / bheja" · "Ahmed paid 5000"
+  if ((m = rest.match(RE_RECEIPT_NE)))   return { type: 'receipt', amount: parseAmt(m[2]), partyQuery: m[1].trim(), date, paymentMode, billRef };
+  if ((m = rest.match(RE_RECEIPT_PAID))) return { type: 'receipt', amount: parseAmt(m[2]), partyQuery: m[1].trim(), date, paymentMode, billRef };
+  // party-first: "Raju se 4000 aaya / mila"
+  if ((m = rest.match(RE_RECEIPT_SE)))   return { type: 'receipt', amount: parseAmt(m[2]), partyQuery: m[1].trim(), date, paymentMode, billRef };
 
-  // "Ahmed ne 5000 diya" / "Ahmed paid 5000"
-  m = rest.match(/^(.+?)\s+(?:ne|has)\s+(\d[\d,.]*)\s+(?:diya|de\s*diya|bheja|paid|rakha|diye)$/i);
-  if (m) return { type: 'receipt', amount: parseAmt(m[2]), partyQuery: m[1].trim(), date, paymentMode };
-  m = rest.match(/^(.+?)\s+paid\s+(\d[\d,.]*)$/i);
-  if (m) return { type: 'receipt', amount: parseAmt(m[2]), partyQuery: m[1].trim(), date, paymentMode };
+  // ── PAYMENT (money OUT, to a supplier) ──
+  // "pay 5000 to Ahmed" / "paid 5k to Ahmed" / "payment 5000 to Ali Traders"
+  if ((m = rest.match(RE_PAY_TO)))       return { type: 'payment', amount: parseAmt(m[1]), partyQuery: m[2].trim(), date, paymentMode, billRef };
+  // party-first Hinglish: "Ahmed ko 5000 diya / de diya / bheja / chukaya"
+  if ((m = rest.match(RE_PAY_KO)))       return { type: 'payment', amount: parseAmt(m[2]), partyQuery: m[1].trim(), date, paymentMode, billRef };
 
-  // ── PAYMENT ──
-  // "paid 5000 to Ahmed" / "pay 5000 to Ahmed" / "payment 5000 to Ahmed"
-  m = rest.match(/^(?:paid?|payment)\s+(\d[\d,.]*)\s+(?:to|ko)\s+(.+)$/i);
-  if (m) return { type: 'payment', amount: parseAmt(m[1]), partyQuery: m[2].trim(), date, paymentMode };
-
-  // "Ahmed ko 5000 diya"
-  m = rest.match(/^(.+?)\s+ko\s+(\d[\d,.]*)\s+(?:diya|de\s*diya|bheja|paid|diye)$/i);
-  if (m) return { type: 'payment', amount: parseAmt(m[2]), partyQuery: m[1].trim(), date, paymentMode };
-
-  // ── EXPENSE ──
-  // "expense 1200 electricity" / "exp 1200 for electricity" / "kharch 1200 electricity"
-  m = rest.match(/^(?:expense|exp|kharch|kharcha)\s+(\d[\d,.]*)(?:\s+for)?\s+(.+)$/i);
-  if (m) return { type: 'expense', amount: parseAmt(m[1]), description: m[2].trim(), date, paymentMode };
-
-  // "paid 1200 for electricity" — "for" distinguishes expense from supplier payment
-  m = rest.match(/^(?:paid?|spent?|spend)\s+(\d[\d,.]*)\s+for\s+(.+)$/i);
-  if (m) return { type: 'expense', amount: parseAmt(m[1]), description: m[2].trim(), date, paymentMode };
+  // ── EXPENSE (money OUT, to an expense head) ──
+  // "expense 1200 electricity" / "exp 1200 for electricity" / "kharch 1200 light bill"
+  if ((m = rest.match(RE_EXP_1)))        return { type: 'expense', amount: parseAmt(m[1]), description: m[2].trim(), date, paymentMode };
+  // "paid 1200 for electricity" / "pay 500 for tea" — "for" marks an expense, not a supplier payment
+  if ((m = rest.match(RE_EXP_2)))        return { type: 'expense', amount: parseAmt(m[1]), description: m[2].trim(), date, paymentMode };
 
   return null;
 }
@@ -397,16 +429,40 @@ async function stockByName(models, q, f) {
 
 /* ══════════════ Entry session flow ═════════════════════════════════ */
 
-async function showReceiptPaymentConfirm(party, intent, sk, sendText) {
-  const { type, amount, date, paymentMode } = intent;
+async function showReceiptPaymentConfirm(party, intent, sk, sendText, models) {
+  const { type, amount, date, paymentMode, billRef } = intent;
   const label = type === 'receipt' ? 'Receipt' : 'Payment';
   const emoji = type === 'receipt' ? '📥' : '📤';
+
+  // Resolve an explicit bill reference ("for bill 1234") to a real bill so the
+  // money targets it; otherwise reconcile applies it oldest-first (FIFO).
+  let billAllocations = null, billLine = null;
+  if (billRef && models) {
+    const isReceipt = type === 'receipt';
+    const BillModel = isReceipt ? models.SalesBill : models.PurchaseBill;
+    const partyKey = isReceipt ? 'customer_id' : 'supplier_id';
+    const idKey = isReceipt ? 'sales_bill_id' : 'purchase_bill_id';
+    const bill = await BillModel.findOne({
+      where: { [partyKey]: party.party_id, is_cancelled: false, bill_number: { [Op.iLike]: `%${billRef}` } },
+      order: [['bill_date', 'DESC']],
+    });
+    if (bill) {
+      const due = Number(bill.balance_amount) || 0;
+      const applyAmt = +(Math.min(Number(amount) || 0, due > 0 ? due : Number(amount) || 0)).toFixed(2);
+      billAllocations = [{ bill_id: bill[idKey], bill_type: isReceipt ? 'Sales' : 'Purchase', amount: applyAmt }];
+      billLine = `Apply to: *Bill ${bill.bill_number}* (due ${amt(due)})`;
+    } else {
+      billLine = `⚠️ Bill *${billRef}* not found for this party — will apply oldest-first.`;
+    }
+  }
+
   const L = [`${emoji} *${label} preview*`, '',
     `Party: *${party.party_name}*`, `Amount: *${amt(amount)}*`,
     `Date: *${dt(date)}*`, `Mode: *${paymentMode}*`,
-    `Current balance: ${drcr(party.current_balance)}`, '',
-    'Reply *yes* to save or *no* to cancel.'];
-  setSession(sk, { type: `confirm_${type}`, party, intent });
+    `Current balance: ${drcr(party.current_balance)}`];
+  if (billLine) L.push(billLine);
+  L.push('', 'Reply *yes* to save or *no* to cancel.');
+  setSession(sk, { type: `confirm_${type}`, party, intent, billAllocations });
   return sendText(L.join('\n'));
 }
 
@@ -429,7 +485,7 @@ async function startReceiptPaymentFlow(intent, sk, models, sendText) {
     attributes: ['party_id', 'party_name', 'party_type', 'current_balance'],
   });
   if (!rows.length) return sendText(`❌ No party matching *${partyQuery}* found. Check the spelling and try again.\n\nReply *0* for the menu.`);
-  if (rows.length === 1) return showReceiptPaymentConfirm(rows[0].toJSON(), intent, sk, sendText);
+  if (rows.length === 1) return showReceiptPaymentConfirm(rows[0].toJSON(), intent, sk, sendText, models);
   const L = [`Multiple matches for *${partyQuery}*:`, ''];
   rows.forEach((p, i) => L.push(`${i + 1}. ${p.party_name}${p.party_type ? ` (${p.party_type})` : ''} — ${drcr(p.current_balance)}`));
   L.push('', 'Reply with the *number* to select, or *no* to cancel.');
@@ -486,7 +542,7 @@ async function continueSession(session, sk, lower, models, sequelize, sendText, 
     if (isNaN(idx) || idx < 1 || idx > parties.length)
       return sendText(`Send a number between 1 and ${parties.length}, or *no* to cancel.`);
     const entryType = type === 'pick_party_receipt' ? 'receipt' : 'payment';
-    return showReceiptPaymentConfirm(parties[idx - 1], { ...session.intent, type: entryType }, sk, sendText);
+    return showReceiptPaymentConfirm(parties[idx - 1], { ...session.intent, type: entryType }, sk, sendText, models);
   }
 
   // ── Pick expense ledger from numbered list ──
@@ -503,24 +559,35 @@ async function continueSession(session, sk, lower, models, sequelize, sendText, 
     if (!/^(?:yes|y|ha|haan|confirm|ok|done)$/.test(lower))
       return sendText('Reply *yes* to confirm or *no* to cancel.');
     clearSession(sk);
-    const { party, intent } = session;
+    const { party, intent, billAllocations } = session;
     const entryType = type === 'confirm_receipt' ? 'Receipt' : 'Payment';
     try {
       const { createReceiptPayment } = require('./entryService');
       const result = await createReceiptPayment({
         type: entryType, partyId: party.party_id,
         amount: intent.amount, date: intent.date,
-        paymentMode: intent.paymentMode, companyId, sequelize,
+        paymentMode: intent.paymentMode, billAllocations, companyId, sequelize,
       });
+      // Remember this entry so the owner can reply "undo".
+      setLastEntry(sk, { kind: entryType, number: result.transaction_number, party_name: party.party_name, amount: intent.amount });
       const emoji = entryType === 'Receipt' ? '✅📥' : '✅📤';
-      await sendText([
+      const lines = [
         `${emoji} *${entryType} saved*`, '',
         `Voucher: *${result.transaction_number}*`,
         `Amount: *${amt(intent.amount)}* — ${party.party_name}`,
         `Date: ${dt(intent.date)} · Mode: ${intent.paymentMode}`,
         `New balance: ${drcr(result.freshBalance)}`,
-        '', 'Reply *0* for the menu.',
-      ].join('\n'));
+      ];
+      // Show which bills this entry settled / reduced.
+      if (Array.isArray(result.appliedBills) && result.appliedBills.length) {
+        lines.push('', `*Applied to ${result.appliedBills.length} bill${result.appliedBills.length === 1 ? '' : 's'}:*`);
+        result.appliedBills.slice(0, 6).forEach((b) => {
+          lines.push(`• Bill ${b.bill_number}: ${amt(b.applied)}${b.cleared ? '  ✅ cleared' : `  (now ${amt(b.balance)} due)`}`);
+        });
+        if (result.appliedBills.length > 6) lines.push(`…and ${result.appliedBills.length - 6} more.`);
+      }
+      lines.push('', 'Reply *undo* to reverse this · *0* for the menu.');
+      await sendText(lines.join('\n'));
       // Send the PDF receipt document
       if (sendDoc && result.receipt && result.party) {
         try {
@@ -557,16 +624,39 @@ async function continueSession(session, sk, lower, models, sequelize, sendText, 
         date: intent.date, description: intent.description,
         paymentMode: intent.paymentMode, companyId, sequelize,
       });
+      setLastEntry(sk, { kind: 'Expense', number: result.voucher_number, party_name: ledger.ledger_name, amount: intent.amount });
       return sendText([
         '✅🧾 *Expense saved*', '',
         `Voucher: *${result.voucher_number}*`,
         `Amount: *${amt(intent.amount)}* — ${ledger.ledger_name}`,
         `Date: ${dt(intent.date)} · Mode: ${intent.paymentMode}`,
-        '', 'Reply *0* for the menu.',
+        '', 'Reply *undo* to reverse this · *0* for the menu.',
       ].join('\n'));
     } catch (e) {
       console.error('[whatsapp] expense create error:', e.message);
       return sendText(`❌ Could not save: ${e.message}\n\nReply *0* for the menu.`);
+    }
+  }
+
+  // ── Confirm payment reminders ──
+  if (type === 'confirm_reminders') {
+    if (!/^(?:yes|y|ha|haan|confirm|ok|done|send)$/.test(lower))
+      return sendText('Reply *yes* to queue the reminders or *no* to cancel.');
+    clearSession(sk);
+    try {
+      const { queueReminders } = require('./entryService');
+      const r = await queueReminders({ sequelize, minAmount: session.minAmount || 1 });
+      return sendText([
+        `✅ *${r.queued} reminder${r.queued === 1 ? '' : 's'} queued*`,
+        `Covering *${amt(r.total)}* of outstanding dues.`,
+        r.skipped ? `(${r.skipped} skipped — no usable number)` : '',
+        '',
+        'They’ll be sent *gradually* — paced, within sending hours, opt-outs honoured. No bursts.',
+        '', 'Reply *0* for the menu.',
+      ].filter(Boolean).join('\n'));
+    } catch (e) {
+      console.error('[whatsapp] reminders error:', e.message);
+      return sendText(`❌ Could not queue reminders: ${e.message}\n\nReply *0* for the menu.`);
     }
   }
 }
@@ -586,10 +676,14 @@ function ownerMenu(shop, panel, stockOn) {
   if (stockOn) look.push('• Stock: *A <article>* · *B <barcode>* · *S <name>*');
   if (look.length) { L.push('', '*🔎 LOOK UP*'); look.forEach((x) => L.push(x)); }
   L.push('', '*📝 CREATE ENTRIES*');
-  L.push('• Receipt: *rec 5000 from Ahmed*');
+  L.push('• Receipt: *rec 5000 from Ahmed*  ·  *rec 5k from Ahmed*');
   L.push('• Payment: *pay 3000 to Ali Traders*');
   L.push('• Expense: *exp 1200 electricity*');
-  L.push('  Add *on 5 jun* or *on yesterday* for a specific date');
+  L.push('• Or just type naturally: *Ahmed ko 5000 diya* · *Raju se 4000 aaya*');
+  L.push('  Add *on 5 jun* · *by upi/cash* · *for bill 1234* to target a bill');
+  L.push('• Undo: *undo*  (or *cancel REC-1234*)');
+  L.push('', '*📣 COLLECTIONS*');
+  L.push('• Send dues reminders to customers: *remind*');
   L.push('', 'Reply *0* for this menu.');
   return L.join('\n');
 }
@@ -777,8 +871,62 @@ async function handle(ctx) {
           }
         }
       }
+      // ── Undo the last WhatsApp-created entry ──
+      if (/^(?:undo|cancel\s+last|delete\s+last)$/i.test(t)) {
+        const le = getLastEntry(sk);
+        if (!le) return void await sendText('Nothing to undo here. (I can only undo entries created via this chat, for a short while after.)\n\nTo cancel a specific one, send *cancel REC-1234*.\n\nReply *0* for the menu.');
+        try {
+          const svc = require('./entryService');
+          const r = le.kind === 'Expense'
+            ? await svc.cancelExpense({ voucherNumber: le.number, sequelize })
+            : await svc.cancelEntry({ transactionNumber: le.number, sequelize });
+          clearLastEntry(sk);
+          const balLine = (r && r.freshBalance !== undefined && r.freshBalance !== null) ? `\nNew balance: ${drcr(r.freshBalance)}` : '';
+          return void await sendText(`↩️ *Undone* — ${le.kind} *${le.number}* (${amt(le.amount)}${le.party_name ? ' · ' + le.party_name : ''}) cancelled.${balLine}\n\nReply *0* for the menu.`);
+        } catch (e) {
+          console.error('[whatsapp] undo error:', e.message);
+          return void await sendText(`❌ Could not undo: ${e.message}\n\nReply *0* for the menu.`);
+        }
+      }
+      // ── Cancel a specific entry by number: "cancel REC-123" / "cancel EXP-..." ──
+      let xm = raw.match(/^(?:cancel|delete|undo)\s+((?:rec|pay|exp)[A-Za-z0-9\-\/]+)$/i);
+      if (xm) {
+        const num = xm[1].toUpperCase();
+        try {
+          const svc = require('./entryService');
+          if (/^EXP/.test(num)) {
+            const r = await svc.cancelExpense({ voucherNumber: num, sequelize });
+            return void await sendText(`↩️ *Undone* — Expense *${r.voucher_number}* (${amt(r.amount)}) cancelled.\n\nReply *0* for the menu.`);
+          }
+          const r = await svc.cancelEntry({ transactionNumber: num, sequelize });
+          const le = getLastEntry(sk); if (le && le.number === num) clearLastEntry(sk);
+          return void await sendText(`↩️ *Undone* — ${r.transaction_type} *${r.transaction_number}* (${amt(r.amount)}${r.party_name ? ' · ' + r.party_name : ''}) cancelled.\nNew balance: ${drcr(r.freshBalance)}\n\nReply *0* for the menu.`);
+        } catch (e) {
+          console.error('[whatsapp] cancel-by-number error:', e.message);
+          return void await sendText(`❌ Could not cancel ${num}: ${e.message}\n\nReply *0* for the menu.`);
+        }
+      }
+      // ── Payment reminders to customers (paced, confirmation-gated) ──
+      if (/^(?:remind|reminders?|payment\s+reminders?|send\s+reminders?|dues?\s+reminders?)$/i.test(t)) {
+        const rWhere = { party_type: { [Op.in]: ['Customer', 'Both'] }, current_balance: { [Op.gte]: 0.01 }, whatsapp_opt_out: { [Op.not]: true }, mobile_1: { [Op.ne]: null } };
+        const [cnt, sum] = await Promise.all([
+          models.Party.count({ where: rWhere }),
+          models.Party.sum('current_balance', { where: rWhere }),
+        ]);
+        if (!cnt) return void await sendText('✅ No customers with dues *and* a WhatsApp number to remind right now.\n\nReply *0* for the menu.');
+        setSession(sk, { type: 'confirm_reminders', minAmount: 1 });
+        return void await sendText([
+          '📣 *Send payment reminders*', '',
+          `This will message *${cnt}* customer${cnt === 1 ? '' : 's'} who owe a total of *${amt(sum || 0)}*.`,
+          'Each gets a polite reminder showing their balance. Messages go out *gradually* — paced, within sending hours, opt-outs respected. Never all at once.',
+          '', 'Reply *yes* to queue them, or *no* to cancel.',
+        ].join('\n'));
+      }
       // ── Entry creation via natural language (owner only) ──
-      if (looksLikeEntryIntent(raw)) {
+      // Read EVERY owner message as a possible entry. parseOwnerIntent only
+      // returns a result when it finds a real amount + party/description, so
+      // genuine name lookups (handled just below) fall through untouched.
+      {
         const intent = parseOwnerIntent(raw);
         if (intent && intent.amount > 0) return void await startEntryFlow(intent, sk, models, sendText);
       }

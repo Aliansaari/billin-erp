@@ -711,6 +711,7 @@ export const loanAPI = {
   update:         (ledgerId, body)       => api.patch(`/loans/${ledgerId}`, body),
   remove:         (ledgerId)             => api.delete(`/loans/${ledgerId}`),
   recordEmi:      (ledgerId, body)       => api.post(`/loans/${ledgerId}/emi`, body),
+  reverseEmi:     (ledgerId, body = {})  => api.post(`/loans/${ledgerId}/emi/reverse`, body),
 };
 
 export const importsAPI = {

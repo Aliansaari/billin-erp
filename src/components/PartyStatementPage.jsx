@@ -42,6 +42,7 @@ import { whatsappReady, sendPdfViaWhatsApp } from '../services/printer';
 import PartyPicker from './PartyPicker';
 import LedgerStatement, { ALL_COLUMNS } from './LedgerStatement';
 import ActionStrip from './keyboard/ActionStrip';
+import useBack from '../hooks/useBack';
 import { useDatePopup } from './keyboard/DatePopup';
 import './ledger-statement.css';
 import './party-picker.css';
@@ -98,6 +99,7 @@ export default function PartyStatementPage({
   showWhatsApp = false,
 }) {
   const navigate = useNavigate();
+  const goBack = useBack('/reports');
   const [searchParams, setSearchParams] = useSearchParams();
   const { fyStart, fyEnd } = useFinancialYear();
 
@@ -413,7 +415,7 @@ export default function PartyStatementPage({
         <div className="psp-titles">
           <Button
             type="text" icon={<ArrowLeftOutlined />}
-            onClick={() => navigate(-1)}
+            onClick={goBack}
             className="psp-back"
           />
           <h1 className="psp-title">{title}</h1>

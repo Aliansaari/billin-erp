@@ -64,7 +64,9 @@
 .po-table thead th.right { text-align: right; }
 
 .po-table td {
-  padding: 11px 14px;
+  /* Matched to the sales-list / report row height (~8px vertical) for
+     cross-report consistency. Was 11px. */
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
 }

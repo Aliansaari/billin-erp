@@ -51,17 +51,18 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
         if (next) {
           form.setFieldsValue({
             date:      dayjs(next.due_date),
+            total:     next.emi,
             principal: next.principal,
             interest:  next.interest,
           });
         } else {
-          form.setFieldsValue({ date: dayjs(), principal: 0, interest: 0 });
+          form.setFieldsValue({ date: dayjs(), total: 0, principal: 0, interest: 0 });
         }
       })
       .catch(() => {
         if (!cancelled) {
           // Fall back to whatever we know without the schedule.
-          form.setFieldsValue({ date: dayjs(), principal: 0, interest: 0 });
+          form.setFieldsValue({ date: dayjs(), total: 0, principal: 0, interest: 0 });
         }
       });
     return () => { cancelled = true; };
@@ -109,6 +110,7 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
     if (next) {
       form.setFieldsValue({
         date:      dayjs(next.due_date),
+        total:     next.emi,
         principal: next.principal,
         interest:  next.interest,
         narration: null,
@@ -117,6 +119,26 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
     setPayMode('Bank');
     setBankLedgerId(null);
     setDirty(false);
+  };
+
+  // ── Total ⇄ principal/interest auto-split ───────────────────────────
+  // The interest for a period is fixed by the outstanding × monthly rate, so
+  // it's the anchor; whatever the operator types as the Total goes:
+  //   principal = total − interest   (the part that pays down the loan)
+  // Editing any one field keeps the other two consistent. Programmatic
+  // setFieldsValue doesn't re-fire onChange, so there's no feedback loop.
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const onTotalChange = (val) => {
+    const intr = Number(form.getFieldValue('interest')) || 0;
+    form.setFieldsValue({ principal: Math.max(0, r2((Number(val) || 0) - intr)) });
+  };
+  const onInterestChange = (val) => {
+    const total = Number(form.getFieldValue('total')) || 0;
+    form.setFieldsValue({ principal: Math.max(0, r2(total - (Number(val) || 0))) });
+  };
+  const onPrincipalChange = (val) => {
+    const intr = Number(form.getFieldValue('interest')) || 0;
+    form.setFieldsValue({ total: r2((Number(val) || 0) + intr) });
   };
 
   if (!loan) return null;
@@ -173,7 +195,31 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
           </EntityFormModal.Field>
         </EntityFormModal.Section>
 
-        <EntityFormModal.Section label="Split">
+        <EntityFormModal.Section label="EMI Amount">
+          <EntityFormModal.Field
+            label="Total EMI"
+            help="Type the full EMI — principal & interest split below fills in automatically."
+            span="full"
+          >
+            <Form.Item
+              name="total"
+              rules={[{ type: 'number', min: 0, message: 'Cannot be negative' }]}
+              noStyle
+            >
+              <InputNumber
+                className="efm-input"
+                keyboard={false}
+                min={0}
+                step={100}
+                style={{ width: '100%' }}
+                controls={false}
+                onChange={onTotalChange}
+                formatter={(v) => v != null && v !== '' ? inrFormatter(v) : ''}
+                parser={(v) => v.replace(/₹\s?|,/g, '')}
+              />
+            </Form.Item>
+          </EntityFormModal.Field>
+
           <EntityFormModal.Field
             label="Principal Portion"
             help={isTaken ? 'Reduces loan balance' : 'Reduces what they owe'}
@@ -190,6 +236,7 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
                 step={100}
                 style={{ width: '100%' }}
                 controls={false}
+                onChange={onPrincipalChange}
                 formatter={(v) => v != null && v !== '' ? inrFormatter(v) : ''}
                 parser={(v) => v.replace(/₹\s?|,/g, '')}
               />
@@ -212,6 +259,7 @@ export default function RecordEMIModal({ open, onClose, onSaved, loan }) {
                 step={100}
                 style={{ width: '100%' }}
                 controls={false}
+                onChange={onInterestChange}
                 formatter={(v) => v != null && v !== '' ? inrFormatter(v) : ''}
                 parser={(v) => v.replace(/₹\s?|,/g, '')}
               />

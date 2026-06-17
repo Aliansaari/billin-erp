@@ -31,6 +31,7 @@ import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { downloadStatementPdf } from '../../utils/ledgerPdf';
 import LedgerStatement, { ALL_COLUMNS } from '../../components/LedgerStatement';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import useBack from '../../hooks/useBack';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import '../../components/ledger-statement.css';
 import '../../components/party-statement-page.css';
@@ -84,6 +85,7 @@ async function downloadExcel({ filename, rows, headers }) {
 
 export default function Ledger() {
   const navigate = useNavigate();
+  const goBack = useBack('/reports');
   const [searchParams, setSearchParams] = useSearchParams();
   const { fyStart, fyEnd } = useFinancialYear();
 
@@ -295,7 +297,7 @@ export default function Ledger() {
     <div className="psp-page">
       <div className="psp-header">
         <div className="psp-titles">
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} className="psp-back" />
+          <Button type="text" icon={<ArrowLeftOutlined />} onClick={goBack} className="psp-back" />
           <h1 className="psp-title">Ledger Statement</h1>
         </div>
         <div className="psp-header-period">

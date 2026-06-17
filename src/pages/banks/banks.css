@@ -457,7 +457,10 @@
 .bank-tbl thead th.c { text-align: center; }
 
 .bank-tbl tbody td {
-  padding: 11px 14px;
+  /* Compact data rows — matched to the sales-list / ledger-statement
+     standard (~8px vertical) so bank & loan statements read at the same
+     row height as every other report. Was 11px (visibly taller). */
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border-subtle);
   text-align: right;
   vertical-align: middle;

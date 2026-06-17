@@ -37,7 +37,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Tag, Button, Input, DatePicker, Segmented, Select, Tooltip, Popover, Checkbox, message, Dropdown, Space } from 'antd';
 import {
   SettingOutlined, SearchOutlined, ReloadOutlined,
-  CloseOutlined, WarningOutlined, CheckCircleOutlined, EllipsisOutlined,
+  CloseOutlined, WarningOutlined, InfoCircleOutlined, EllipsisOutlined,
   WhatsAppOutlined, FilterOutlined, GroupOutlined,
   FilePdfOutlined, UnorderedListOutlined, TeamOutlined,
   ExpandAltOutlined, ShrinkOutlined,
@@ -164,7 +164,11 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
   const [maxAmount, setMaxAmount]   = useState(() => initialFromUrl('max_amount'));
   const [showZero, setShowZero]     = useState(() => initialFromUrl('show_zero') === 'true');
   const [groupBy, setGroupBy]       = useState(() => initialFromUrl('group_by') || 'none');
-  const [sort, setSort]             = useState(() => initialFromUrl('sort') || 'outstanding');
+  // Default order: newest bill first (latest on top, oldest at bottom).
+  // This is what an operator scanning a receivable/payable register
+  // expects; sorting by outstanding amount made the list read as
+  // "random" chronologically. Any column header can re-sort from here.
+  const [sort, setSort]             = useState(() => initialFromUrl('sort') || 'bill_date');
   const [dir, setDir]               = useState(() => initialFromUrl('dir') || 'desc');
   const [searchInput, setSearchInput] = useState(() => initialFromUrl('search'));
   const [search, setSearch]         = useState(() => initialFromUrl('search'));   // debounced
@@ -216,10 +220,20 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // Banner dismissal — per-session only (no localStorage). The
-  // allocation-incomplete banner is a real limitation, not a noise
-  // notification, so we don't permanently silence it.
-  const [allocBannerDismissed, setAllocBannerDismissed] = useState(false);
+  // Allocation banner is informational only — bill/party totals are
+  // correct whether or not receipts are tagged to specific bills (the
+  // outstanding figure falls back to the maintained balance). So once the
+  // operator dismisses it we keep it dismissed across sessions
+  // (localStorage), unlike the reconciliation-drift banner which flags a
+  // genuine imbalance and stays per-session.
+  const ALLOC_BANNER_KEY = `erp_bo_alloc_banner_dismissed_${side}`;
+  const [allocBannerDismissed, setAllocBannerDismissedState] = useState(() => {
+    try { return localStorage.getItem(ALLOC_BANNER_KEY) === 'true'; } catch { return false; }
+  });
+  const setAllocBannerDismissed = useCallback((v) => {
+    setAllocBannerDismissedState(v);
+    try { localStorage.setItem(ALLOC_BANNER_KEY, v ? 'true' : 'false'); } catch {}
+  }, [ALLOC_BANNER_KEY]);
   const [reconBannerDismissed, setReconBannerDismissed] = useState(false);
   const [advancedOpen, setAdvancedOpen]                 = useState(false);
 
@@ -266,7 +280,7 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
     if (maxAmount)       next.max_amount = String(maxAmount);
     if (showZero)        next.show_zero = 'true';
     if (groupBy !== 'none') next.group_by = groupBy;
-    if (sort !== 'outstanding') next.sort = sort;
+    if (sort !== 'bill_date') next.sort = sort;
     if (dir !== 'desc')  next.dir = dir;
     if (search)          next.search = search;
     if (viewMode !== defaultView) next.view = viewMode;
@@ -313,7 +327,9 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
   const filterMeta         = meta?.filter_meta || { distinct_cities: [], distinct_states: [] };
   const bucketBounds       = useMemo(() => inferBoundsFromLabels(bucketLabels), [bucketLabels]);
 
-  // Update URL preset when sort header is clicked.
+  // Update URL preset when sort header is clicked. Same column → flip
+  // direction; new column → sort it descending. Keeps the list always
+  // deterministically ordered (never an "unsorted" state).
   const onSort = useCallback((key) => {
     if (sort === key) {
       setDir(d => d === 'desc' ? 'asc' : 'desc');
@@ -321,6 +337,26 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
       setSort(key); setDir('desc');
     }
   }, [sort]);
+
+  // Antd Table sort handler. Antd fires onChange(pagination, filters,
+  // sorter, extra) when a sortable header is clicked; `sorter.columnKey`
+  // is the column's `key` — which we keep identical to the server's
+  // SORTABLE_COLS keys (bill_no, bill_date, due_date, party_name,
+  // overdue, bill_amount, paid_amount, outstanding). We ignore Antd's
+  // proposed `order` (it cycles through a 3rd "unsorted" state) and
+  // delegate to onSort's two-state toggle instead.
+  //
+  // NB: the previous build wired this through `onHeaderRow`, but Antd
+  // passes the *columns array* as that callback's first arg, so the
+  // per-column `.sorter`/`.key` reads were always undefined and header
+  // clicks did nothing. `onChange` is the correct server-side-sort hook.
+  const onTableChange = useCallback((_pagination, _filters, sorter, extra) => {
+    if (extra && extra.action && extra.action !== 'sort') return;
+    const s = Array.isArray(sorter) ? sorter[0] : sorter;
+    const key = s && s.columnKey;
+    if (!key) return;
+    onSort(key);
+  }, [onSort]);
 
   // Per-row drill actions.
   const drillBill         = useCallback((row) => navigate(cfg.billRoute(row.bill_id)), [navigate, cfg]);
@@ -457,11 +493,24 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
 
   const tableColumns = useMemo(() => {
     const visibleKeys = COL_ORDER.filter((k) => colsVisible[k]);
-    const cols = visibleKeys.map((k) => ({ key: k, ...COL_SPECS[k] }));
+    const cols = visibleKeys.map((k) => {
+      const spec = COL_SPECS[k];
+      const col = { key: k, ...spec };
+      // Controlled sort indicator — drive the header arrow off our own
+      // sort/dir state (the source of truth the server reads) so it
+      // always matches the actual ordering. Restricting sortDirections
+      // to asc/desc removes Antd's 3rd "unsorted" click so the list is
+      // never left in an undefined order.
+      if (spec.sorter) {
+        col.sortOrder = sort === k ? (dir === 'asc' ? 'ascend' : 'descend') : null;
+        col.sortDirections = ['ascend', 'descend'];
+      }
+      return col;
+    });
     cols.push({ key: 'actions', ...ACTION_COL });
     return cols;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colsVisible, COL_SPECS, ACTION_COL]);
+  }, [colsVisible, COL_SPECS, ACTION_COL, sort, dir]);
 
   // Column-toggle popover content. Trailing "Page Sections" group
   // (separated by a divider) lets the user hide whole-page parts —
@@ -683,6 +732,9 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
       <div>+ paid_in_bills: {fmtINR(reconciliation.paid_in_bills)}</div>
       <div>− unallocated_receipts: {fmtINR(reconciliation.unallocated_receipts)}</div>
       <div>− returns_offset: {fmtINR(reconciliation.returns_offset)}</div>
+      {reconciliation.refunds != null && (
+        <div>+ refunds: {fmtINR(reconciliation.refunds)}</div>
+      )}
       <div>+ opening_dr − opening_cr: {fmtINR(reconciliation.opening_dr - reconciliation.opening_cr)}</div>
       <div>= expected: {fmtINR(reconciliation.expected_ledger_outstanding)}</div>
       <div>vs ledger: {fmtINR(reconciliation.ledger_outstanding)}</div>
@@ -760,17 +812,11 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
         exist).
       */}
       {unallocatedCount > 0 && !allocBannerDismissed && (
-        <div className="bo-banner bo-banner-warn">
-          <WarningOutlined />
+        <div className="bo-banner bo-banner-info">
+          <InfoCircleOutlined />
           <span>
-            <b>{unallocatedCount}</b> {side === 'payable' ? 'payment' : 'receipt'}{unallocatedCount === 1 ? '' : 's'} not yet allocated to specific bills. Outstanding may differ from FIFO-correct amount.
+            <b>{unallocatedCount}</b> {side === 'payable' ? 'payment' : 'receipt'}{unallocatedCount === 1 ? '' : 's'} {unallocatedCount === 1 ? 'is' : 'are'} recorded on-account / at-billing rather than tagged to specific bills. Bill and party totals are correct — this only affects per-bill FIFO attribution.
           </span>
-          <a
-            className="bo-allocate-now"
-            onClick={(e) => { e.stopPropagation(); message.info('Allocation UI coming soon'); }}
-          >
-            Allocate now →
-          </a>
           <Button type="text" size="small" icon={<CloseOutlined />} onClick={() => setAllocBannerDismissed(true)} />
         </div>
       )}
@@ -788,14 +834,9 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
           </div>
         </Tooltip>
       )}
-      {reconciliation && reconciliation.balanced && (
-        <Tooltip title={reconTooltip} placement="bottom">
-          <div className="bo-banner bo-banner-ok">
-            <CheckCircleOutlined />
-            <span>Reconciled with <b>{reconciliation.sub_group}</b> ledger (paisa-exact).</span>
-          </div>
-        </Tooltip>
-      )}
+      {/* When balanced we show NO banner — a clean report is its own
+          confirmation. Only the drift banner above appears, and only when
+          there's an actual imbalance to act on. */}
 
       {/* ── KPI tiles ───────────────────────────────────────────────
         Click a tile to apply the matching filter. Tiles read from the
@@ -960,10 +1001,7 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
               rowKey={(r) => r.bill_id}
               scroll={{ x: tableColumns.reduce((s, c) => s + (c.width || 100), 0) }}
               summaryCells={summaryCells}
-              onHeaderRow={(col) => ({
-                onClick: () => col.sorter && onSort(col.key === 'overdue' ? 'overdue' : col.dataIndex || col.key),
-                style:   col.sorter ? { cursor: 'pointer' } : undefined,
-              })}
+              onChange={onTableChange}
               // ↑/↓ Home/End/PageUp/PageDown to move; Enter opens the
               // bill via the same drill-down used by the bill-no link.
               // persistKey varies by side (receivable / payable) so

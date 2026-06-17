@@ -180,6 +180,11 @@ async function sendDocument(sock, jid, buffer, fileName, caption) {
   return (sent && sent.key && sent.key.id) || null;
 }
 
+async function sendText(sock, jid, body) {
+  const sent = await sock.sendMessage(jid, { text: String(body || '') });
+  return (sent && sent.key && sent.key.id) || null;
+}
+
 async function logoutSocket(sock) {
   try { await sock.logout(); } catch { /* already gone */ }
   try { if (sock.end) sock.end(undefined); } catch { /* ignore */ }
@@ -191,6 +196,7 @@ module.exports = {
   startSocket,
   resolveJid,
   sendDocument,
+  sendText,
   logoutSocket,
   numberFromJid,
   resetVersionCache,

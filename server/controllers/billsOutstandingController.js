@@ -573,11 +573,14 @@ async function _reconcile(isCustomer, asOf, subGroup) {
   // the reconciliation banner.
   // Under post-fix semantics, bill.paid_amount is the immutable at-billing
   // snapshot. The banner needs ALL money applied to the bill (at-billing +
-  // reconciled receipts) — derive it from total - return - balance.
+  // reconciled receipts) — derive it from total - balance. Returns are NOT
+  // subtracted here: the sale posts the FULL total to the party ledger and
+  // the credit-note leg is captured separately by returns_offset, so
+  // subtracting return_amount here too double-counted returns.
   const [billRow] = await sequelize.query(
     isCustomer
       ? `SELECT COALESCE(SUM(b.balance_amount), 0)::float outstanding,
-                COALESCE(SUM(b.total_amount - b.return_amount - b.balance_amount), 0)::float paid_in_bills
+                COALESCE(SUM(b.total_amount - b.balance_amount), 0)::float paid_in_bills
            FROM sales_bills b
            JOIN parties p ON p.party_id = b.customer_id
           WHERE b.is_cancelled = false
@@ -663,14 +666,43 @@ async function _reconcile(isCustomer, asOf, subGroup) {
     { replacements: { sg: subGroup, as_of: asOf }, type: sequelize.QueryTypes.SELECT },
   );
 
+  // Refund offset — a cash refund against a sales/purchase return posts a
+  // SECOND voucher that touches the party sub_group again
+  // (sales_return_refund Dr Sundry Debtors / purchase_return_refund Cr
+  // Sundry Creditors). returns_offset only captures the credit-note leg, so
+  // the refund leg is unmatched without this term. Signed onto the
+  // outstanding axis: customer refunds Dr (raise receivable), supplier
+  // refunds Cr (raise payable).
+  const [refundsRow] = await sequelize.query(
+    isCustomer
+      ? `SELECT COALESCE(SUM(le.debit_amount - le.credit_amount), 0)::float v
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE la.sub_group = 'Sundry Debtors'
+            AND le.source_type = 'sales_return_refund'
+            AND le.reversal_of_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+            AND le.entry_date <= :as_of`
+      : `SELECT COALESCE(SUM(le.credit_amount - le.debit_amount), 0)::float v
+           FROM ledger_entries le
+           JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+          WHERE la.sub_group = 'Sundry Creditors'
+            AND le.source_type = 'purchase_return_refund'
+            AND le.reversal_of_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+            AND le.entry_date <= :as_of`,
+    { replacements: { as_of: asOf }, type: sequelize.QueryTypes.SELECT },
+  );
+
   const billOutstanding = r2(billRow.outstanding);
   const paidInBills     = r2(billRow.paid_in_bills);
   const returnsOffset   = r2(returnsRow.v);
+  const refunds         = r2(refundsRow.v);
   const ledgerOutstanding = r2(isCustomer ? ledgerRow.net : -ledgerRow.net);
   const unallocated     = r2(unallocRow.v);
   const openingDr = r2(isCustomer ? openingRow.opening_dr : openingRow.opening_cr);
   const openingCr = r2(isCustomer ? openingRow.opening_cr : openingRow.opening_dr);
-  const expected = r2(billOutstanding + paidInBills - unallocated - returnsOffset + openingDr - openingCr);
+  const expected = r2(billOutstanding + paidInBills - unallocated - returnsOffset + openingDr - openingCr + refunds);
   const difference = r2(ledgerOutstanding - expected);
 
   return {
@@ -679,6 +711,7 @@ async function _reconcile(isCustomer, asOf, subGroup) {
     paid_in_bills:       paidInBills,
     unallocated_receipts: unallocated,
     returns_offset:      returnsOffset,
+    refunds,
     opening_dr:          openingDr,
     opening_cr:          openingCr,
     expected_ledger_outstanding: expected,
