@@ -96,6 +96,15 @@
 }
 .sheet-search input::placeholder { color: var(--c-text-mute); }
 
+/* Bottom-pinned variant: sits below the body so when the keyboard
+   rises, the result list above stays fully tappable. */
+.sheet-search--bottom {
+  margin: 4px 16px calc(env(safe-area-inset-bottom, 0px) + 10px);
+  flex-shrink: 0;
+  border-color: var(--c-primary-line);
+}
+.sheet-search--bottom:focus-within { box-shadow: 0 0 0 3px var(--c-primary-soft); }
+
 .sheet-body {
   flex: 1;
   /* `min-height: 0` is required for a flex child to actually shrink

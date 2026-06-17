@@ -303,9 +303,8 @@ export default function BillForm({ type }) {
       ? { supplier_id: party?.party_id || null }
       : { customer_id: party?.party_id || null, walk_in_name: party ? null : 'Walk-in' };
 
-    // Default behaviour: empty field = pay full bill (Save & pay).
-    // Number = partial payment. Zero = save unpaid (credit).
-    const paidNum = paidAmount === '' ? totals.net : (Number(paidAmount) || 0);
+    // Save with the amount the operator typed. Empty = unpaid / credit.
+    const paidNum = Number(paidAmount) || 0;
 
     // Purchase items carry MRP / sale_rate / margin and ship the unit
     // cost under `purchase_rate` (server contract). Sale items use the
@@ -628,7 +627,7 @@ export default function BillForm({ type }) {
             Cancel
           </button>
           <button className="bf-btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving…' : (isPurchase ? 'Save bill' : 'Save & pay')}
+            {saving ? 'Saving…' : 'Save bill'}
             <ArrowRight />
           </button>
         </div>

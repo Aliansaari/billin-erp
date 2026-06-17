@@ -1,9 +1,6 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-
-// Inline icons keep the bundle small and let us match the editorial stroke
-// weight (1.6) consistently. Filled house for the home tab when active to
-// emphasise context (matches the mockup).
+import CommandCentre from './CommandCentre';
 
 const HomeIcon = ({ filled }) => filled ? (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M3 12L12 3l9 9v9a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1z"/></svg>
@@ -19,21 +16,15 @@ const StockIcon = () => (
 const ReportsIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
 );
-const SearchIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-);
 
 const TABS = [
-  { key: 'home',     label: 'Home',    path: '/dashboard' },
-  { key: 'sales',    label: 'Vouchers', path: '/vouchers'  },
-  { key: 'stock',    label: 'Stock',   path: '/stock'     },
-  { key: 'reports',  label: 'Reports', path: '/reports'   },
-  { key: 'search',   label: 'Search',  path: '/search'    },
+  { key: 'home',    label: 'Home',     path: '/dashboard' },
+  { key: 'sales',   label: 'Vouchers', path: '/vouchers'  },
+  // centre slot is CommandCentre — not a regular tab
+  { key: 'stock',   label: 'Stock',    path: '/stock'     },
+  { key: 'reports', label: 'Reports',  path: '/reports'   },
 ];
 
-// `match` is the URL prefix that activates a tab — e.g. /vouchers/sales/123
-// (drill into a bill) keeps the Sales tab highlighted; /day-book activates
-// Home since it's a Home drill-down.
 const TAB_PREFIX = {
   '/dashboard': 'home',
   '/day-book':  'home',
@@ -41,7 +32,6 @@ const TAB_PREFIX = {
   '/stock':     'stock',
   '/items':     'stock',
   '/reports':   'reports',
-  '/search':    'search',
 };
 
 function activeTabFor(pathname) {
@@ -56,7 +46,6 @@ function iconFor(key, active) {
   if (key === 'sales')   return <SalesIcon />;
   if (key === 'stock')   return <StockIcon />;
   if (key === 'reports') return <ReportsIcon />;
-  if (key === 'search')  return <SearchIcon />;
   return null;
 }
 
@@ -64,20 +53,79 @@ export default function TabBar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const active = activeTabFor(pathname);
+
+  const [left, right] = [TABS.slice(0, 2), TABS.slice(2)];
+
   return (
-    <nav className="tabbar" role="tablist">
-      {TABS.map((t) => (
-        <button
-          key={t.key}
-          className={`tabbar-item${active === t.key ? ' active' : ''}`}
-          onClick={() => navigate(t.path)}
-          role="tab"
-          aria-selected={active === t.key}
-        >
-          <span className="tabbar-icon">{iconFor(t.key, active === t.key)}</span>
-          <span>{t.label}</span>
-        </button>
-      ))}
-    </nav>
+    <>
+      <style>{`
+        .cc-tab-btn {
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: none;
+          border: none;
+          padding: 0 8px;
+          cursor: pointer;
+          -webkit-tap-highlight-color: transparent;
+          font-family: inherit;
+          /* Push the button up so the pill floats above the bar */
+          transform: translateY(-8px);
+        }
+        .cc-tab-pill {
+          width: 52px;
+          height: 52px;
+          border-radius: 18px;
+          background: linear-gradient(155deg, var(--c-primary-hi) 0%, var(--c-primary-lo) 100%);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #FFF4EA;
+          box-shadow:
+            0 6px 20px -4px color-mix(in srgb, var(--c-primary) 60%, transparent),
+            0 2px 6px rgba(0, 0, 0, 0.18),
+            inset 0 1px 0 rgba(255, 255, 255, 0.22);
+          transition: transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 140ms;
+        }
+        .cc-tab-btn:active .cc-tab-pill {
+          transform: scale(0.92);
+          box-shadow:
+            0 3px 10px -2px color-mix(in srgb, var(--c-primary) 50%, transparent),
+            0 1px 4px rgba(0, 0, 0, 0.14);
+        }
+      `}</style>
+
+      <nav className="tabbar" role="tablist">
+        {left.map((t) => (
+          <button
+            key={t.key}
+            className={`tabbar-item${active === t.key ? ' active' : ''}`}
+            onClick={() => navigate(t.path)}
+            role="tab"
+            aria-selected={active === t.key}
+          >
+            <span className="tabbar-icon">{iconFor(t.key, active === t.key)}</span>
+            <span>{t.label}</span>
+          </button>
+        ))}
+
+        {/* Floating command centre pill — sits between the two tab groups */}
+        <CommandCentre />
+
+        {right.map((t) => (
+          <button
+            key={t.key}
+            className={`tabbar-item${active === t.key ? ' active' : ''}`}
+            onClick={() => navigate(t.path)}
+            role="tab"
+            aria-selected={active === t.key}
+          >
+            <span className="tabbar-icon">{iconFor(t.key, active === t.key)}</span>
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </nav>
+    </>
   );
 }

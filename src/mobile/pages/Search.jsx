@@ -613,7 +613,7 @@ export default function Search() {
                 const party  = v.party?.party_name || v.customer?.party_name || v.supplier?.party_name || null;
                 const isReceipt = vt === 'payment' && String(v.transaction_type || '').toLowerCase() === 'receipt';
                 const verb = vt === 'sale' ? 'Sale' : vt === 'purchase' ? 'Purchase' : isReceipt ? 'Receipt' : 'Payment';
-                const route = vt === 'sale'      ? `/vouchers/sale/${vid}`
+                const route = vt === 'sale'      ? `/vouchers/sales/${vid}`
                             : vt === 'purchase'  ? `/vouchers/purchase/${vid}`
                             :                      `/vouchers/${isReceipt ? 'receipt' : 'payment'}/${vid}`;
                 const dateLabel = date ? new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : null;
@@ -642,8 +642,8 @@ export default function Search() {
                 const pid = p.party_id || p.id;
                 const phone = p.mobile_1 || p.mobile_2 || p.phone || null;
                 const route = isCust
-                  ? `/reports/customer-statement?id=${pid}`
-                  : `/reports/supplier-statement?id=${pid}`;
+                  ? `/reports/customer-statement?party_id=${pid}&party_name=${encodeURIComponent(p.party_name || '')}`
+                  : `/reports/supplier-statement?party_id=${pid}&party_name=${encodeURIComponent(p.party_name || '')}`;
                 const sub = [p.party_type, phone, p.gstin, p.city].filter(Boolean).join(' · ') || '—';
                 const amount = p.current_balance != null && p.current_balance !== 0
                   ? `₹${formatINR(Math.abs(p.current_balance))}`

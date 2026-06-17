@@ -88,7 +88,7 @@ export default function Stock() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    productAPI.getAll({ limit: 500 })
+    productAPI.getAll({ limit: 10000 })
       .then((res) => {
         if (cancelled) return;
         const raw = Array.isArray(res.data) ? res.data : (res.data?.data || []);
@@ -228,7 +228,9 @@ export default function Stock() {
       rows = rows.filter((p) =>
         String(p.product_name || p.name || '').toLowerCase().includes(q) ||
         String(p.sku || p.barcode || '').toLowerCase().includes(q) ||
-        String(p.hsn_code || '').toLowerCase().includes(q),
+        String(p.hsn_code || '').toLowerCase().includes(q) ||
+        String(p.article_number || '').toLowerCase().includes(q) ||
+        String(p.product_code || '').toLowerCase().includes(q),
       );
     }
     return rows;
@@ -289,7 +291,7 @@ export default function Stock() {
         <div className="st-search">
           <input
             ref={searchRef}
-            placeholder="Search product name, SKU, HSN…"
+            placeholder="Search product name, SKU, HSN, article…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             autoCorrect="off"
