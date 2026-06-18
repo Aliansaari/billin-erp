@@ -340,8 +340,8 @@
 /* ─── Quick actions ──────────────────────────────────────────────── */
 .qa-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
   margin-bottom: 24px;
 }
 
@@ -368,12 +368,12 @@
 .qa-btn {
   background: var(--c-bg-surface);
   border: 1px solid var(--c-border);
-  border-radius: 18px;
-  padding: 14px 6px 12px;
+  border-radius: 20px;
+  padding: 18px 16px 16px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   cursor: pointer;
   font-family: inherit;
   transition: transform 120ms, background 120ms;
@@ -381,9 +381,9 @@
 .qa-btn:active { transform: scale(0.97); background: var(--c-primary-soft); }
 
 .qa-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 11px;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
   background: var(--c-bg-app);
   display: flex;
   align-items: center;
@@ -400,12 +400,12 @@
 }
 
 .qa-label {
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--c-text);
-  text-align: center;
-  letter-spacing: -0.005em;
-  line-height: 1.15;
+  text-align: left;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 /* ─── Section header ─────────────────────────────────────────────── */

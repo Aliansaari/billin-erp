@@ -69,6 +69,7 @@ export default function VoucherForm({ type }) {
   const [allocs, setAllocs]       = useState({}); // {bill_id: amount}
   const [selected, setSelected]   = useState(() => new Set());
   const [amount, setAmount]       = useState('');
+  const [txDate, setTxDate]       = useState(todayISO());
   const [mode, setMode]           = useState(isReceipt ? 'Cash' : 'UPI');
   const [banks, setBanks]         = useState([]);
   const [bankId, setBankId]       = useState(null);
@@ -245,7 +246,7 @@ export default function VoucherForm({ type }) {
 
     const body = {
       transaction_type: type,
-      transaction_date: todayISO(),
+      transaction_date: txDate,
       party_id: party.party_id,
       total_amount: amountN,
       remarks: '',
@@ -323,7 +324,14 @@ export default function VoucherForm({ type }) {
           <BackIcon />
         </button>
         <div className="vf-header-meta">
-          {isReceipt ? 'REC' : 'PAY'} <span className="strong">{voucherNo || '—'}</span>
+          <span>{isReceipt ? 'REC' : 'PAY'} <span className="strong">{voucherNo || '—'}</span></span>
+          <input
+            type="date"
+            className="vf-date-input"
+            value={txDate}
+            onChange={(e) => setTxDate(e.target.value || todayISO())}
+            aria-label="Transaction date"
+          />
         </div>
         <button className="vf-icon-btn" aria-label="More">
           <MoreIcon />

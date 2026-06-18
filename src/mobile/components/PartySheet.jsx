@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
+import { Capacitor } from '@capacitor/core';
 import { partyAPI } from '../../api';
 import './sheet.css';
 
@@ -11,7 +12,30 @@ function PartySheetInner({ type, onClose, onPick }) {
   const [query, setQuery] = useState('');
   const [list, setList]   = useState([]);
   const [loading, setLoading] = useState(true);
+  const [kbdH, setKbdH]  = useState(0);
   const searchRef = useRef(null);
+
+  // Lift the sheet above the iOS keyboard so results stay visible.
+  useEffect(() => {
+    const setKbd = (px) => setKbdH(Math.max(0, px));
+    let cleanup = () => {};
+    if (Capacitor.isNativePlatform()) {
+      let showH = null, hideH = null;
+      import('@capacitor/keyboard').then(({ Keyboard }) => {
+        Keyboard.addListener('keyboardWillShow', (info) => setKbd(info.keyboardHeight)).then((h) => { showH = h; });
+        Keyboard.addListener('keyboardWillHide', () => setKbd(0)).then((h) => { hideH = h; });
+      }).catch(() => {});
+      cleanup = () => { showH?.remove?.(); hideH?.remove?.(); setKbd(0); };
+    } else if (window.visualViewport) {
+      const vv = window.visualViewport;
+      const apply = () => setKbd(window.innerHeight - vv.height - vv.offsetTop);
+      apply();
+      vv.addEventListener('resize', apply);
+      vv.addEventListener('scroll', apply);
+      cleanup = () => { vv.removeEventListener('resize', apply); vv.removeEventListener('scroll', apply); setKbd(0); };
+    }
+    return cleanup;
+  }, []);
 
   // Fetch initial list, refetch on query change with a small debounce.
   useEffect(() => {
@@ -35,24 +59,16 @@ function PartySheetInner({ type, onClose, onPick }) {
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog">
+      <div
+        className="sheet"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        style={kbdH > 0 ? { marginBottom: kbdH, maxHeight: `calc(86vh - ${kbdH}px)` } : undefined}
+      >
         <div className="sheet-grab" />
         <div className="sheet-head">
           <h2 className="sheet-title">{heading}</h2>
           <button className="sheet-close" onClick={onClose}>Close</button>
-        </div>
-
-        <div className="sheet-search">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input
-            ref={searchRef}
-            placeholder="Search name, mobile, GSTIN…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoCorrect="off"
-            autoCapitalize="words"
-            spellCheck="false"
-          />
         </div>
 
         <div className="sheet-body">
@@ -111,6 +127,21 @@ function PartySheetInner({ type, onClose, onPick }) {
               </button>
             );
           })}
+        </div>
+
+        {/* Search field pinned at the bottom so when the keyboard rises
+            the results list (above) stays fully visible and tappable. */}
+        <div className="sheet-search sheet-search--bottom">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input
+            ref={searchRef}
+            placeholder="Search name, mobile, GSTIN…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoCorrect="off"
+            autoCapitalize="words"
+            spellCheck="false"
+          />
         </div>
       </div>
     </div>

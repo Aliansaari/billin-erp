@@ -210,7 +210,7 @@ export default function Login() {
         <div className="login-brand" onClick={handleWordmarkTap} role="button" tabIndex={-1}>
           <div className="login-brand-mark" aria-hidden />
           <div className="login-brand-word">
-            billin<span className="wm-dot">·</span>erp
+            ZEHEN
           </div>
           <span className={`login-status login-status--${conn}`}>
             <span className="login-status-dot" />

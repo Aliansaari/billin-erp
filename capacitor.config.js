@@ -16,7 +16,6 @@ const baseServer = {
 
 /** @type {import('@capacitor/cli').CapacitorConfig} */
 const config = {
-  // appId is the on-device bundle identifier (iOS/Android).
   appId: 'com.sabina.zehen',
   appName: 'ZEHEN',
   webDir: 'dist-mobile',

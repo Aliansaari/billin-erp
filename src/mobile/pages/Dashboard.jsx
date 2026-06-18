@@ -91,7 +91,15 @@ export default function Dashboard() {
         if (cancelled) return;
         if (s.status === 'fulfilled')   setStats(s.value.data);
         if (ins.status === 'fulfilled') setInsights(ins.value.data);
-        if (db.status === 'fulfilled')  setToday((db.value.data?.data || []).slice(0, 6));
+        if (db.status === 'fulfilled') {
+          const raw = db.value.data?.data || [];
+          // Sort by entry_number descending so the most-recent transaction
+          // appears first, regardless of the API's default ordering.
+          const sorted = [...raw].sort(
+            (a, b) => Number(b.entry_number || 0) - Number(a.entry_number || 0),
+          );
+          setToday(sorted.slice(0, 6));
+        }
       })
       .catch(() => {
         if (!cancelled) Toast.show({ icon: 'fail', content: 'Failed to load dashboard' });
@@ -278,13 +286,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Quick actions — horizontally scrollable now that we have
-          5+ buttons. Each tile keeps a fixed width so the row swipes
-          like a carousel. */}
-      <div className="qa-scroll">
+      {/* Quick actions — 4 core entry points. Everything else is in
+          the Command Centre (centre tab-bar button). */}
+      <div className="qa-grid">
         <button className="qa-btn primary" onClick={() => navigate('/sale/new')}>
           <span className="qa-icon">{I.invoice}</span>
-          <span className="qa-label">New<br/>Invoice</span>
+          <span className="qa-label">New Invoice</span>
         </button>
         <button className="qa-btn" onClick={() => navigate('/receipt/new')}>
           <span className="qa-icon">{I.receive}</span>
@@ -292,19 +299,11 @@ export default function Dashboard() {
         </button>
         <button className="qa-btn" onClick={() => navigate('/purchase/new')}>
           <span className="qa-icon">{I.cart}</span>
-          <span className="qa-label">New<br/>Purchase</span>
+          <span className="qa-label">New Purchase</span>
         </button>
         <button className="qa-btn" onClick={() => navigate('/payment/new')}>
           <span className="qa-icon">{I.send}</span>
           <span className="qa-label">Payment</span>
-        </button>
-        <button className="qa-btn" onClick={() => navigate('/customer/new')}>
-          <span className="qa-icon">{I.userPlus}</span>
-          <span className="qa-label">Add<br/>Customer</span>
-        </button>
-        <button className="qa-btn" onClick={() => navigate('/supplier/new')}>
-          <span className="qa-icon">{I.userPlus}</span>
-          <span className="qa-label">Add<br/>Supplier</span>
         </button>
       </div>
 
