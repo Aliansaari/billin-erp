@@ -147,11 +147,22 @@ exports.dashboardStats = async (req, res) => {
       // which is the single source of truth. The old bill-based formula
       // double-counted opening balances (added them on top of bill balances
       // that already reflected those openings via payment reconciliation).
+      //
+      // Scope by party_type so these tiles MATCH the Customers / Suppliers
+      // list pages exactly:
+      //   • Receivables = Customer/Both dues  (= Customers page "Total Receivable")
+      //   • Payables    = Supplier/Both dues  (= Suppliers page "Total Payable")
+      // Without this filter the tiles summed EVERY credit/debit balance —
+      // e.g. a customer sitting on an advance (credit balance) inflated
+      // Payables — so the dashboard never agreed with the party lists.
+      // 'Both' parties net to a single signed balance and land on the
+      // correct side by sign, so they're never double-counted.
       sequelize.query(`
         SELECT COUNT(*)::int AS count,
                COALESCE(SUM(current_balance), 0)::float AS total
         FROM parties
         WHERE current_balance > 0
+          AND party_type IN ('Customer', 'Both')
           AND COALESCE(is_system_cash, false) = false
       `).then(([rows]) => rows),
       sequelize.query(`
@@ -159,6 +170,7 @@ exports.dashboardStats = async (req, res) => {
                COALESCE(SUM(ABS(current_balance)), 0)::float AS total
         FROM parties
         WHERE current_balance < 0
+          AND party_type IN ('Supplier', 'Both')
           AND COALESCE(is_system_cash, false) = false
       `).then(([rows]) => rows),
 
@@ -2036,7 +2048,7 @@ exports.partyOutstanding = async (req, res) => {
                    ), 0)
                  )::float AS current_balance
           FROM parties p
-          WHERE p.is_active = true AND p.party_type IN ('Customer','Both')
+          WHERE p.party_type IN ('Customer','Both')
         `;
       }
       return `
@@ -2061,7 +2073,7 @@ exports.partyOutstanding = async (req, res) => {
                  ), 0)
                )::float AS current_balance
         FROM parties p
-        WHERE p.is_active = true AND p.party_type IN ('Supplier','Both')
+        WHERE p.party_type IN ('Supplier','Both')
       `;
     };
 
@@ -2470,7 +2482,7 @@ exports.exportPartyOutstanding = async (req, res) => {
                    ), 0)
                  )::float AS current_balance
           FROM parties p
-          WHERE p.is_active = true AND p.party_type IN ('Customer','Both')
+          WHERE p.party_type IN ('Customer','Both')
         `;
       }
       return `
@@ -2495,7 +2507,7 @@ exports.exportPartyOutstanding = async (req, res) => {
                  ), 0)
                )::float AS current_balance
         FROM parties p
-        WHERE p.is_active = true AND p.party_type IN ('Supplier','Both')
+        WHERE p.party_type IN ('Supplier','Both')
       `;
     };
 

@@ -815,7 +815,13 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
         <div className="bo-banner bo-banner-info">
           <InfoCircleOutlined />
           <span>
-            <b>{unallocatedCount}</b> {side === 'payable' ? 'payment' : 'receipt'}{unallocatedCount === 1 ? '' : 's'} {unallocatedCount === 1 ? 'is' : 'are'} recorded on-account / at-billing rather than tagged to specific bills. Bill and party totals are correct — this only affects per-bill FIFO attribution.
+            <b>{unallocatedCount}</b> {side === 'payable' ? 'payment' : 'receipt'}{unallocatedCount === 1 ? '' : 's'} {unallocatedCount === 1 ? 'is' : 'are'} recorded on-account / at-billing rather than tagged to specific bills, so the bill total below is lower than the true ledger total — both are correct.
+            {reconciliation && Number.isFinite(reconciliation.ledger_outstanding) && (
+              <>
+                {' '}<b>Tagged to open bills:</b> {fmtINR(summary.total_outstanding)} · <b>Total {side === 'payable' ? 'payable' : 'receivable'} per ledger:</b> {fmtINR(reconciliation.ledger_outstanding)}{' '}
+                ({fmtINR(Math.max(0, reconciliation.ledger_outstanding - summary.total_outstanding))} sits on-account / opening). The ledger total is the figure shown on the Dashboard and the {side === 'payable' ? 'Suppliers' : 'Customers'} page.
+              </>
+            )}
           </span>
           <Button type="text" size="small" icon={<CloseOutlined />} onClick={() => setAllocBannerDismissed(true)} />
         </div>

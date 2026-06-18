@@ -540,6 +540,27 @@ export default function PartyListView({ partyType }) {
             <span className="title">
               {isCustomer ? 'Receivables · Aging buckets' : 'Payables · Aging buckets'}
             </span>
+            {(() => {
+              // The four buckets are bill-level (open-bill balances); the
+              // Total card is the ledger balance (the true total owed). When
+              // payments are recorded on-account / at-billing, or there are
+              // opening balances, part of the ledger total isn't tied to any
+              // open bill — so the buckets sum to less than the Total. Surface
+              // that remainder so the cards visibly reconcile instead of
+              // silently falling short.
+              const bucketsSum = (aging.b0_30 || 0) + (aging.b31_60 || 0) + (aging.b61_90 || 0) + (aging.b90plus || 0);
+              const gap = totalReceivable - bucketsSum;
+              if (gap <= 1) return null;
+              return (
+                <span
+                  className="plv-hero-note"
+                  style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--fg-tertiary)' }}
+                  title="On-account / at-billing payments and opening balances aren't tied to a specific bill, so they don't fall into an aging bucket. They are still included in the Total."
+                >
+                  {fmt(gap)} on-account / opening (not in a bucket)
+                </span>
+              );
+            })()}
           </div>
           <div className={`plv-hero${hideTotals ? ' hidden' : ''}`}>
             <div
