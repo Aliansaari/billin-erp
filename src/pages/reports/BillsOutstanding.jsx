@@ -192,6 +192,12 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
   // or some are open) and "Collapse all" (when every party is open).
   const [expanded, setExpanded] = useState(() => new Set());
   const [partyGroupCount, setPartyGroupCount] = useState(0);
+  // Ledger-anchored summary pushed up from the party view so the KPI tiles
+  // and exports show the same total it does (= Dashboard receivable/payable
+  // and the Customers/Suppliers list). The bill-level view keeps using the
+  // server `summary` (open-bill basis) — the two are reconciled in the
+  // banner. { total, parties } | null.
+  const [partyViewSummary, setPartyViewSummary] = useState(null);
   const allExpanded = partyGroupCount > 0 && expanded.size >= partyGroupCount;
   const anyExpanded = expanded.size > 0;
   const toggleExpandAll = useCallback(() => {
@@ -326,6 +332,14 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
   const bucketLabels       = meta?.bucket_labels || { current: 'Not Due', b1: '1–30', b2: '31–60', b3: '61–90', b4: '90+' };
   const filterMeta         = meta?.filter_meta || { distinct_cities: [], distinct_states: [] };
   const bucketBounds       = useMemo(() => inferBoundsFromLabels(bucketLabels), [bucketLabels]);
+
+  // In party view the headline total is the ledger balance (matches the
+  // Dashboard + party lists); in bill view it's the open-bill sum from the
+  // server summary. Fall back to the server summary until the party view
+  // has reported its total.
+  const inPartyView   = viewMode === 'party';
+  const displayTotal  = inPartyView && partyViewSummary ? partyViewSummary.total   : summary.total_outstanding;
+  const displayParties = inPartyView && partyViewSummary ? partyViewSummary.parties : (summary.party_count || 0);
 
   // Update URL preset when sort header is clicked. Same column → flip
   // direction; new column → sort it descending. Keeps the list always
@@ -717,12 +731,12 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
   const handleWhatsApp = useCallback(() => {
     const lines = [
       `*${cfg.title}* — as on ${dayjs(asOf).format('DD-MMM-YY')}`,
-      `Total Outstanding: ${fmtINR(summary.total_outstanding)}`,
-      `Bills: ${summary.bill_count || 0} · Parties: ${summary.party_count || 0}`,
+      `Total Outstanding: ${fmtINR(displayTotal)}`,
+      `Bills: ${summary.bill_count || 0} · Parties: ${displayParties}`,
       `Overdue: ${fmtINR(summary.overdue_amount)} · Avg ${summary.avg_days_overdue || 0} days`,
     ].join('\n');
     window.open(`https://wa.me/?text=${encodeURIComponent(lines)}`, '_blank', 'noopener,noreferrer');
-  }, [cfg, asOf, summary]);
+  }, [cfg, asOf, summary, displayTotal, displayParties]);
 
   // Reconciliation-banner content (tooltip body).
   const reconTooltip = reconciliation ? (
@@ -811,7 +825,7 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
         common case after R8 backfill if no manual on-account receipts
         exist).
       */}
-      {unallocatedCount > 0 && !allocBannerDismissed && (
+      {unallocatedCount > 0 && !allocBannerDismissed && !inPartyView && (
         <div className="bo-banner bo-banner-info">
           <InfoCircleOutlined />
           <span>
@@ -854,7 +868,7 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
       <div className="bo-kpis">
         <div className="bo-kpi" onClick={kpiClickAll} title="Click to clear filters">
           <div className="bo-kpi-label">Total Outstanding</div>
-          <div className="bo-kpi-value bo-kpi-strong">{fmtINR(summary.total_outstanding)}</div>
+          <div className="bo-kpi-value bo-kpi-strong">{fmtINR(displayTotal)}</div>
         </div>
         <div className="bo-kpi">
           <div className="bo-kpi-label">Bills</div>
@@ -862,7 +876,7 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
         </div>
         <div className="bo-kpi">
           <div className="bo-kpi-label">Parties</div>
-          <div className="bo-kpi-value">{summary.party_count || 0}</div>
+          <div className="bo-kpi-value">{displayParties}</div>
         </div>
         <div className={'bo-kpi bo-kpi-clickable' + (buckets.length > 0 && buckets.every((b) => b !== 'current') ? ' bo-kpi-active' : '')} onClick={kpiClickOverdue} title="Show only overdue buckets">
           <div className="bo-kpi-label">Overdue Amount</div>
@@ -1044,6 +1058,7 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
             expanded={expanded}
             setExpanded={setExpanded}
             onGroupCount={setPartyGroupCount}
+            onSummary={setPartyViewSummary}
             expandAllRequest={expandAllRequest}
           />
         </div>

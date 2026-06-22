@@ -1696,7 +1696,9 @@ export default function PurchaseBillForm() {
       }
 
       if (!modalOpened) {
-        if (isEdit) navigate('/purchases');
+        // replace (not push) so the saved bill isn't left in history —
+        // stops Back from the list looping back into this edit form.
+        if (isEdit) navigate('/purchases', { replace: true });
         else { handleReset(); setBillNumber(''); }
       }
     }catch(e){
@@ -1715,7 +1717,8 @@ export default function PurchaseBillForm() {
     setAmountVal(''); setAmountGstRate(0); setAmountHsnCode(''); setAmountDesc('');
     setRecalledDraftId(null);
     form.resetFields(['supplier_id','walk_in_name','supplier_bill_number','transport_name','vehicle_number','lr_number','due_date','discount_percentage','paid_amount','other_charges','freight_charges','remarks']);
-    setTimeout(()=>barcodeRef.current?.focus(),50);
+    // Ready for the next bill — land on the Supplier box, not the scanner.
+    setTimeout(()=>supplierRef.current?.focus(),50);
   };
 
   // Warn on tab close/refresh when there's in-progress work. Declared above
@@ -2956,7 +2959,7 @@ export default function PurchaseBillForm() {
         visible={printModal.visible}
         onClose={()=>{
           setPrintModal({visible:false,bill:null});
-          if(isEdit){ navigate('/purchases'); }
+          if(isEdit){ navigate('/purchases', { replace: true }); }
           else { handleReset(); setBillNumber(''); }
         }}
         billNumber={printModal.bill?.bill_number}

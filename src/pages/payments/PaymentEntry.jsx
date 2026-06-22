@@ -283,6 +283,8 @@ export default function PaymentEntry() {
     setChequeDate(null);
     setPayAmt(null);
     setDiscAmt(0);
+    // Ready for the next payment — focus the supplier box, not the amount.
+    setTimeout(() => partyRef.current?.focus(), 60);
   };
 
   const handleSave = useCallback(async () => {
@@ -368,7 +370,9 @@ export default function PaymentEntry() {
           : `Payment ${result.transaction_number} saved! ✓`,
       );
       if (isEdit) {
-        navigate('/payments');
+        // replace (not push) so the saved payment isn't left in history —
+        // stops Back from the list looping back into this edit form.
+        navigate('/payments', { replace: true });
       } else {
         handleReset();
         refreshNextNumber();

@@ -31,6 +31,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Spin, Empty, Tooltip, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
+import { reportAPI } from '../../api';
 
 const fmt = (v) =>
   parseFloat(v || 0).toLocaleString('en-IN', {
@@ -54,66 +55,121 @@ export default function PartyOutstandingView({
   expanded,       // Set of party_ids currently expanded — owned by parent so the header's Expand-all toggle can read + write it
   setExpanded,    // (Set) => void — parent's setter, used by row clicks + keyboard nav
   onGroupCount,   // (n: number) => void — parent uses this to know how many parties are loaded so its header toggle can decide "Expand all" vs "Collapse all"
+  onSummary,      // ({ total, parties }) => void — pushes the ledger-anchored grand total up so the parent's KPI tiles match this view
   expandAllRequest = 0, // counter — every increment from the parent triggers an "expand every loaded party" action
 }) {
   const navigate = useNavigate();
-  const [rows, setRows]       = useState([]);   // raw bill-level rows from API
-  const [loading, setLoading] = useState(false);
+  const [billRows, setBillRows] = useState([]);   // open-bill rows — drill-down detail only
+  const [balRows,  setBalRows]  = useState([]);   // per-party LEDGER balance — the authoritative total
+  const [loading,  setLoading]  = useState(false);
 
-  // Single-shot fetch — load every matching bill, aggregate locally.
-  // The hook-driven virtualization in BillsOutstanding's bill-view
-  // doesn't suit us here because aggregating needs the full set.
+  // ── Two data sources, fetched together ───────────────────────────────
+  //   • getPartyOutstanding → one row per owing party with its ledger
+  //     balance (current_balance). This is the SAME figure the Dashboard
+  //     tiles and the Customers / Suppliers list show, so anchoring each
+  //     party's total here makes all three agree (the bill-level sum used
+  //     to fall short by the on-account / opening money that isn't tied to
+  //     a specific open bill).
+  //   • cfg.fetcher (bills-receivable/payable) → the individual open bills,
+  //     used only to populate each party's expandable bill list and to
+  //     split the balance into "against open bills" vs "on-account /
+  //     opening". Fetched by as-of + scope only (not the bill-level
+  //     bucket/city/amount chips) so the split is computed against EVERY
+  //     open bill, not a filtered subset.
   useEffect(() => {
     let stale = false;
     setLoading(true);
-    cfg.fetcher({ ...filters, limit: 10000, offset: 0 })
-      .then(res => {
+    Promise.all([
+      cfg.fetcher({ as_of: filters?.as_of, limit: 10000, offset: 0 }),
+      reportAPI.getPartyOutstanding({ party_type: cfg.partyTypeQuery }),
+    ])
+      .then(([billsRes, balRes]) => {
         if (stale) return;
-        // The API returns either { data: [...] } or just [...]. Older
-        // builds returned the array directly; the report router was
-        // recently normalised to the wrapped shape, but tolerate both.
-        const list = Array.isArray(res.data) ? res.data : (res.data?.data || []);
-        setRows(list);
+        const bills = Array.isArray(billsRes.data) ? billsRes.data : (billsRes.data?.data || []);
+        const bals  = balRes?.data?.data || [];
+        setBillRows(bills);
+        setBalRows(bals);
       })
       .catch(err => {
         if (stale) return;
         message.error(err?.response?.data?.error || `Failed to load ${cfg.title}.`);
-        setRows([]);
+        setBillRows([]); setBalRows([]);
       })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
-  }, [cfg, filters]);
+  }, [cfg, filters?.as_of]);
 
-  // Group bills by party_id. Each group keeps every bill so the
-  // expand-action can render rows directly without re-querying.
+  // Party-level filters applied client-side (the universally-expected ones
+  // for a "who owes what" report). Bill-level chips (bucket / city /
+  // amount) stay on the Bill Wise view; this view is anchored to the
+  // ledger balance.
+  const partyIdFilter = useMemo(() => {
+    const raw = filters?.party_ids;
+    if (!raw) return null;
+    const ids = String(raw).split(',').map((s) => parseInt(s, 10)).filter(Number.isFinite);
+    return ids.length ? new Set(ids) : null;
+  }, [filters?.party_ids]);
+  const searchFilter = (filters?.search || '').trim().toLowerCase();
+
+  // Build one group per owing party, anchored to its ledger balance, with
+  // its open bills attached for the drill-down + the on-account split.
   const groups = useMemo(() => {
-    const map = new Map();
-    for (const r of rows) {
-      const key = r.party_id ?? `cash:${r.party_name || ''}`;
-      if (!map.has(key)) {
-        map.set(key, {
-          party_id:    r.party_id,
-          party_name:  r.party_name || '—',
-          party_city:  r.party_city || '',
-          party_mobile:r.party_mobile || '',
-          total:       0,
-          bills:       [],
-          overdue:     0,             // overdue total, for the per-row hint
-          oldestDays:  0,
-        });
-      }
-      const g = map.get(key);
-      g.total      += parseFloat(r.outstanding) || 0;
-      const od     = parseInt(r.overdue_days || 0, 10);
-      if (od > 0) g.overdue += parseFloat(r.outstanding) || 0;
-      if (od > g.oldestDays) g.oldestDays = od;
-      g.bills.push(r);
+    const billsByParty = new Map();
+    for (const b of billRows) {
+      if (!billsByParty.has(b.party_id)) billsByParty.set(b.party_id, []);
+      billsByParty.get(b.party_id).push(b);
     }
-    return [...map.values()].sort((a, b) => b.total - a.total);
-  }, [rows]);
+
+    const out = [];
+    for (const p of balRows) {
+      // getPartyOutstanding already restricts to the owing side (customers
+      // current_balance > 0, suppliers < 0); the magnitude is owed.
+      const total = Math.abs(parseFloat(p.current_balance) || 0);
+      if (total < 0.01) continue;
+      if (partyIdFilter && !partyIdFilter.has(p.party_id)) continue;
+      if (searchFilter) {
+        const hay = `${p.party_name || ''} ${p.mobile_1 || ''}`.toLowerCase();
+        if (!hay.includes(searchFilter)) continue;
+      }
+
+      const bills = billsByParty.get(p.party_id) || [];
+      let billOutstanding = 0, overdue = 0, oldestDays = 0;
+      let city = '', mobile = p.mobile_1 || '';
+      for (const b of bills) {
+        const o = parseFloat(b.outstanding) || 0;
+        billOutstanding += o;
+        const od = parseInt(b.overdue_days || 0, 10);
+        if (od > 0) overdue += o;
+        if (od > oldestDays) oldestDays = od;
+        if (!city && b.party_city) city = b.party_city;
+        if (!mobile && b.party_mobile) mobile = b.party_mobile;
+      }
+      // The slice of the ledger balance not tied to an open bill: opening
+      // balance / on-account receipts (positive), or a net credit when
+      // open bills exceed the balance (negative). bills + onaccount = total.
+      const onaccount = parseFloat((total - billOutstanding).toFixed(2));
+
+      out.push({
+        party_id:     p.party_id,
+        party_name:   p.party_name || '—',
+        party_city:   city,
+        party_mobile: mobile,
+        total,
+        bills,
+        onaccount,
+        overdue,
+        oldestDays,
+      });
+    }
+    return out.sort((a, b) => b.total - a.total);
+  }, [balRows, billRows, partyIdFilter, searchFilter]);
 
   const grandTotal = useMemo(
     () => groups.reduce((s, g) => s + g.total, 0),
+    [groups],
+  );
+  const totalBills = useMemo(
+    () => groups.reduce((s, g) => s + g.bills.length, 0),
     [groups],
   );
 
@@ -132,6 +188,13 @@ export default function PartyOutstandingView({
   useEffect(() => {
     if (typeof onGroupCount === 'function') onGroupCount(groups.length);
   }, [groups.length, onGroupCount]);
+
+  // Push the ledger-anchored grand total up so the parent's KPI tiles
+  // (Total Outstanding / Parties) show the same figure as this view —
+  // which equals the Dashboard receivable/payable and the party lists.
+  useEffect(() => {
+    if (typeof onSummary === 'function') onSummary({ total: grandTotal, parties: groups.length });
+  }, [grandTotal, groups.length, onSummary]);
 
   // Parent ticked the expand-all counter — open every loaded party.
   // Skip the initial mount (counter still at its default 0) so an
@@ -160,6 +223,9 @@ export default function PartyOutstandingView({
       list.push({ kind: 'party', key, group: g });
       if (expanded.has(key)) {
         for (const b of g.bills) list.push({ kind: 'bill', key: `bill:${b.bill_id}`, bill: b, parentKey: key });
+        // Reconciling line so the bills under a party visibly add up to its
+        // ledger total (opening / on-account money not tied to a bill).
+        if (Math.abs(g.onaccount) >= 1) list.push({ kind: 'onaccount', key: `oa:${key}`, group: g, parentKey: key });
       }
     }
     return list;
@@ -233,7 +299,7 @@ export default function PartyOutstandingView({
         // parent and re-anchor the cursor on the parent.
         const row = navRows[activeIdx];
         if (!row) return;
-        if (row.kind === 'bill') {
+        if (row.kind === 'bill' || row.kind === 'onaccount') {
           e.preventDefault();
           const parentIdx = navRows.findIndex(r => r.kind === 'party' && r.key === row.parentKey);
           togglePartyExpand(row.parentKey);
@@ -246,8 +312,9 @@ export default function PartyOutstandingView({
         const row = navRows[activeIdx];
         if (!row) return;
         e.preventDefault();
-        if (row.kind === 'party') togglePartyExpand(row.key);
-        else                       onDrillBill(row.bill);
+        if (row.kind === 'party')      togglePartyExpand(row.key);
+        else if (row.kind === 'bill')  onDrillBill(row.bill);
+        // onaccount rows are informational — Enter is a no-op.
       }
     };
     window.addEventListener('keydown', onKey);
@@ -263,7 +330,7 @@ export default function PartyOutstandingView({
     navigate(`${route}?id=${party.party_id}&to=${asOf}`);
   }, [navigate, side, asOf]);
 
-  if (!loading && rows.length === 0) {
+  if (!loading && groups.length === 0) {
     return (
       <div className="po-empty">
         <Empty description={`No ${cfg.partyLabel.toLowerCase()} outstanding as on ${dayjs(asOf).format('D MMM YYYY')}.`} />
@@ -337,6 +404,29 @@ export default function PartyOutstandingView({
                   </tr>
                 );
               }
+              // On-account / opening reconciling line inside an expanded
+              // party — the balance not tied to a specific open bill.
+              if (row.kind === 'onaccount') {
+                const g = row.group;
+                const amt = g.onaccount;
+                return (
+                  <tr
+                    key={row.key}
+                    className={'po-nav-row po-bill-row po-onaccount-row' + (isActive ? ' is-active' : '')}
+                    onClick={() => setActiveIdx(idx)}
+                  >
+                    <td />
+                    <td className="po-bill-cell">
+                      <span className="po-bill-no" style={{ fontStyle: 'italic' }}>On account / opening</span>
+                      <span className="po-bill-meta">not against a specific bill</span>
+                    </td>
+                    <td className="po-num" style={{ fontStyle: 'italic' }}>
+                      {fmt(amt)} <span className="po-drcr">{amt >= 0 ? sideSuffix(side) : (side === 'receivable' ? 'Cr' : 'Dr')}</span>
+                    </td>
+                    <td className="po-num" colSpan={2} />
+                  </tr>
+                );
+              }
               // Bill row inside an expanded party
               const b = row.bill;
               return (
@@ -386,7 +476,7 @@ export default function PartyOutstandingView({
             <td />
             <td><b>Grand Total</b></td>
             <td className="po-num"><b>{fmt(grandTotal)}</b> <span className="po-drcr">{sideSuffix(side)}</span></td>
-            <td className="po-num"><b>{rows.length}</b></td>
+            <td className="po-num"><b>{totalBills}</b></td>
             <td />
           </tr>
         </tbody>

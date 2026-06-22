@@ -327,6 +327,8 @@ export default function ReceiptEntry() {
     setChequeDate(null);
     setPayAmt(null);
     setDiscAmt(0);
+    // Ready for the next receipt — focus the customer box, not the amount.
+    setTimeout(() => partyRef.current?.focus(), 60);
   };
 
   const handleSave = useCallback(async () => {
@@ -442,7 +444,9 @@ export default function ReceiptEntry() {
       if (whatsapp) shareBillViaWhatsApp({ docType: 'receipt', id: txnId });
 
       if (isEdit) {
-        navigate('/payments');
+        // replace (not push) so the saved receipt isn't left in history —
+        // stops Back from the list looping back into this edit form.
+        navigate('/payments', { replace: true });
       } else {
         handleReset();
         refreshNextNumber();

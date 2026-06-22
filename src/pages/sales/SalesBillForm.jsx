@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Tag, Checkbox } from 'antd';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -18,6 +18,66 @@ import './sales-bill-form.css';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+
+// ── Isolated barcode-scan input ──────────────────────────────────────
+// A barcode scanner fires one keydown per character (~12 chars + Enter
+// for a single scan). When the scan box is bound to the parent form's
+// state, EVERY one of those characters runs setEntry → the whole
+// SalesBillForm re-renders → the items <Table> re-renders all its rows.
+// So one scan triggered ~13 full-form re-renders, and the cost grew with
+// the number of rows already in the table — which is exactly why scanning
+// crawled after editing a bill or recalling a hold (table pre-loaded with
+// many lines).
+//
+// This component holds the in-progress scan text in its OWN local state,
+// so typing/scanning re-renders only this tiny input — NEVER the parent
+// form or the items table. The parent's state is touched exactly once per
+// scan (onScan, on Enter). `reflectValue` lets the parent push a value
+// into the box (manual product pick, reset) without re-coupling typing to
+// parent re-renders.
+//
+// Why local state and not a raw uncontrolled input: AntD's <Input> keeps
+// its own internal value, so clearing the box by writing input.value=''
+// directly on the DOM gets overwritten on the next render (the box kept
+// the old barcode and the next scan stacked onto it). Driving it through
+// React state is the only reliable clear. The forwarded ref still resolves
+// to the AntD Input instance, so existing barcodeRef.current.focus()/
+// .select()/.input call sites keep working unchanged.
+const ScanField = React.forwardRef(function ScanField(
+  { reflectValue = '', onScan, onArrowDown, placeholder = 'Scan or type' },
+  ref,
+) {
+  const [text, setText] = React.useState(reflectValue || '');
+  // Reflect parent-driven values into the box. Typing only updates local
+  // `text` (the parent never re-renders per keystroke), so this effect
+  // does NOT fire mid-typing — reflectValue is unchanged then.
+  React.useEffect(() => { setText(reflectValue || ''); }, [reflectValue]);
+  const fire = (val) => {
+    const v = (val || '').trim();
+    if (v) { setText(''); onScan?.(v); }
+  };
+  return (
+    <Input
+      ref={ref}
+      value={text}
+      placeholder={placeholder}
+      onChange={(e) => setText(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); onArrowDown?.(); return; }
+        if (e.key !== 'Enter') return;
+        // Ctrl/Cmd+Enter (common right after a Cmd+V paste) must scan, not
+        // trigger the ActionStrip's window-level Save binding — swallow it
+        // on the native event before that listener can see it.
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          e.nativeEvent?.stopImmediatePropagation?.();
+          e.stopPropagation();
+        }
+        fire(e.target.value);
+      }}
+    />
+  );
+});
 
 // Audit GST-C4 — pick the bill-line default rate from the product master.
 // For products marked tax-inclusive (MRP / pharmacy / FMCG), the bill
@@ -720,6 +780,12 @@ export default function SalesBillForm() {
     finally{ setPgLoading(false); }
   };
 
+  // Live row count, read through a ref so the per-cell `shouldCellUpdate`
+  // guard (which keeps OLD render closures alive for unchanged rows) still
+  // sees the current length when navigating with arrow keys.
+  const itemsLenRef = useRef(0);
+  itemsLenRef.current = items.length;
+
   const updateItem=(key,field,value)=>{
     setItems(prev=>prev.map(it=>{
       if(it.key!==key) return it;
@@ -742,7 +808,7 @@ export default function SalesBillForm() {
     if(!isVert && !isLeft && !isRight) return;
     e.preventDefault();
     let nr=ri, nc=ci;
-    if(e.key==='ArrowDown') nr=Math.min(ri+1,items.length-1);
+    if(e.key==='ArrowDown') nr=Math.min(ri+1,itemsLenRef.current-1);
     else if(e.key==='ArrowUp') nr=Math.max(ri-1,0);
     else if(isRight) nc=ci+1;
     else if(isLeft) nc=Math.max(ci-1,0);
@@ -1748,7 +1814,10 @@ export default function SalesBillForm() {
         try { opts.onSaved(data); } catch (e) { console.error('[handleSave onSaved]', e); }
       }
       if(isEdit){
-        navigate(backTarget);
+        // replace (not push) so the just-saved bill is NOT left in history —
+        // otherwise Back from the list would navigate straight back into the
+        // edit form, looping the user between list and bill.
+        navigate(backTarget, { replace: true });
       } else {
         handleReset();
         setBillNo('');
@@ -1798,7 +1867,8 @@ export default function SalesBillForm() {
     setAmountVal(''); setAmountGstRate(0); setAmountHsnCode(''); setAmountDesc('');
     setRecalledDraftId(null);
     setInlineReturnItems([]);
-    setTimeout(()=>barcodeRef.current?.focus(),50);
+    // Ready for the next bill — land on the Customer box, not the scanner.
+    setTimeout(()=>customerRef.current?.focus(),50);
   };
 
   /* ── Hold (save as draft) ──
@@ -2128,18 +2198,21 @@ export default function SalesBillForm() {
   /* Excel-style cells: inputs fill the whole cell (no floating pill).
      numCell/txtCell no longer accept a fixed width — CSS handles it.
      The wrapping div still carries id="sc-ri-ci" for arrow-key nav. */
-  const numCell=(ri,ci,val,field,min)=>(
+  // Editable cells key their writes off the row RECORD (record.key), not
+  // items[ri] — under `shouldCellUpdate` an unchanged row keeps its old
+  // render output, so a stale `items` snapshot must never be indexed here.
+  const numCell=(record,ri,ci,val,field,min)=>(
     <div id={`sc-${ri}-${ci}`}>
       <InputNumber keyboard={false} variant="borderless" value={val}
-        onChange={v=>updateItem(items[ri]?.key,field,v??0)}
+        onChange={v=>updateItem(record.key,field,v??0)}
         onKeyDown={e=>navTbl(e,ri,ci)} min={min??0}
         size="small"/>
     </div>
   );
-  const txtCell=(ri,ci,val,field)=>(
+  const txtCell=(record,ri,ci,val,field)=>(
     <div id={`sc-${ri}-${ci}`}>
       <Input variant="borderless" value={val}
-        onChange={e=>updateItem(items[ri]?.key,field,e.target.value)}
+        onChange={e=>updateItem(record.key,field,e.target.value)}
         onKeyDown={e=>navTbl(e,ri,ci)}
         size="small"/>
     </div>
@@ -2229,15 +2302,15 @@ export default function SalesBillForm() {
       return <span style={{color:tone,fontWeight:600,fontSize:13,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{cost>0?fmtN(cost):'—'}</span>;
     }},
     {key:'hsn',title:'HSN',dataIndex:'hsn_code',width:90,render:(v)=>readCell(v,{fontVariantNumeric:'tabular-nums'})},
-    {key:'qty',required:true,title:'Qty',dataIndex:'quantity',width:80,align:'center',className:'num-cell',render:(v,r,ri)=>numCell(ri,5,v,'quantity',0)},
-    {key:'rate',required:true,title:'Rate ₹',dataIndex:'rate',width:110,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,6,v,'rate',0)},
-    {key:'disc_pct',title:'Disc%',dataIndex:'discount_percentage',width:70,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,7,v,'discount_percentage',0)},
+    {key:'qty',required:true,title:'Qty',dataIndex:'quantity',width:80,align:'center',className:'num-cell',render:(v,r,ri)=>numCell(r,ri,5,v,'quantity',0)},
+    {key:'rate',required:true,title:'Rate ₹',dataIndex:'rate',width:110,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(r,ri,6,v,'rate',0)},
+    {key:'disc_pct',title:'Disc%',dataIndex:'discount_percentage',width:70,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(r,ri,7,v,'discount_percentage',0)},
     {key:'disc_amt',title:'Disc ₹',width:90,align:'right',render:(_,r)=>{
       const lt=(r.quantity||0)*(r.rate||0);
       const da=lt*(r.discount_percentage||0)/100;
       return <span style={{color:'var(--fg-secondary)',fontWeight:600,fontSize:13,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{da>0?fmtN(da):'—'}</span>;
     }},
-    {key:'gst_pct',title:'GST%',dataIndex:'gst_rate',width:70,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(ri,8,v,'gst_rate',0)},
+    {key:'gst_pct',title:'GST%',dataIndex:'gst_rate',width:70,align:'right',className:'num-cell',render:(v,r,ri)=>numCell(r,ri,8,v,'gst_rate',0)},
     {key:'gst_amt',title:'GST ₹',width:90,align:'right',render:(_,r)=>{
       const lt=(r.quantity||0)*(r.rate||0);
       const da=lt*(r.discount_percentage||0)/100;
@@ -2303,10 +2376,81 @@ export default function SalesBillForm() {
     if (c.option) return false;
     if (c.key === 'color') return !!multiColorOn;
     return c.required || visibleCols.has(c.key);
-  });
+  }).map(c => ({
+    // Per-cell render guard: a scan appends a row but leaves every other
+    // row's record reference untouched, and an edit replaces only the one
+    // edited row's record. So a cell only needs to re-render when ITS row
+    // record actually changes. Without this, appending one scanned line
+    // re-rendered every cell in the table (incl. all the InputNumbers) —
+    // the per-scan cost that made big/recalled bills crawl. Every column
+    // here renders purely from its record (+ index, which is stable for
+    // unchanged rows), so identity comparison is safe across the board.
+    ...c,
+    shouldCellUpdate: (rec, prev) => rec !== prev,
+  }));
   // Sum of widths so the table's horizontal scroll-x stays correct as
   // optional columns toggle in/out.
   const colsTotalWidth = cols.reduce((s, c) => s + (c.width || 0), 0);
+
+  // ── Memoized Select option lists ─────────────────────────────────────
+  // These rebuild ONLY when their source data changes — NOT on every
+  // render. Each scan fires setEntry(EMPTY), which re-renders the whole
+  // form; without memoization the entry-row Product Select rebuilt up to
+  // ~500 richly-formatted <Option> trees, the Customer Select rebuilt up
+  // to ~1000 option objects, and the Category Select rebuilt its full
+  // list — every single scan. That per-scan rebuild was the lag that
+  // survived the input/table fixes. Memoizing makes a scan's re-render
+  // cheap regardless of catalog size.
+  const partyOptions = useMemo(() => parties.map(p => ({
+    value: p.party_id,
+    label: p.party_name,
+    search: [p.party_name, p.mobile_1, p.mobile_2].filter(Boolean).join(' '),
+    party: p,
+  })), [parties]);
+
+  const categoryOptionNodes = useMemo(
+    () => cats.map(c => <Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>),
+    [cats],
+  );
+
+  const productOptionNodes = useMemo(() => prodOpts.map(p => {
+    // Variant-mode (family) row — one entry per product_name with the
+    // SUM of sibling stock; single-mode renders the original per-row card.
+    if (globalProductMode === 'variant') {
+      const famStock = parseFloat(p.total_stock || 0);
+      const famStockColor = famStock <= 0 ? 'var(--danger)' : famStock <= 5 ? 'var(--warning)' : 'var(--fg-secondary)';
+      return (
+        <Select.Option key={p.product_name} value={p.product_name} label={p.product_name} family={p}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
+            <div style={{minWidth:0,flex:1,fontWeight:600,fontSize:13,color:'var(--fg-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+              {p.product_name}
+            </div>
+            <div style={{flexShrink:0,fontSize:12,color:famStockColor,fontWeight:700}}>
+              {famStock <= 0 ? 'Out of stock' : `Stock: ${famStock}`}
+            </div>
+          </div>
+        </Select.Option>
+      );
+    }
+    const stock = parseFloat(p.current_stock || 0);
+    const stockColor = stock <= 0 ? 'var(--danger)' : stock <= 5 ? 'var(--warning)' : 'var(--fg-tertiary)';
+    return (
+      <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{fontWeight:600,fontSize:13,color:'var(--fg-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.product_name}</div>
+            <div style={{fontSize:10,color:'var(--fg-tertiary)',marginTop:1}}>
+              {[p.Category?.category_name,p.article_number&&`Art# ${p.article_number}`,p.size_value&&`Size ${p.size_value}`].filter(Boolean).join(' · ')}
+            </div>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
+            <span style={{color:'var(--success)',fontWeight:700,fontSize:12}}>₹{parseFloat(p.sale_rate||0).toFixed(2)}</span>
+            <span style={{color:stockColor,fontSize:10,fontWeight:600}}>{stock<=0?'Out of stock':`Stock: ${stock}`}</span>
+          </div>
+        </div>
+      </Select.Option>
+    );
+  }), [prodOpts, globalProductMode]);
 
   /* ─── Status badge (Paid / Balance / Overpaid) ───────────────────────── */
   const isOverpaid = balance < -0.001;
@@ -2439,12 +2583,7 @@ export default function SalesBillForm() {
                         {menu}
                       </div>
                     )}
-                    options={parties.map(p=>({
-                      value:p.party_id,
-                      label:p.party_name,
-                      search:[p.party_name,p.mobile_1,p.mobile_2].filter(Boolean).join(' '),
-                      party:p,
-                    }))}
+                    options={partyOptions}
                     optionRender={(opt)=>{
                       const p=opt.data.party;
                       const bal=parseFloat(p.current_balance||0);
@@ -2577,36 +2716,13 @@ export default function SalesBillForm() {
               <div className={`sbf-entry-grid${batchTrackingOn ? ' with-batch' : ''}`}>
                 <div className="sbf-cell">
                   <div className="sbf-cell-lbl">Barcode</div>
-                  <Input ref={barcodeRef} value={entry.barcode} placeholder="Scan or type"
-                    onChange={e=>setEntry(p=>({...p,barcode:e.target.value}))}
-                    onPressEnter={e=>{
-                      const val=e.target.value.trim();
-                      if(val){ e.target.value=''; handleScan(val); }
-                    }}
-                    onKeyDown={e=>{
-                      if(e.key==='ArrowDown'){e.preventDefault();prodRef.current?.focus();return;}
-                      // Hijack Cmd/Ctrl+Enter while focus is in the
-                      // barcode input. The ActionStrip binds Ctrl+Enter
-                      // as an alias for F1 Save (and parseBinding treats
-                      // metaKey as "ctrl" on macOS). After Cmd+V paste
-                      // operators commonly hit Enter while still holding
-                      // Cmd → save fires unintentionally. Catch it here,
-                      // route to scan, and stop propagation so the
-                      // ActionStrip handler never sees the event.
-                      if(e.key==='Enter' && (e.metaKey || e.ctrlKey)){
-                        e.preventDefault();
-                        // stopImmediatePropagation on the NATIVE event so
-                        // the window-level keydown listener inside
-                        // ActionStrip never sees it. React's synthetic
-                        // stopPropagation alone wouldn't reach the native
-                        // listener attached on `window`.
-                        e.nativeEvent?.stopImmediatePropagation?.();
-                        e.stopPropagation();
-                        const val=(e.target.value||'').trim();
-                        if(val){ e.target.value=''; handleScan(val); }
-                      }
-                    }}
-                  />
+                  {/* Uncontrolled scan box — typing/scanning does ZERO
+                      React work until Enter, so a 12-char scan no longer
+                      re-renders the whole form (and the items table) once
+                      per character. See ScanField at the top of this file. */}
+                  <ScanField ref={barcodeRef} reflectValue={entry.barcode}
+                    onScan={handleScan}
+                    onArrowDown={()=>prodRef.current?.focus()} />
                 </div>
                 <div className="sbf-cell has-arrow">
                   <div className="sbf-cell-lbl">Category</div>
@@ -2642,7 +2758,7 @@ export default function SalesBillForm() {
                     placeholder="Category" showSearch
                     filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
                     allowClear notFoundContent={null} dropdownMatchSelectWidth={300}>
-                    {cats.map(c=><Select.Option key={c.category_id} value={c.category_id}>{c.category_name}</Select.Option>)}
+                    {categoryOptionNodes}
                   </Select>
                 </div>
                 <div className="sbf-cell has-arrow" ref={prodWrapRef}>
@@ -2713,53 +2829,7 @@ export default function SalesBillForm() {
                     placeholder="Product name" notFoundContent={null}
                     listHeight={320} dropdownMatchSelectWidth={460}
                   >
-                    {prodOpts.map(p=>{
-                      // Variant-mode (family) row — one entry per product_name.
-                      // We surface total_stock (SUM across siblings) so the
-                      // operator sees on-hand quantity at the family level
-                      // before drilling into the size picker. Stock colour
-                      // mirrors the per-variant convention: red ≤0, amber
-                      // ≤5, grey otherwise.
-                      if (globalProductMode === 'variant') {
-                        const famStock = parseFloat(p.total_stock || 0);
-                        const famStockColor = famStock <= 0 ? 'var(--danger)' : famStock <= 5 ? 'var(--warning)' : 'var(--fg-secondary)';
-                        return (
-                          <Select.Option
-                            key={p.product_name}
-                            value={p.product_name}
-                            label={p.product_name}
-                            family={p}
-                          >
-                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
-                              <div style={{minWidth:0,flex:1,fontWeight:600,fontSize:13,color:'var(--fg-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
-                                {p.product_name}
-                              </div>
-                              <div style={{flexShrink:0,fontSize:12,color:famStockColor,fontWeight:700}}>
-                                {famStock <= 0 ? 'Out of stock' : `Stock: ${famStock}`}
-                              </div>
-                            </div>
-                          </Select.Option>
-                        );
-                      }
-                      // Single-mode (per-row) — original rendering.
-                      const stock=parseFloat(p.current_stock||0);
-                      const stockColor=stock<=0?'var(--danger)':stock<=5?'var(--warning)':'var(--fg-tertiary)';
-                      return(
-                      <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
-                          <div style={{minWidth:0,flex:1}}>
-                            <div style={{fontWeight:600,fontSize:13,color:'var(--fg-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.product_name}</div>
-                            <div style={{fontSize:10,color:'var(--fg-tertiary)',marginTop:1}}>
-                              {[p.Category?.category_name,p.article_number&&`Art# ${p.article_number}`,p.size_value&&`Size ${p.size_value}`].filter(Boolean).join(' · ')}
-                            </div>
-                          </div>
-                          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
-                            <span style={{color:'var(--success)',fontWeight:700,fontSize:12}}>₹{parseFloat(p.sale_rate||0).toFixed(2)}</span>
-                            <span style={{color:stockColor,fontSize:10,fontWeight:600}}>{stock<=0?'Out of stock':`Stock: ${stock}`}</span>
-                          </div>
-                        </div>
-                      </Select.Option>
-                    )})}
+                    {productOptionNodes}
                   </Select>
                 </div>
                 {/* Batch picker — only renders for batch-tracked
@@ -3823,7 +3893,7 @@ export default function SalesBillForm() {
               : await salesAPI.create(retryPayload);
             message.success(`Bill ${data.bill_number} ${isEdit ? 'updated' : 'saved'} (override logged)`);
             if (retryOpts?.onSaved) { try { retryOpts.onSaved(data); } catch (err) { console.error('[lock retry onSaved]', err); } }
-            if (isEdit) navigate(backTarget);
+            if (isEdit) navigate(backTarget, { replace: true });
             else { handleReset(); setBillNo(''); }
           } catch (e) {
             const data = e?.response?.data;

@@ -145,6 +145,12 @@
 .po-bill-row:hover { background: var(--bg-hover, var(--bg-muted)); }
 .po-bill-row td { font-size: 12px; padding-top: 8px; padding-bottom: 8px; }
 
+/* On-account / opening reconciling line — informational, not a bill, so
+   it doesn't invite a click-through to a (non-existent) bill. */
+.po-onaccount-row { cursor: default; }
+.po-onaccount-row:hover { background: color-mix(in srgb, var(--bg-muted) 35%, var(--bg-panel)); }
+.po-onaccount-row .po-num { color: var(--fg-secondary); }
+
 .po-bill-cell {
   display: flex;
   align-items: baseline;
