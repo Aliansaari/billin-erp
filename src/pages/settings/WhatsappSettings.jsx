@@ -154,6 +154,20 @@ export default function WhatsappSettings() {
     catch (e) { message.error('Could not disconnect — ' + (e.response?.data?.error || e.message)); }
     finally { setBusy(false); }
   };
+  // Force a brand-new QR — clears the saved session, then reconnects. The
+  // server normally regenerates the code on its own after a disconnect, but
+  // this is a manual fallback for the rare case it stays stuck on "loading".
+  const refreshQr = async () => {
+    setBusy(true);
+    try {
+      await whatsappAPI.logout();
+      await whatsappAPI.connect();
+      await loadStatus();
+      message.info('New QR code requested — scan it with WhatsApp');
+    } catch (e) {
+      message.error('Could not refresh the code — ' + (e.response?.data?.error || e.message));
+    } finally { setBusy(false); }
+  };
   const sendTest = async () => {
     if (!testNo.trim()) { message.warning('Enter a number to test'); return; }
     setBusy(true);
@@ -254,10 +268,20 @@ export default function WhatsappSettings() {
             <div className="wa-qr-wrap">
               {status.qr
                 ? <QRCode value={status.qr} size={220} bordered={false} />
-                : <div className="wa-qr-loading"><Skeleton.Image active style={{ width: 200, height: 200 }} /></div>}
+                : (
+                  <div className="wa-qr-loading">
+                    <Skeleton.Image active style={{ width: 200, height: 200 }} />
+                    <div className="wa-qr-hint"><ReloadOutlined spin /> Generating a QR code…</div>
+                  </div>
+                )}
               <div className="wa-qr-cap">
-                Scan within ~60 seconds. The code refreshes automatically.
-                <Button type="link" size="small" onClick={logout}>Cancel</Button>
+                {status.qr
+                  ? 'Scan within ~60 seconds. The code refreshes automatically.'
+                  : 'This takes a few seconds. If the code doesn’t appear, get a new one.'}
+                <span className="wa-qr-cap-actions">
+                  <Button type="link" size="small" icon={<ReloadOutlined />} loading={busy} onClick={refreshQr}>New code</Button>
+                  <Button type="link" size="small" danger onClick={logout}>Cancel</Button>
+                </span>
               </div>
             </div>
           )}

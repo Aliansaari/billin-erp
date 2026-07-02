@@ -298,18 +298,35 @@ export default function VirtualReportTable({
   // off-screen ~64 rows in.
   const rowHeightRef = useRef(ROW_HEIGHT_SMALL);
 
+  // Sample the real rendered row height from the DOM. Used only as a
+  // fallback for the visible-range math below, for the brief window
+  // before the virtual list has laid out its filler (when scrollHeight
+  // isn't trustworthy yet). Cheap: one querySelector + one offsetHeight.
+  const measureRowHeight = useCallback(() => {
+    const root = panelRef.current;
+    if (root) {
+      const sample = root.querySelector('.vrt-data-area .ant-table-row');
+      const h = sample?.offsetHeight;
+      if (h && h > 16) rowHeightRef.current = h;
+    }
+    return rowHeightRef.current;
+  }, [panelRef]);
+
   useEffect(() => {
     const el = panelRef.current;
     if (!el) return;
     const update = () => {
       const h = el.clientHeight;
       setBodyMaxH(Math.max(120, h - RESERVED_FOR_HEADER_AND_SUMMARY));
+      // A viewport/zoom change (global scale-to-fit) resizes both the
+      // panel and the rows, so the cached row height is now stale.
+      measureRowHeight();
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [panelRef]);
+  }, [panelRef, measureRowHeight]);
 
   // Wrap each column's render to detect placeholder rows and emit a
   // skeleton cell. Real rows pass through to the user-supplied render.
@@ -498,8 +515,26 @@ export default function VirtualReportTable({
         const top = el.scrollTop;
         const h   = el.clientHeight;
         if (ensureChunk) {
-          const first = Math.floor(top / ROW_HEIGHT_SMALL);
-          const last  = Math.ceil((top + h) / ROW_HEIGHT_SMALL);
+          // Map scrollTop → visible row index using the REAL row step,
+          // never the 38px estimate. The estimate is ~9px short of the
+          // actual ~47px row, and that error compounds with depth: deep
+          // in a long list, floor(top / 38) points at a chunk far below
+          // the rows on screen — and near the end it overshoots `total`,
+          // where ensureChunk bails and fetches nothing. Either way the
+          // visible rows never get their chunk requested and stay stuck
+          // as skeletons (the "blank rows on fast/deep scroll" bug).
+          //
+          // scrollHeight is laid out by the virtual list in the SAME
+          // coordinate space as scrollTop, so scrollHeight/total is the
+          // exact per-row step — correct at any depth and immune to the
+          // global scale-to-fit zoom. Fall back to a measured offsetHeight
+          // (then the 38px estimate) only while the filler isn't laid out.
+          let rh = totalCount > 0 && el.scrollHeight > el.clientHeight
+            ? el.scrollHeight / totalCount
+            : 0;
+          if (!(rh >= 16 && rh <= 400)) rh = measureRowHeight();
+          const first = Math.floor(top / rh);
+          const last  = Math.ceil((top + h) / rh);
           ensureChunk(first);
           ensureChunk(last);
         }
@@ -517,11 +552,14 @@ export default function VirtualReportTable({
           sessionStorage.setItem(key, JSON.stringify(body));
         }
       };
+      // Prime the row-height fallback up front so the very first scroll
+      // already has a real measurement if scrollHeight isn't ready yet.
+      measureRowHeight();
       handler();
       el.addEventListener('scroll', handler, { passive: true });
       return () => el.removeEventListener('scroll', handler);
     }
-  }, [ensureChunk, totalCount, panelRef]);
+  }, [ensureChunk, totalCount, panelRef, measureRowHeight]);
 
   // ── Keyboard nav ────────────────────────────────────────────────
   // Bound once with refs for the changing values so we don't tear down

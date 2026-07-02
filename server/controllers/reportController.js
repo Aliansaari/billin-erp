@@ -119,6 +119,10 @@ exports.dashboardStats = async (req, res) => {
       SalesBill.findAll({
         where: { bill_date: { [Op.gte]: monthStart, [Op.lte]: today }, is_cancelled: false },
         attributes: [
+          // COUNT feeds the dashboard's Avg-ticket card (total ÷ count).
+          // Without it the frontend fell back to dividing by 1 and the
+          // "Avg ticket" tile silently displayed the whole MTD total.
+          [fn('COUNT', col('sales_bill_id')), 'count'],
           [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
           [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
           [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'sgst'],
@@ -132,6 +136,7 @@ exports.dashboardStats = async (req, res) => {
       PurchaseBill.findAll({
         where: { bill_date: { [Op.gte]: monthStart, [Op.lte]: today }, is_cancelled: false },
         attributes: [
+          [fn('COUNT', col('purchase_bill_id')), 'count'],
           [fn('COALESCE', fn('SUM', col('total_amount')), 0), 'total'],
           [fn('COALESCE', fn('SUM', col('cgst_amount')), 0), 'cgst'],
           [fn('COALESCE', fn('SUM', col('sgst_amount')), 0), 'sgst'],
@@ -379,6 +384,8 @@ exports.dashboardStats = async (req, res) => {
       // so the UI can display either. monthly_profit is the CORRECT one (excl. GST).
       monthly_sales: monthlySalesGross,
       monthly_purchases: monthlyPurchGross,
+      monthly_sales_count: parseInt(ms.count) || 0,
+      monthly_purchases_count: parseInt(mp.count) || 0,
       monthly_sales_excl_gst: monthlySalesExGST,
       monthly_purchases_excl_gst: monthlyPurchExGST,
       monthly_gst_collected: +monthlySalesGST.toFixed(2),
@@ -431,16 +438,19 @@ exports.dashboardStats = async (req, res) => {
 // the last 60 days. "Cheques pending" counts cheques in PENDING status.
 exports.dashboardInsights = async (req, res) => {
   try {
+    // "Overdue" ages from due_date when set, else bill_date. Imported bills
+    // routinely carry NULL due_date; the old `due_date IS NOT NULL` filter
+    // made both lists come back EMPTY on such data, which blanked the
+    // dashboard's Top-customers panel and under-counted overdue chips.
     const top5OverdueCustomers = await sequelize.query(
       `SELECT p.party_id, p.party_name,
               COALESCE(SUM(sb.balance_amount), 0)::float AS balance,
-              MAX((CURRENT_DATE - sb.due_date)::int) AS oldest_days
+              MAX((CURRENT_DATE - COALESCE(sb.due_date, sb.bill_date))::int) AS oldest_days
          FROM sales_bills sb
          JOIN parties p ON p.party_id = sb.customer_id
         WHERE sb.is_cancelled = false
           AND sb.balance_amount > 0
-          AND sb.due_date IS NOT NULL
-          AND sb.due_date < CURRENT_DATE
+          AND COALESCE(sb.due_date, sb.bill_date) < CURRENT_DATE
         GROUP BY p.party_id, p.party_name
         ORDER BY balance DESC
         LIMIT 5`,
@@ -450,13 +460,12 @@ exports.dashboardInsights = async (req, res) => {
     const top5OverdueSuppliers = await sequelize.query(
       `SELECT p.party_id, p.party_name,
               COALESCE(SUM(pb.balance_amount), 0)::float AS balance,
-              MAX((CURRENT_DATE - pb.due_date)::int) AS oldest_days
+              MAX((CURRENT_DATE - COALESCE(pb.due_date, pb.bill_date))::int) AS oldest_days
          FROM purchase_bills pb
          JOIN parties p ON p.party_id = pb.supplier_id
         WHERE pb.is_cancelled = false
           AND pb.balance_amount > 0
-          AND pb.due_date IS NOT NULL
-          AND pb.due_date < CURRENT_DATE
+          AND COALESCE(pb.due_date, pb.bill_date) < CURRENT_DATE
         GROUP BY p.party_id, p.party_name
         ORDER BY balance DESC
         LIMIT 5`,
@@ -573,25 +582,42 @@ exports.dashboardBusiness = async (req, res) => {
     const d90 = new Date(); d90.setDate(d90.getDate() - 90);
     const day90Start = d90.toISOString().slice(0, 10);
 
-    // ─── Cash position via payments_receipts (ledger isn't populated). ───
+    // ─── Cash position from the cash/bank LEDGERS ────────────────────────
     //
-    // For most installs the ledger_accounts.current_balance column is
-    // stale because LedgerEntry posting isn't wired to bill creation
-    // yet (see project memory). The cleanest signal we have is:
+    // Σ(Dr − Cr) over ledgers grouped under Cash-in-Hand / Bank Accounts /
+    // Bank OD A/c — the same balances the Bank module and Day Book show,
+    // so the dashboard tile always agrees with them. Reversed entries are
+    // excluded pair-wise (same pattern as ledgerNetWithinPeriod).
     //
-    //   cash = total receipts received - total payments made
-    //
-    // That sums to "net cash through the business" since system start.
-    // The ledger snapshot would be more accurate when posting lands;
-    // until then, this is the best universally-available number.
+    // The old formula (all-time receipts − payments from payments_receipts)
+    // ignored opening balances and at-billing cash entirely, which on real
+    // imported data produced a large NEGATIVE "cash" — and that poisoned
+    // current assets and flipped the quick ratio to nonsense like −21.
+    // Fallback: when the install has no cash/bank ledger rows at all
+    // (entry_count = 0), keep the legacy receipts−payments signal rather
+    // than showing a hard 0.
     const [cashRow] = await sequelize.query(`
       SELECT
+        COALESCE((SELECT SUM(le.debit_amount - le.credit_amount)
+                    FROM ledger_entries le
+                    JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+                   WHERE la.sub_group IN ('Cash-in-Hand','Bank Accounts','Bank OD A/c')
+                     AND le.reversal_of_id IS NULL
+                     AND NOT EXISTS (
+                       SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id
+                     )), 0)::float AS ledger_cash,
+
+        COALESCE((SELECT COUNT(*)
+                    FROM ledger_entries le
+                    JOIN ledger_accounts la ON la.ledger_id = le.ledger_id
+                   WHERE la.sub_group IN ('Cash-in-Hand','Bank Accounts','Bank OD A/c')), 0)::int AS ledger_entry_count,
+
         COALESCE((SELECT SUM(total_amount) FROM payments_receipts
                    WHERE transaction_type = 'Receipt' AND is_cancelled = false), 0)::float
         -
         COALESCE((SELECT SUM(total_amount) FROM payments_receipts
                    WHERE transaction_type = 'Payment' AND is_cancelled = false), 0)::float
-        AS cash_position,
+        AS flow_cash,
 
         COALESCE((SELECT SUM(total_amount) FROM payments_receipts
                    WHERE transaction_type = 'Payment' AND is_cancelled = false
@@ -606,7 +632,9 @@ exports.dashboardBusiness = async (req, res) => {
                      AND voucher_date >= :monthStart), 0)::float AS opex_mtd
     `, { replacements: { day90Start, monthStart }, type: sequelize.QueryTypes.SELECT });
 
-    const cashPosition = +(cashRow.cash_position || 0).toFixed(2);
+    const cashPosition = +(((cashRow.ledger_entry_count || 0) > 0
+      ? cashRow.ledger_cash
+      : cashRow.flow_cash) || 0).toFixed(2);
     const out90Combined = +(((cashRow.out90 || 0) + (cashRow.expense90 || 0)) / 90).toFixed(2);
     const cashRunway = out90Combined > 0
       ? Math.max(0, Math.round(cashPosition / out90Combined))
@@ -638,54 +666,27 @@ exports.dashboardBusiness = async (req, res) => {
     const cogs90 = d90Row.cogs90 || 0;
     const invValue = d90Row.inv_value || 0;
 
-    // Current AR/AP — canonical formula (opening + raw bill totals - returns
-    // - non-auto receipts/payments). Independent of bill-level balance_amount
-    // reconciliation state, so it always matches recalculateAll.
+    // Current AR/AP — party.current_balance, the single source of truth
+    // (maintained by recalculatePartyBalance). Uses the EXACT same query
+    // shape as dashboardStats' Receivables/Payables tiles and the
+    // Customers/Suppliers list pages, so DSO / working capital are
+    // computed from the same ₹ figure the operator sees on those tiles.
+    // The old canonical re-derivation summed NET across all parties
+    // (advances subtracted), which on real data could collapse AR to ~0
+    // and read DSO = 0 days while the tile showed lakhs outstanding.
     const [arRow] = await sequelize.query(`
-      SELECT (
-        COALESCE((SELECT SUM(opening_balance) FROM parties
-                   WHERE opening_balance_type='Receivable' AND opening_balance>0
-                     AND party_type IN ('Customer','Both')), 0)
-        - COALESCE((SELECT SUM(opening_balance) FROM parties
-                     WHERE opening_balance_type='Payable' AND opening_balance>0
-                       AND party_type IN ('Customer','Both')), 0)
-        + COALESCE((SELECT SUM(sb.total_amount - sb.paid_amount - sb.return_amount)
-                     FROM sales_bills sb
-                     JOIN parties p ON p.party_id = sb.customer_id
-                     WHERE sb.is_cancelled = false AND p.party_type IN ('Customer','Both')), 0)
-        - COALESCE((SELECT SUM(sr.balance_amount + sr.refund_amount)
-                     FROM sales_return_bills sr
-                     JOIN parties p ON p.party_id = sr.customer_id
-                     WHERE sr.is_cancelled = false AND p.party_type IN ('Customer','Both')), 0)
-        - COALESCE((SELECT SUM(pr.total_amount) FROM payments_receipts pr
-                     JOIN parties p ON p.party_id = pr.party_id
-                     WHERE pr.transaction_type='Receipt' AND pr.is_cancelled=false
-                       AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
-                       AND p.party_type IN ('Customer','Both')), 0)
-      )::float AS ar
+      SELECT COALESCE(SUM(current_balance), 0)::float AS ar
+        FROM parties
+       WHERE current_balance > 0
+         AND party_type IN ('Customer', 'Both')
+         AND COALESCE(is_system_cash, false) = false
     `, { type: sequelize.QueryTypes.SELECT });
     const [apRow] = await sequelize.query(`
-      SELECT (
-        COALESCE((SELECT SUM(opening_balance) FROM parties
-                   WHERE opening_balance_type='Payable' AND opening_balance>0
-                     AND party_type IN ('Supplier','Both')), 0)
-        - COALESCE((SELECT SUM(opening_balance) FROM parties
-                     WHERE opening_balance_type='Receivable' AND opening_balance>0
-                       AND party_type IN ('Supplier','Both')), 0)
-        + COALESCE((SELECT SUM(pb.total_amount - pb.paid_amount)
-                     FROM purchase_bills pb
-                     JOIN parties p ON p.party_id = pb.supplier_id
-                     WHERE pb.is_cancelled = false AND p.party_type IN ('Supplier','Both')), 0)
-        - COALESCE((SELECT SUM(pr.balance_amount + pr.refund_amount)
-                     FROM purchase_return_bills pr
-                     JOIN parties p ON p.party_id = pr.supplier_id
-                     WHERE pr.is_cancelled = false AND p.party_type IN ('Supplier','Both')), 0)
-        - COALESCE((SELECT SUM(pr.total_amount) FROM payments_receipts pr
-                     JOIN parties p ON p.party_id = pr.party_id
-                     WHERE pr.transaction_type='Payment' AND pr.is_cancelled=false
-                       AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
-                       AND p.party_type IN ('Supplier','Both')), 0)
-      )::float AS ap
+      SELECT COALESCE(SUM(ABS(current_balance)), 0)::float AS ap
+        FROM parties
+       WHERE current_balance < 0
+         AND party_type IN ('Supplier', 'Both')
+         AND COALESCE(is_system_cash, false) = false
     `, { type: sequelize.QueryTypes.SELECT });
     const ar = Math.max(0, arRow.ar || 0);
     const ap = Math.max(0, apRow.ap || 0);
@@ -800,14 +801,17 @@ exports.dashboardBusiness = async (req, res) => {
              COALESCE(SUM(sb.balance_amount), 0)::float AS outstanding,
              COUNT(sb.sales_bill_id)::int AS bills,
              MAX(sb.bill_date)::date AS last_bill,
-             MAX((CURRENT_DATE - sb.due_date)::int) AS oldest_days
+             -- Age from due_date when the bill has one, else from bill_date —
+             -- imported bills routinely have NULL due_date, and MAX over all-
+             -- NULLs made every row render "Oldest bill · d" with a blank age.
+             MAX((CURRENT_DATE - COALESCE(sb.due_date, sb.bill_date))::int) AS oldest_days
         FROM parties p
         LEFT JOIN sales_bills sb ON sb.customer_id = p.party_id
              AND sb.is_cancelled = false AND sb.balance_amount > 0
        WHERE p.party_type IN ('Customer','Both') AND p.is_active = true
        GROUP BY p.party_id, p.party_name, p.gstin, p.credit_limit, p.credit_days
       HAVING COALESCE(SUM(sb.balance_amount), 0) > 0
-       ORDER BY oldest_days DESC NULLS LAST, outstanding DESC
+       ORDER BY outstanding DESC
        LIMIT 10
     `, { type: sequelize.QueryTypes.SELECT });
 
@@ -1651,6 +1655,15 @@ exports.stockReport = async (req, res) => {
     // denormalized totals (sum across all godowns) are used.
     const godownId = req.query.godown_id ? parseInt(req.query.godown_id) : null;
 
+    // Party filter — "show only items purchased from this supplier". Links
+    // products → purchase_bill_items → purchase_bills.supplier_id. Applied
+    // as a correlated EXISTS so it composes with category/status/search and
+    // with both the godown and non-godown stock sources without altering
+    // any other query's shape. parseInt makes it injection-safe to inline
+    // into the Sequelize literal below (which can't take a bind param).
+    const partyId = req.query.party_id ? parseInt(req.query.party_id) : null;
+    const partyId_safe = Number.isFinite(partyId) ? partyId : null;
+
     // Period for Inward / Outward — accepts an explicit `period_from`/
     // `period_to` from the client. Default is ALL-TIME (no date floor)
     // so the columns show every movement ever recorded unless the user
@@ -1685,6 +1698,17 @@ exports.stockReport = async (req, res) => {
         // join (subQuery: false is set on the include so the WHERE pushes
         // into the outer query).
         { '$Category.category_name$': { [Op.iLike]: `%${s}%` } },
+      ];
+    }
+    // Restrict to products purchased from the chosen party (supplier).
+    if (partyId_safe) {
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        literal(`EXISTS (SELECT 1 FROM purchase_bill_items pbi
+          JOIN purchase_bills pb ON pb.purchase_bill_id = pbi.purchase_bill_id
+          WHERE pbi.product_id = "Product"."product_id"
+            AND pb.supplier_id = ${partyId_safe}
+            AND pb.is_cancelled = false)`),
       ];
     }
 
@@ -1724,6 +1748,18 @@ exports.stockReport = async (req, res) => {
         OR EXISTS (SELECT 1 FROM categories c2 WHERE c2.category_id = p.category_id AND c2.category_name ILIKE :search)
       )`);
       rawRepl.search = `%${search}%`;
+    }
+    // Same party (purchased-from) restriction for the raw aggregate
+    // queries — summary KPIs, period inward/outward, and the category
+    // breakdown all build off rawWhere, so adding it here keeps every
+    // total tied to exactly the rows the user sees.
+    if (partyId_safe) {
+      rawWhere.push(`EXISTS (SELECT 1 FROM purchase_bill_items pbi
+        JOIN purchase_bills pb ON pb.purchase_bill_id = pbi.purchase_bill_id
+        WHERE pbi.product_id = p.product_id
+          AND pb.supplier_id = :party_id
+          AND pb.is_cancelled = false)`);
+      rawRepl.party_id = partyId_safe;
     }
 
     // Page-of-products query. Godown variant attaches the per-godown
@@ -2020,60 +2056,27 @@ exports.partyOutstanding = async (req, res) => {
   try {
     const { party_type } = req.query;
 
-    // Compute live outstanding per party using the same canonical formula
-    // as recalculateAll (opening + raw bill totals - all non-auto receipts).
-    // This is independent of bill-level balance_amount (which varies with
-    // reconciliation state) and always produces the correct number.
+    // Per-party balance = the maintained `parties.current_balance` ledger
+    // column — the SAME source the Dashboard tiles and the Customers/Suppliers
+    // list totals use (see dashboardStats above), so all three agree.
+    //
+    // This replaces an earlier bill-derived formula (opening + Σ(total−paid)
+    // − non-auto receipts). That formula silently broke on imported data:
+    // purchase bills there carry paid_amount = 0 with the real dues living in
+    // balance_amount / the ledger, so Σ(total−paid) overstated every supplier
+    // and the net flipped sign — collapsing all real creditors and parking a
+    // phantom payable on the system "Cash" party (whose cash-payment vouchers
+    // the formula misread as money owed). current_balance is kept correct by
+    // the posting service, matches the per-party ledger (Sundry Debtors /
+    // Creditors), and needs no recomputation here.
     const buildQuery = (mode) => {
-      if (mode === 'Customer') {
-        return `
-          SELECT p.party_id, p.party_name, p.party_type, p.mobile_1,
-                 p.credit_limit, p.credit_days,
-                 (
-                   CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                   - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                   + COALESCE((
-                     SELECT SUM(sb.total_amount - sb.paid_amount - sb.return_amount) FROM sales_bills sb
-                     WHERE sb.customer_id = p.party_id AND sb.is_cancelled = false
-                   ), 0)
-                   - COALESCE((
-                     SELECT SUM(sr.balance_amount + sr.refund_amount) FROM sales_return_bills sr
-                     WHERE sr.customer_id = p.party_id AND sr.is_cancelled = false
-                   ), 0)
-                   - COALESCE((
-                     SELECT SUM(pr.total_amount) FROM payments_receipts pr
-                     WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
-                       AND pr.is_cancelled = false
-                       AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
-                   ), 0)
-                 )::float AS current_balance
-          FROM parties p
-          WHERE p.party_type IN ('Customer','Both')
-        `;
-      }
+      const partyTypes = mode === 'Customer' ? `'Customer','Both'` : `'Supplier','Both'`;
       return `
         SELECT p.party_id, p.party_name, p.party_type, p.mobile_1,
                p.credit_limit, p.credit_days,
-               (
-                 CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                 - CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                 + COALESCE((
-                   SELECT SUM(pb.total_amount - pb.paid_amount) FROM purchase_bills pb
-                   WHERE pb.supplier_id = p.party_id AND pb.is_cancelled = false
-                 ), 0)
-                 - COALESCE((
-                   SELECT SUM(pr.balance_amount + pr.refund_amount) FROM purchase_return_bills pr
-                   WHERE pr.supplier_id = p.party_id AND pr.is_cancelled = false
-                 ), 0)
-                 - COALESCE((
-                   SELECT SUM(pr.total_amount) FROM payments_receipts pr
-                   WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
-                     AND pr.is_cancelled = false
-                     AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
-                 ), 0)
-               )::float AS current_balance
+               COALESCE(p.current_balance, 0)::float AS current_balance
         FROM parties p
-        WHERE p.party_type IN ('Supplier','Both')
+        WHERE p.party_type IN (${partyTypes})
       `;
     };
 
@@ -2347,6 +2350,8 @@ exports.exportPurchaseReport = async (req, res) => {
 exports.exportStockReport = async (req, res) => {
   try {
     const { category_id, stock_status, search } = req.query;
+    const partyId = req.query.party_id ? parseInt(req.query.party_id) : null;
+    const partyId_safe = Number.isFinite(partyId) ? partyId : null;
     const where = { is_active: true };
     if (category_id) where.category_id = category_id;
     if (stock_status === 'low') {
@@ -2361,6 +2366,18 @@ exports.exportStockReport = async (req, res) => {
         { product_name: { [Op.iLike]: `%${s}%` } },
         { barcode: { [Op.iLike]: `%${s}%` } },
         { article_number: { [Op.iLike]: `%${s}%` } },
+      ];
+    }
+    // Match the on-screen "purchased from party" filter so an export taken
+    // while a supplier is selected lists exactly the same items.
+    if (partyId_safe) {
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        literal(`EXISTS (SELECT 1 FROM purchase_bill_items pbi
+          JOIN purchase_bills pb ON pb.purchase_bill_id = pbi.purchase_bill_id
+          WHERE pbi.product_id = "Product"."product_id"
+            AND pb.supplier_id = ${partyId_safe}
+            AND pb.is_cancelled = false)`),
       ];
     }
 
@@ -2455,59 +2472,19 @@ exports.exportPartyOutstanding = async (req, res) => {
   try {
     const { party_type } = req.query;
 
-    // Canonical outstanding formula (matches recalculateAll exactly).
-    // Uses raw bill totals - all non-auto receipts, independent of
-    // bill-level balance_amount reconciliation state.
+    // Outstanding per party = the maintained `parties.current_balance` ledger
+    // column — identical basis to the on-screen report (partyOutstanding) and
+    // the Dashboard/lists, so the Excel export never disagrees with the screen.
+    // (See the long note on partyOutstanding for why the old bill-derived
+    // formula was wrong on imported paid_amount=0 data.)
     const buildQuery = (mode) => {
-      if (mode === 'Customer') {
-        return `
-          SELECT p.party_id, p.party_name, p.mobile_1, p.party_type, p.gstin,
-                 p.credit_limit, p.credit_days,
-                 (
-                   CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                   - CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                   + COALESCE((
-                     SELECT SUM(sb.total_amount - sb.paid_amount - sb.return_amount) FROM sales_bills sb
-                     WHERE sb.customer_id = p.party_id AND sb.is_cancelled = false
-                   ), 0)
-                   - COALESCE((
-                     SELECT SUM(sr.balance_amount + sr.refund_amount) FROM sales_return_bills sr
-                     WHERE sr.customer_id = p.party_id AND sr.is_cancelled = false
-                   ), 0)
-                   - COALESCE((
-                     SELECT SUM(pr.total_amount) FROM payments_receipts pr
-                     WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Receipt'
-                       AND pr.is_cancelled = false
-                       AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
-                   ), 0)
-                 )::float AS current_balance
-          FROM parties p
-          WHERE p.party_type IN ('Customer','Both')
-        `;
-      }
+      const partyTypes = mode === 'Customer' ? `'Customer','Both'` : `'Supplier','Both'`;
       return `
         SELECT p.party_id, p.party_name, p.mobile_1, p.party_type, p.gstin,
                p.credit_limit, p.credit_days,
-               (
-                 CASE WHEN p.opening_balance_type = 'Payable'    THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                 - CASE WHEN p.opening_balance_type = 'Receivable' THEN COALESCE(p.opening_balance, 0) ELSE 0 END
-                 + COALESCE((
-                   SELECT SUM(pb.total_amount - pb.paid_amount) FROM purchase_bills pb
-                   WHERE pb.supplier_id = p.party_id AND pb.is_cancelled = false
-                 ), 0)
-                 - COALESCE((
-                   SELECT SUM(pr.balance_amount + pr.refund_amount) FROM purchase_return_bills pr
-                   WHERE pr.supplier_id = p.party_id AND pr.is_cancelled = false
-                 ), 0)
-                 - COALESCE((
-                   SELECT SUM(pr.total_amount) FROM payments_receipts pr
-                   WHERE pr.party_id = p.party_id AND pr.transaction_type = 'Payment'
-                     AND pr.is_cancelled = false
-                     AND (pr.source != 'auto_from_bill' OR pr.source IS NULL)
-                 ), 0)
-               )::float AS current_balance
+               COALESCE(p.current_balance, 0)::float AS current_balance
         FROM parties p
-        WHERE p.party_type IN ('Supplier','Both')
+        WHERE p.party_type IN (${partyTypes})
       `;
     };
 

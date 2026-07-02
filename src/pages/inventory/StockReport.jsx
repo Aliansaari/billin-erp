@@ -9,7 +9,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { reportAPI, categoryAPI, godownAPI, dataAPI } from '../../api';
+import { reportAPI, categoryAPI, godownAPI, dataAPI, partyAPI } from '../../api';
 import { useMultiWarehouseEnabled, useBatchTrackingEnabled } from '../../hooks/useSystemSettings';
 import { useVirtualizedReport } from '../../hooks/useVirtualizedReport';
 import VirtualReportTable from '../../components/VirtualReportTable';
@@ -105,6 +105,14 @@ export default function StockReport() {
     const n = parseInt(q, 10);
     return Number.isFinite(n) && n > 0 ? n : null;
   })();
+  // Drill-from-URL for the supplier filter — e.g. a future "stock from
+  // this supplier" link off the party ledger. Mirrors category/godown.
+  const initialPartyId = (() => {
+    const q = searchParams.get('party_id');
+    if (!q) return null;
+    const n = parseInt(q, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
   // stock_status from URL — only the four valid values. Anything else
   // is ignored so a malformed URL doesn't break the chip highlighting.
   const initialStockStatus = (() => {
@@ -113,6 +121,7 @@ export default function StockReport() {
   })();
   const [filters, setFilters] = useState({
     search: '', category_id: initialCategoryId, stock_status: initialStockStatus, godown_id: initialGodownId,
+    party_id: initialPartyId,
     period_from: null, period_to: null,
   });
   useEffect(() => {
@@ -124,6 +133,8 @@ export default function StockReport() {
 
   const [categories, setCategories] = useState([]);
   const [godowns,    setGodowns]    = useState([]);
+  // Suppliers for the "purchased from" party filter beside Category.
+  const [parties,    setParties]    = useState([]);
   // Multi-warehouse master toggle. When OFF the godown picker hides and
   // the per-godown KPI sub-line drops out — totals are unfiltered and
   // the "All Godowns" caption would just be noise.
@@ -165,12 +176,15 @@ export default function StockReport() {
   useEffect(() => { loadRefs(); }, []);
   const loadRefs = async () => {
     try {
-      const [{ data: cats }, { data: gds }] = await Promise.all([
+      const [{ data: cats }, { data: gds }, supRes] = await Promise.all([
         categoryAPI.getAllFlat(),
         godownAPI.getAll(),
+        partyAPI.getSuppliers({ limit: 5000 }),
       ]);
       setCategories(cats || []);
       setGodowns(Array.isArray(gds) ? gds : (gds?.data || []));
+      const supList = supRes?.data?.data || supRes?.data || [];
+      setParties(Array.isArray(supList) ? supList : []);
     } catch {}
   };
 
@@ -527,6 +541,20 @@ export default function StockReport() {
             value={filters.category_id}
             onChange={(v) => setFilters(f => ({ ...f, category_id: v ?? null }))}
             options={categories.map(c => ({ value: c.category_id, label: c.category_name }))}
+          />
+          <Select
+            showSearch
+            placeholder="Purchased from…"
+            title="Show only items purchased from this supplier"
+            style={{ width: 200 }}
+            allowClear
+            value={filters.party_id}
+            onChange={(v) => setFilters(f => ({ ...f, party_id: v ?? null }))}
+            optionFilterProp="label"
+            options={parties.map(p => ({
+              value: p.party_id,
+              label: p.party_name + (p.city ? ` · ${p.city}` : ''),
+            }))}
           />
           {multiWarehouseOn && (
             <Select

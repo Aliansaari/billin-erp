@@ -22,12 +22,19 @@ import {
   InboxOutlined, DollarOutlined, BarChartOutlined, SettingOutlined,
   UserOutlined, TagsOutlined, FileTextOutlined, WalletOutlined,
   CreditCardOutlined, AppstoreOutlined, StockOutlined, PlusCircleOutlined,
-  UnorderedListOutlined, RollbackOutlined, BankOutlined, ThunderboltOutlined,
-  FieldTimeOutlined, BookOutlined,
+  RollbackOutlined, BankOutlined, ThunderboltOutlined, BookOutlined,
   TableOutlined, CloudServerOutlined, BgColorsOutlined,
   SwapOutlined, ApiOutlined, PrinterOutlined,
   CheckCircleOutlined, HomeOutlined, AuditOutlined,
   CodeOutlined,
+  // Distinct per-row glyphs (used in the menu tree below). The old tree leaned
+  // on one list icon + one plus icon for almost every row, so a submenu read as
+  // a wall of identical bullets. Each leaf now gets its own recognisable icon:
+  // create-rows use an "add" glyph specific to the thing, list-rows use a glyph
+  // that hints at the record type (documents / money-book / returns box).
+  FileAddOutlined, ProfileOutlined, AccountBookOutlined, ContainerOutlined,
+  UserAddOutlined, ShopOutlined, AppstoreAddOutlined, FolderAddOutlined,
+  DeploymentUnitOutlined, BlockOutlined, TransactionOutlined, ScheduleOutlined,
 } from '@ant-design/icons';
 import { hasPermission, hasAnyPermission } from '../../utils/perms';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -47,8 +54,8 @@ export const menuItems = [
     children: [
       // Bare-noun label — operators type "sale" not "new sales bill", and
       // the sidebar shouldn't fight the global search palette on naming.
-      { key: '/sale/new',         icon: <PlusCircleOutlined />,    label: 'Sale',             perm: 'sales.create' },
-      { key: '/sales',            icon: <UnorderedListOutlined />, label: 'Sales List',       perm: 'sales.view' },
+      { key: '/sale/new',         icon: <FileAddOutlined />,       label: 'Sale',             perm: 'sales.create' },
+      { key: '/sales',            icon: <ProfileOutlined />,       label: 'Sales List',       perm: 'sales.view' },
       // Receipt + Receipt List live under Sales because the natural next
       // step after a Sale is collecting the money for it. /receipt/new
       // and the filtered /payments list belong here now — the standalone
@@ -58,9 +65,9 @@ export const menuItems = [
       // ?transaction_type=Receipt to filter PaymentList down to receipts
       // only (the filter PaymentList already reads at line 71).
       { key: '/receipt/new',                         icon: <WalletOutlined />,        label: 'Receipt',      perm: 'payments.create' },
-      { key: '/payments?transaction_type=Receipt',   icon: <UnorderedListOutlined />, label: 'Receipt List', perm: 'payments.view' },
+      { key: '/payments?transaction_type=Receipt',   icon: <AccountBookOutlined />,   label: 'Receipt List', perm: 'payments.view' },
       { key: '/sales-return/new', icon: <RollbackOutlined />,      label: 'New Sales Return', perm: 'sales_returns.create' },
-      { key: '/sales-returns',    icon: <UnorderedListOutlined />, label: 'Sales Returns',    perm: 'sales_returns.view' },
+      { key: '/sales-returns',    icon: <ContainerOutlined />,     label: 'Sales Returns',    perm: 'sales_returns.view' },
     ],
   },
   {
@@ -68,17 +75,17 @@ export const menuItems = [
     icon: <ShoppingCartOutlined />,
     label: 'Purchase',
     children: [
-      { key: '/purchase/new',        icon: <PlusCircleOutlined />,    label: 'Purchase',            perm: 'purchase.create' },
-      { key: '/purchases',           icon: <UnorderedListOutlined />, label: 'Purchase List',       perm: 'purchase.view' },
+      { key: '/purchase/new',        icon: <FileAddOutlined />,       label: 'Purchase',            perm: 'purchase.create' },
+      { key: '/purchases',           icon: <ProfileOutlined />,       label: 'Purchase List',       perm: 'purchase.view' },
       // Payment + Payment List mirror the Sales side — the natural next
       // step after a Purchase is paying for it. The standalone Payments
       // menu was retired; payments now live here (Purchase) and receipts
       // live in Sales, which matches how operators think about money
       // flow: out goes with what you bought, in goes with what you sold.
       { key: '/payment/new',                         icon: <DollarOutlined />,        label: 'Payment',      perm: 'payments.create' },
-      { key: '/payments?transaction_type=Payment',   icon: <UnorderedListOutlined />, label: 'Payment List', perm: 'payments.view' },
+      { key: '/payments?transaction_type=Payment',   icon: <AccountBookOutlined />,   label: 'Payment List', perm: 'payments.view' },
       { key: '/purchase-return/new', icon: <RollbackOutlined />,      label: 'New Purchase Return', perm: 'purchase_returns.create' },
-      { key: '/purchase-returns',    icon: <UnorderedListOutlined />, label: 'Purchase Returns',    perm: 'purchase_returns.view' },
+      { key: '/purchase-returns',    icon: <ContainerOutlined />,     label: 'Purchase Returns',    perm: 'purchase_returns.view' },
     ],
   },
   {
@@ -90,8 +97,8 @@ export const menuItems = [
       // create entry above the list entry). Each routes to the list
       // page with ?new=1; the list page reads the param and opens its
       // create modal on mount.
-      { key: '/customers?new=1', icon: <PlusCircleOutlined />,    label: 'New Customer',  perm: 'parties.create' },
-      { key: '/suppliers?new=1', icon: <PlusCircleOutlined />,    label: 'New Supplier',  perm: 'parties.create' },
+      { key: '/customers?new=1', icon: <UserAddOutlined />,       label: 'New Customer',  perm: 'parties.create' },
+      { key: '/suppliers?new=1', icon: <ShopOutlined />,          label: 'New Supplier',  perm: 'parties.create' },
       { key: '/customers',       icon: <UserOutlined />,          label: 'Customers',     perm: 'parties.view' },
       { key: '/suppliers',       icon: <BankOutlined />,          label: 'Suppliers',     perm: 'parties.view' },
     ],
@@ -101,20 +108,20 @@ export const menuItems = [
     icon: <InboxOutlined />,
     label: 'Inventory',
     children: [
-      { key: '/products?new=1',   icon: <PlusCircleOutlined />, label: 'New Product',    perm: 'inventory.create' },
-      { key: '/categories?new=1', icon: <PlusCircleOutlined />, label: 'New Category',   perm: 'inventory.create' },
-      { key: '/products',         icon: <AppstoreOutlined />, label: 'Products',        perm: 'inventory.view' },
-      { key: '/categories',       icon: <TagsOutlined />,     label: 'Categories',      perm: 'inventory.view' },
-      { key: '/stock-movement',   icon: <SwapOutlined />,     label: 'Stock Movement',  perm: 'inventory.view' },
-      { key: '/stock-report',     icon: <StockOutlined />,    label: 'Stock Report',    perm: 'inventory.view' },
-      { key: '/stock-report-pro', icon: <TableOutlined />,    label: 'Smart Stock',     perm: 'inventory.view' },
-      { key: '/stock-transfers',  icon: <SwapOutlined />,     label: 'Stock Transfers', perm: 'stock_transfers.view', flag: 'multi_warehouse_enabled' },
+      { key: '/products?new=1',   icon: <AppstoreAddOutlined />, label: 'New Product',    perm: 'inventory.create' },
+      { key: '/categories?new=1', icon: <FolderAddOutlined />,   label: 'New Category',   perm: 'inventory.create' },
+      { key: '/products',         icon: <AppstoreOutlined />,    label: 'Products',        perm: 'inventory.view' },
+      { key: '/categories',       icon: <TagsOutlined />,        label: 'Categories',      perm: 'inventory.view' },
+      { key: '/stock-movement',   icon: <SwapOutlined />,        label: 'Stock Movement',  perm: 'inventory.view' },
+      { key: '/stock-report',     icon: <StockOutlined />,       label: 'Stock Report',    perm: 'inventory.view' },
+      { key: '/stock-report-pro', icon: <TableOutlined />,       label: 'Smart Stock',     perm: 'inventory.view' },
+      { key: '/stock-transfers',  icon: <DeploymentUnitOutlined />, label: 'Stock Transfers', perm: 'stock_transfers.view', flag: 'multi_warehouse_enabled' },
       // Batches (Commit 5) — gated on batches.view AND the global
       // batch_tracking_enabled toggle. The page itself still has an
       // "Enable batch tracking" placeholder for direct-URL hits, but
       // the sidebar entry hides when the toggle is off so operators
       // don't land there by accident.
-      { key: '/inventory/batches', icon: <AppstoreOutlined />, label: 'Batches',         perm: 'batches.view', flag: 'batch_tracking_enabled' },
+      { key: '/inventory/batches', icon: <BlockOutlined />,    label: 'Batches',         perm: 'batches.view', flag: 'batch_tracking_enabled' },
     ],
   },
   // Payments menu retired — Receipt + List moved to Sales, Payment + List
@@ -138,7 +145,7 @@ export const menuItems = [
     label: 'Expenses',
     children: [
       { key: '/expenses/new',    icon: <PlusCircleOutlined />,    label: 'New Expense',     perm: 'expenses.create' },
-      { key: '/expenses',        icon: <UnorderedListOutlined />, label: 'Expense List',    perm: 'expenses.view' },
+      { key: '/expenses',        icon: <ProfileOutlined />,       label: 'Expense List',    perm: 'expenses.view' },
       { key: '/expenses/report', icon: <BarChartOutlined />,      label: 'Expense Report',  perm: 'expenses.view' },
     ],
   },
@@ -166,8 +173,8 @@ export const menuItems = [
       { key: '/banks',                icon: <WalletOutlined />,      label: 'Accounts',       perm: 'accounts.view' },
       { key: '/banks/cheques',        icon: <AuditOutlined />,       label: 'Cheques',        perm: 'cheques.view' },
       { key: '/banks/reconciliation', icon: <CheckCircleOutlined />, label: 'Reconciliation', perm: 'accounts.view' },
-      { key: '/loans',                icon: <FieldTimeOutlined />,   label: 'Loans',          perm: 'accounts.view' },
-      { key: '/loans/schedule',       icon: <FieldTimeOutlined />,   label: 'Loan Schedule',  perm: 'accounts.view' },
+      { key: '/loans',                icon: <TransactionOutlined />, label: 'Loans',          perm: 'accounts.view' },
+      { key: '/loans/schedule',       icon: <ScheduleOutlined />,    label: 'Loan Schedule',  perm: 'accounts.view' },
     ],
   },
   {
@@ -183,7 +190,7 @@ export const menuItems = [
     label: 'Books',
     children: [
       { key: '/accounts/journal/new', icon: <PlusCircleOutlined />,    label: 'New Journal Voucher', perm: 'accounts.view' },
-      { key: '/accounts/journal',     icon: <UnorderedListOutlined />, label: 'Journal Vouchers',    perm: 'accounts.view' },
+      { key: '/accounts/journal',     icon: <ProfileOutlined />,       label: 'Journal Vouchers',    perm: 'accounts.view' },
       // Ledger Integrity is a heavy DB-diagnostic page. Default-hidden;
       // a developer can flip dev_show_ledger_integrity to expose it to
       // accountants who legitimately need it. Developer mode sees it

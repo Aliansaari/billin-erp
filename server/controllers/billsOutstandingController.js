@@ -281,14 +281,21 @@ async function _billsList(req, partyType) {
   // alloc_total:
   //   SUM of bill_payment_allocations rows pointing at this bill via
   //   live (non-cancelled) payments_receipts. NULL when no allocations
-  //   exist (legacy / not-yet-FIFO bills).
+  //   exist. Exposed only as `has_allocation` (informational) — see
+  //   effective_outstanding below for why it must NOT drive the number.
   // effective_outstanding:
-  //   total_amount − alloc_total when allocations exist; balance_amount
-  //   otherwise. After R8 backfill, alloc_total == paid_amount on every
-  //   in-scope paid bill, so the two paths agree numerically. The new
-  //   column moves the source-of-truth from the bill's stored proxy to
-  //   the actual allocation table — once FIFO Receipt→Bill is fully
-  //   wired, the fallback is the only path that still uses the proxy.
+  //   Always `balance_amount` — the single maintained column every
+  //   payment path keeps in sync (at-billing paid_amount at bill
+  //   creation, `billAllocationService.applyAllocations` decrementing it
+  //   in lock-step whenever an allocation is written, and
+  //   `reconcileBillsForParty` for legacy/manual reconciliation). A prior
+  //   version used `total_amount − alloc_total` whenever ANY allocation
+  //   existed, which silently ignored at-billing payments on bills that
+  //   also had a *partial* allocation — inflating "outstanding" on
+  //   already-paid bills (verified live: 34 sales + 40 purchase bills,
+  //   ~₹3.77L / ₹8.34L phantom outstanding). balance_amount already
+  //   nets every payment source, so it's the only safe basis here.
+  //   [[zehen-data-payment-model-and-fixes]]
   const allocBillType = isCustomer ? 'Sales' : 'Purchase';
   const cteSql = `
     WITH bill_rows AS (
@@ -319,11 +326,7 @@ async function _billsList(req, partyType) {
         COALESCE(b.due_date, (b.bill_date + (COALESCE(p.credit_days, 0) || ' days')::interval)::date) AS effective_due_date,
         GREATEST(0, (DATE :as_of - COALESCE(b.due_date, (b.bill_date + (COALESCE(p.credit_days, 0) || ' days')::interval)::date))) AS overdue_days,
         bpa_sum.alloc_total,
-        CASE
-          WHEN bpa_sum.alloc_total IS NOT NULL
-            THEN GREATEST(0, b.total_amount - bpa_sum.alloc_total)
-          ELSE b.balance_amount
-        END                       AS effective_outstanding,
+        b.balance_amount          AS effective_outstanding,
         (bpa_sum.alloc_total IS NOT NULL) AS has_allocation
       FROM ${billTable} b
       JOIN parties p   ON p.party_id = b.${partyFK}
@@ -522,11 +525,10 @@ async function _billsList(req, partyType) {
 // back as strings from pg DECIMAL columns; convert to float here so the
 // frontend's totals sum cleanly without per-cell coercion.
 //
-// `outstanding` reads from the CTE's `effective_outstanding` column —
-// total_amount minus SUM(bill_payment_allocations.allocated_amount)
-// when allocations exist; balance_amount otherwise. `has_allocation`
-// is exposed so a future per-row chip can mark which bills are
-// allocation-backed vs proxy-backed.
+// `outstanding` reads from the CTE's `effective_outstanding` column,
+// which is always `balance_amount` (see the CTE comment above).
+// `has_allocation` is exposed so a future per-row chip can mark which
+// bills have at least one FIFO-allocated receipt/payment against them.
 function _normaliseRow(r) {
   return {
     bill_id:           r.bill_id,

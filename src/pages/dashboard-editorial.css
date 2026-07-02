@@ -898,7 +898,9 @@
  * ──────────────────────────────────────────────────────────────────────── */
 .ed-aging-summary {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* auto-fit: 5 chips normally, 6 when the On-A/c bucket is present —
+   * both fill the row edge-to-edge without a second layout rule. */
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 1px;
   background: var(--ed-line);
   padding: 1px 0;
@@ -917,6 +919,9 @@
 .ed-aging-b2 { background: var(--ed-warn); }
 .ed-aging-b3 { background: var(--ed-neg); opacity: 0.75; }
 .ed-aging-b4 { background: var(--ed-neg); }
+/* On-account / opening — money in the total with no bill date to age.
+ * Neutral ink tone: not good, not bad, just "not in a bucket". */
+.ed-aging-oa { background: var(--ed-ink-4); }
 
 .ed-aging-bucket-label {
   font-family: inherit;
@@ -1031,6 +1036,7 @@
   line-height: 1;
   display: inline-flex; align-items: center; gap: 4px;
 }
+.ed-age-pill.ed-aging-oa { color: var(--ed-ink-4); background: var(--ed-line); }
 .ed-age-pill.ed-aging-b0 { color: var(--ed-pos);  background: var(--ed-pos-soft); }
 .ed-age-pill.ed-aging-b1 { color: var(--ed-warn); background: var(--ed-warn-soft); opacity: 0.85; }
 .ed-age-pill.ed-aging-b2 { color: var(--ed-warn); background: var(--ed-warn-soft); }

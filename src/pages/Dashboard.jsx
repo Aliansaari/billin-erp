@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { DatePicker, Tooltip } from 'antd';
 import { reportAPI } from '../api';
+import { readSectionPrefs, isSectionVisible } from '../config/dashboardSections';
 import './dashboard-editorial.css';
 
 /* ── InfoTip ──────────────────────────────────────────────────────────
@@ -82,6 +83,21 @@ export default function Dashboard() {
   }, [period, customRange]);
   const [loading, setLoading]   = useState(true);
   const [lastSyncAt, setLastSyncAt] = useState(null);
+
+  // Section visibility — authored in Settings → Dashboard, stored in
+  // localStorage. Re-read on the custom event (same-tab settings change)
+  // and the native storage event (another tab/window).
+  const [sectionPrefs, setSectionPrefs] = useState(readSectionPrefs);
+  useEffect(() => {
+    const reread = () => setSectionPrefs(readSectionPrefs());
+    window.addEventListener('ed-dash-sections', reread);
+    window.addEventListener('storage', reread);
+    return () => {
+      window.removeEventListener('ed-dash-sections', reread);
+      window.removeEventListener('storage', reread);
+    };
+  }, []);
+  const show = (id) => isSectionVisible(sectionPrefs, id);
 
   useEffect(() => {
     load(period);
@@ -164,15 +180,15 @@ export default function Dashboard() {
         setCustomRange={(r) => { setCustomRange(r); setPeriod(r ? 'CUSTOM' : '30D'); }}
         onReload={() => load(period)}
       />
-      <PageHeader stats={stats} insights={insights} aging={aging} business={business} />
-      <KpiStrip stats={stats} series={series} insights={insights} business={business} />
-      <MoneyMovementRow stats={stats} series={series} business={business} period={period} bucket={trendBucket} />
-      <SalesPurchaseTrendRow stats={stats} series={series} period={period} bucket={trendBucket} />
-      <InsightBar tone="primary" insight={buildPrimaryInsight({ stats, insights, aging, business })} />
-      <ReceivablesSection aging={aging} insights={insights} business={business} navigate={navigate} />
-      <SalesIntelligenceRow insights={insights} business={business} stats={stats} />
-      <OperationalHealthRow business={business} insights={insights} />
-      <InsightBar tone="actions" actions={business?.actions || []} navigate={navigate} />
+      {show('quickstats')   && <PageHeader stats={stats} insights={insights} aging={aging} business={business} />}
+      {show('kpis')         && <KpiStrip stats={stats} series={series} insights={insights} business={business} />}
+      {show('money')        && <MoneyMovementRow stats={stats} series={series} business={business} period={period} bucket={trendBucket} />}
+      {show('trends')       && <SalesPurchaseTrendRow stats={stats} series={series} period={period} bucket={trendBucket} />}
+      {show('insight')      && <InsightBar tone="primary" insight={buildPrimaryInsight({ stats, insights, aging, business })} />}
+      {show('receivables')  && <ReceivablesSection aging={aging} insights={insights} business={business} navigate={navigate} />}
+      {show('intelligence') && <SalesIntelligenceRow insights={insights} business={business} stats={stats} />}
+      {show('health')       && <OperationalHealthRow business={business} insights={insights} />}
+      {show('actions')      && <InsightBar tone="actions" actions={business?.actions || []} navigate={navigate} />}
     </div>
   );
 }
@@ -247,9 +263,15 @@ function PageHeader({ stats, insights, aging }) {
   const todayPurch = stats?.today_purchases?.count || 0;
   const openSales = stats?.receivables?.count || 0;
   const openPurch = stats?.payables?.count || 0;
-  const avgTicket = stats?.monthly_sales_excl_gst && (series_avg_ticket_count(stats))
-    ? stats.monthly_sales_excl_gst / series_avg_ticket_count(stats)
-    : 0;
+  // Avg ticket = period sales ÷ period bill count. Guard on count>0 —
+  // dividing by a missing count used to fall back to 1 and display the
+  // ENTIRE month's sales as the "average ticket".
+  const salesCount = stats?.monthly_sales_count || 0;
+  const avgTicket = salesCount > 0 ? (stats?.monthly_sales_excl_gst || 0) / salesCount : 0;
+  // Net GST for the period: output tax collected − input credit. What
+  // the business actually owes the government — more useful up top than
+  // repeating Stock value (already a KPI card below).
+  const gstNet = stats?.monthly_gst_liability || 0;
 
   // Situational subtitle from data
   const subtitle = useMemo(() => buildSituationalSubtitle({ stats, insights, aging }),
@@ -265,10 +287,10 @@ function PageHeader({ stats, insights, aging }) {
                tip="Number of bills you entered today — sales plus purchases. A quick pulse of today's activity." />
         <QStat tone="warn"    icon="folder"  label="Open bills"   value={openSales + openPurch} sub={`${openSales} AR · ${openPurch} AP`}
                tip="Bills not yet fully settled. AR (accounts receivable) = sales customers still owe you; AP (accounts payable) = purchases you still owe suppliers." />
-        <QStat tone="info"    icon="ticket"  label="Avg ticket"   value={formatINR(avgTicket, { compact: true })} sub="month to date" mono cur
-               tip="Average value of one sale this month = total sales ÷ number of sales bills. Higher means bigger orders per customer." />
-        <QStat tone="pos"     icon="box"     label="Stock value"  value={formatINR(stats?.stock_value?.purchase || 0, { compact: true })} sub={`${stats?.low_stock_count || 0} low stock`} mono cur
-               tip="Cost-price value of all goods currently in stock. “Low stock” is the count of items at or below their reorder level." />
+        <QStat tone="info"    icon="ticket"  label="Avg ticket"   value={formatINR(avgTicket, { compact: true })} sub={salesCount > 0 ? `across ${salesCount} bills` : 'no sales yet'} mono cur
+               tip="Average value of one sale in this period = total sales ÷ number of sales bills. Higher means bigger orders per customer." />
+        <QStat tone="pos"     icon="box"     label="GST payable"  value={formatINR(Math.abs(gstNet), { compact: true })} sub={gstNet >= 0 ? 'output − input credit' : 'input credit exceeds output'} mono cur
+               tip="Net GST for the period: tax collected on sales minus input credit on purchases. This is roughly what you'll deposit with the government (negative = credit carries forward)." />
       </div>
     </header>
   );
@@ -319,9 +341,13 @@ function KpiStrip({ stats, series, insights, business }) {
       label: 'Cash position',
       tip: 'Total money you can use right now — all bank balances plus cash in hand. “Runway” is roughly how many days this lasts at your recent spending rate.',
       value: business?.cash_position ?? null,
-      sub: cashRunway != null
-        ? `${cashRunway} day runway`
-        : 'all banks + cash',
+      // Honest sub-line: "0 day runway" on a negative balance reads like a
+      // countdown when the real story is the books show net outflow.
+      sub: (business?.cash_position ?? 0) < 0
+        ? 'negative — verify opening balances'
+        : (cashRunway != null && cashRunway > 0)
+          ? `${cashRunway} day runway`
+          : 'all banks + cash',
       sparkKey: 'receipts',
       delta: null,
       isCurrency: true,
@@ -349,7 +375,7 @@ function KpiStrip({ stats, series, insights, business }) {
       label: 'Sales MTD',
       tip: 'Total sales so far this month (MTD = month-to-date), excluding GST. The % compares with the same point last month — green is up, red is down.',
       value: stats?.monthly_sales_excl_gst || 0,
-      sub: buildSalesSub(stats, last14),
+      sub: buildSalesSub(stats),
       sparkKey: 'sales',
       delta: pctDelta(stats?.monthly_sales_excl_gst, stats?.prior?.monthly_sales_excl_gst),
       isCurrency: true,
@@ -862,8 +888,8 @@ function ReceivablesSection({ aging, insights, business, navigate }) {
         credit_used_pct: c.credit_used_pct,
       }))
     : null;
-  const grand = aging?.grand || { current: 0, b1: 0, b2: 0, b3: 0, b4: 0, total: 0 };
-  const labels = aging?.bucket_labels || { current: 'Current', b1: '0–30d', b2: '30–60d', b3: '60–90d', b4: '90+d' };
+  const grand = aging?.grand || { current: 0, b1: 0, b2: 0, b3: 0, b4: 0, on_account: 0, total: 0 };
+  const labels = aging?.bucket_labels || { current: 'Current', b1: '0–30d', b2: '30–60d', b3: '60–90d', b4: '90+d', on_account: 'On A/c' };
   const total = grand.total || 1;
   const buckets = [
     { key: 'current', tone: 'b0', label: labels.current, amount: grand.current || 0, count: countPartiesInBucket(aging, 'current') },
@@ -872,6 +898,17 @@ function ReceivablesSection({ aging, insights, business, navigate }) {
     { key: 'b3',      tone: 'b3', label: labels.b3,      amount: grand.b3      || 0, count: countPartiesInBucket(aging, 'b3') },
     { key: 'b4',      tone: 'b4', label: labels.b4,      amount: grand.b4      || 0, count: countPartiesInBucket(aging, 'b4') },
   ];
+  // On-account / opening money isn't tied to any bill so it can't age into
+  // a date bucket — but it IS part of the total. Without this chip the five
+  // buckets visibly summed to less than the headline (e.g. 62%), which
+  // read as a bug. Only rendered when the amount is non-trivial.
+  if ((grand.on_account || 0) > 1) {
+    buckets.push({
+      key: 'on_account', tone: 'oa', label: labels.on_account || 'On A/c',
+      amount: grand.on_account, count: countPartiesInBucket(aging, 'on_account'),
+      tip: 'Advances, opening balances and on-account amounts not attached to a specific bill — included in the total but with no bill date to age from.',
+    });
+  }
 
   const overdue = (enrichedOverdue || insights?.overdue_receivables || []).slice(0, 5);
 
@@ -902,6 +939,7 @@ function ReceivablesSection({ aging, insights, business, navigate }) {
                 <div className="ed-aging-bucket-head">
                   <span className={`ed-aging-dot ed-aging-${b.tone}`} />
                   <span className="ed-aging-bucket-label">{b.label}</span>
+                  {b.tip && <InfoTip text={b.tip} label={b.label} />}
                 </div>
                 <div className={`ed-aging-bucket-val${b.tone === 'b3' || b.tone === 'b4' ? ' ed-alert' : ''}`}>
                   <span className="ed-cur">₹</span>{formatINR(b.amount, { compact: true })}
@@ -941,7 +979,11 @@ function ReceivablesSection({ aging, insights, business, navigate }) {
                           </div>
                           <div>
                             <div className="ed-party-name">{c.party_name}</div>
-                            <div className="ed-party-meta">Oldest bill · {c.oldest_days}d</div>
+                            <div className="ed-party-meta">
+                              {Number.isFinite(Number(c.oldest_days)) && c.oldest_days != null
+                                ? `Oldest bill · ${c.oldest_days}d`
+                                : 'No dated bills'}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -994,21 +1036,28 @@ function ReceivablesSection({ aging, insights, business, navigate }) {
 /* ═══════════════════════════════════════════════════════════════════════
  *  SALES INTELLIGENCE — top customers · top products · customer concentration
  * ═══════════════════════════════════════════════════════════════════════ */
-function SalesIntelligenceRow({ insights, stats }) {
-  // Derive top customers from overdue + recent_sales as best available; if we
-  // had a top-customer-by-revenue endpoint we'd use it. For now use overdue
-  // (which is sorted by balance — proxy for high-volume buyers).
-  const topCustomers = (insights?.overdue_receivables || []).slice(0, 5);
+function SalesIntelligenceRow({ insights, business, stats }) {
+  // Top customers BY REVENUE (last 90 days) — from the business endpoint's
+  // concentration detail. The old code borrowed the top-OVERDUE list here,
+  // so a shop whose big buyers pay on time showed "No data" and the panel
+  // never answered its actual question ("who do I sell the most to?").
+  const topByRevenue = (business?.customer_concentration?.top || []).slice(0, 5);
+  const fallbackOverdue = (insights?.overdue_receivables || []).slice(0, 5);
+  const topCustomers = topByRevenue.length
+    ? topByRevenue.map(c => ({ ...c, amount: c.revenue }))
+    : fallbackOverdue.map(c => ({ ...c, amount: c.balance }));
+  const usingRevenue = topByRevenue.length > 0;
   const topProducts = (insights?.top_selling_products || []).slice(0, 5);
 
-  const totalRev = stats?.monthly_sales_excl_gst || 0;
-  const topCustBalSum = topCustomers.reduce((s, c) => s + (c.balance || 0), 0);
-  const concPct = totalRev ? Math.min(100, (topCustBalSum / totalRev) * 100) : 0;
-
+  // Concentration — straight from the backend (top-5 share of 90-day
+  // revenue). The old frontend divided overdue balances by monthly sales:
+  // apples ÷ oranges, and it rendered 0% "Low risk" on real data.
+  const conc = business?.customer_concentration || null;
+  const concPct = conc ? Math.min(100, conc.pct || 0) : 0;
   const concRisk =
-    concPct < 30 ? { label: 'Low risk',      tone: 'pos'  } :
-    concPct < 50 ? { label: 'Moderate risk', tone: 'warn' } :
-                   { label: 'High risk',     tone: 'neg'  };
+    (conc?.risk === 'high')     ? { label: 'High risk',     tone: 'neg'  } :
+    (conc?.risk === 'moderate') ? { label: 'Moderate risk', tone: 'warn' } :
+                                  { label: 'Low risk',      tone: 'pos'  };
 
   // Color rotation for the segments
   const segColors = ['s1', 's2', 's3', 's4', 's5'];
@@ -1020,28 +1069,34 @@ function SalesIntelligenceRow({ insights, stats }) {
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
             <div className="ed-panel-title">Top <em>customers</em>
-              <InfoTip label="Top customers" text="Customers who owe you the most right now, by unpaid balance. “120d oldest” means their oldest unpaid bill is 120 days old — a sign of slow payment to follow up on." />
+              <InfoTip label="Top customers" text={usingRevenue
+                ? 'Your biggest buyers over the last 90 days, ranked by billed revenue — the relationships your business runs on.'
+                : 'Customers who owe you the most right now, by unpaid balance.'} />
             </div>
-            <div className="ed-panel-meta">Highest balances</div>
+            <div className="ed-panel-meta">{usingRevenue ? 'By revenue · 90 days' : 'Highest balances'}</div>
           </div>
         </div>
         <div className="ed-topc-list">
           {topCustomers.length === 0 ? (
-            <div className="ed-empty-mini">No data for this period.</div>
+            <div className="ed-empty-mini">No sales recorded in the last 90 days.</div>
           ) : topCustomers.map((c, i) => {
-            const maxBal = topCustomers[0]?.balance || 1;
+            const maxAmt = topCustomers[0]?.amount || 1;
             return (
               <div key={c.party_id} className="ed-topc-row">
                 <div className="ed-topc-rank">{String(i + 1).padStart(2, '0')}</div>
                 <div className="ed-topc-info">
                   <div className="ed-topc-name">{c.party_name}</div>
-                  <div className="ed-topc-meta">{c.oldest_days}d oldest · ₹{formatINR(c.balance || 0, { compact: true })}</div>
+                  <div className="ed-topc-meta">
+                    {usingRevenue
+                      ? `${(c.pct || 0).toFixed(1)}% of 90-day sales`
+                      : `${c.oldest_days != null ? `${c.oldest_days}d oldest · ` : ''}₹${formatINR(c.amount || 0, { compact: true })}`}
+                  </div>
                 </div>
                 <div className="ed-topc-bar-wrap">
-                  <div className="ed-topc-bar" style={{ width: `${(c.balance / maxBal) * 100}%` }} />
+                  <div className="ed-topc-bar" style={{ width: `${((c.amount || 0) / maxAmt) * 100}%` }} />
                 </div>
                 <div className="ed-topc-value">
-                  <span className="ed-cur-sm">₹</span>{formatINR(c.balance || 0, { compact: true })}
+                  <span className="ed-cur-sm">₹</span>{formatINR(c.amount || 0, { compact: true })}
                 </div>
               </div>
             );
@@ -1089,46 +1144,49 @@ function SalesIntelligenceRow({ insights, stats }) {
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
             <div className="ed-panel-title">Customer <em>concentration</em>
-              <InfoTip label="Customer concentration" text="What share of all the money owed to you is tied up in just your top 5 customers. A high % is risky — if one of them delays paying, your cash takes a big hit. Under 30% is low risk." />
+              <InfoTip label="Customer concentration" text="What share of your last-90-day sales came from just your top 5 customers. A high % is risky — if one of them stops buying or delays payment, your business takes a big hit. Under 30% is low risk." />
             </div>
-            <div className="ed-panel-meta">Top 5 share</div>
+            <div className="ed-panel-meta">Top 5 · 90-day revenue</div>
           </div>
         </div>
         <div className="ed-conc-wrap">
-          <div className={`ed-conc-hero ed-conc-hero-${concRisk.tone}`}>
-            {concPct.toFixed(0)}<span className="ed-conc-pct">%</span>
-          </div>
-          <div className="ed-conc-sub">
-            of receivables held by your <span className="ed-strong">top {topCustomers.length || 5}</span> customers.
-            {' '}
-            <span className={`ed-${concRisk.tone}`}>{concRisk.label}</span>.
-          </div>
-          {topCustomers.length > 0 && (
+          {!conc ? (
+            <div className="ed-empty-mini">Computing concentration…</div>
+          ) : (
             <>
-              <div className="ed-conc-bar">
-                {topCustomers.map((c, i) => {
-                  const w = totalRev ? (c.balance / totalRev) * 100 : 0;
-                  return (
-                    <div
-                      key={c.party_id}
-                      className={`ed-conc-seg ed-conc-${segColors[i] || 's5'}`}
-                      style={{ width: `${w}%` }}
-                      title={`${c.party_name} · ${w.toFixed(1)}%`}
-                    />
-                  );
-                })}
-                <div className="ed-conc-seg ed-conc-rest" style={{ flex: 1 }}>Rest</div>
+              <div className={`ed-conc-hero ed-conc-hero-${concRisk.tone}`}>
+                {concPct.toFixed(0)}<span className="ed-conc-pct">%</span>
               </div>
-              <div className="ed-conc-detail">
-                {topCustomers.slice(0, 3).map((c, i) => (
-                  <div key={c.party_id} className="ed-conc-row">
-                    <span className={`ed-conc-marker ed-conc-${segColors[i]}`} />
-                    <span className="ed-conc-name">{c.party_name}</span>
-                    <span className="ed-conc-val"><span className="ed-cur-sm">₹</span>{formatINR(c.balance || 0, { compact: true })}</span>
-                    <span className="ed-conc-pct-row">{totalRev ? ((c.balance / totalRev) * 100).toFixed(1) : '0.0'}%</span>
+              <div className="ed-conc-sub">
+                of 90-day revenue from your <span className="ed-strong">top {conc.top_n || topByRevenue.length || 5}</span> customers.
+                {' '}
+                <span className={`ed-${concRisk.tone}`}>{concRisk.label}</span>.
+              </div>
+              {topByRevenue.length > 0 && (
+                <>
+                  <div className="ed-conc-bar">
+                    {topByRevenue.map((c, i) => (
+                      <div
+                        key={c.party_id}
+                        className={`ed-conc-seg ed-conc-${segColors[i] || 's5'}`}
+                        style={{ width: `${Math.min(100, c.pct || 0)}%` }}
+                        title={`${c.party_name} · ${(c.pct || 0).toFixed(1)}%`}
+                      />
+                    ))}
+                    <div className="ed-conc-seg ed-conc-rest" style={{ flex: 1 }}>Rest</div>
                   </div>
-                ))}
-              </div>
+                  <div className="ed-conc-detail">
+                    {topByRevenue.slice(0, 3).map((c, i) => (
+                      <div key={c.party_id} className="ed-conc-row">
+                        <span className={`ed-conc-marker ed-conc-${segColors[i]}`} />
+                        <span className="ed-conc-name">{c.party_name}</span>
+                        <span className="ed-conc-val"><span className="ed-cur-sm">₹</span>{formatINR(c.revenue || 0, { compact: true })}</span>
+                        <span className="ed-conc-pct-row">{(c.pct || 0).toFixed(1)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -1601,6 +1659,9 @@ function countPartiesInBucket(aging, bucket) {
 }
 
 function pickAgeBucket(days) {
+  // Null/undefined = the party has no dated open bill (on-account only).
+  // Show a neutral dash instead of a misleading green "current".
+  if (days == null || !Number.isFinite(Number(days))) return { tone: 'oa', label: '—' };
   if (days <= 0)  return { tone: 'b0', label: 'current' };
   if (days <= 30) return { tone: 'b1', label: `${days}d` };
   if (days <= 60) return { tone: 'b2', label: `${days}d` };
@@ -1717,12 +1778,13 @@ function InsightBanner({ tone, icon, headline, detail, chips }) {
   );
 }
 
-function buildSalesSub(stats, last14) {
-  const count = stats?.monthly_sales_excl_gst && last14.length
-    ? sum(last14, 'sales_count')
-    : 0;
-  const avg = count ? (sum(last14, 'sales') / count) : 0;
-  if (!count) return 'no sales yet this month';
+function buildSalesSub(stats) {
+  // Same period + same denominator as the header's Avg-ticket card, so
+  // the two "avg" figures on screen can never disagree. (The old version
+  // averaged the last-14-day series regardless of the selected period.)
+  const count = stats?.monthly_sales_count || 0;
+  if (!count) return 'no sales yet this period';
+  const avg = (stats?.monthly_sales_excl_gst || 0) / count;
   return `${count} invoices · avg ₹${formatINR(avg, { compact: true })}`;
 }
 
@@ -1736,7 +1798,3 @@ function buildStockSub(stats, insights) {
   return parts.join(' · ');
 }
 
-function series_avg_ticket_count(stats) {
-  // Defensive — if backend doesn't surface count, fall back.
-  return stats?.monthly_sales_count || 1;
-}

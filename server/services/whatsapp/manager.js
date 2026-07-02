@@ -193,32 +193,66 @@ async function connectWeb(companyId) {
   s.registered = true;
   fs.mkdirSync(authDir(id), { recursive: true });
 
-  const sock = await web.startSocket(authDir(id), {
-    onQR: (qr) => { s.qr = qr; s.state = 'connecting'; s.lastError = null; },
-    onConnected: (me) => {
-      s.state = 'connected'; s.me = me; s.qr = null; s.lastError = null;
-      console.log(`[whatsapp] company ${id} connected as ${me}`);
-      persistConn(id, 'connected', me).catch(() => {});
-    },
-    onDisconnected: (code, willReconnect) => {
-      s.state = 'disconnected'; s.sock = null;
-      s.lastError = disconnectReason(code);
-      console.log(`[whatsapp] company ${id} disconnected (code ${code}); reconnect=${willReconnect && s.shouldRun}`);
-      persistConn(id, 'disconnected', s.me).catch(() => {});
-      // Invalid saved session → wipe it so the reconnect shows a fresh QR.
-      if (code === (web.DisconnectReason || {}).badSession) {
-        try { fs.rmSync(authDir(id), { recursive: true, force: true }); } catch { /* ignore */ }
-      }
-      if (willReconnect && s.shouldRun) {
+  try {
+    const sock = await web.startSocket(authDir(id), {
+      onQR: (qr) => { s.qr = qr; s.state = 'connecting'; s.lastError = null; },
+      onConnected: (me) => {
+        s.state = 'connected'; s.me = me; s.qr = null; s.lastError = null;
+        console.log(`[whatsapp] company ${id} connected as ${me}`);
+        persistConn(id, 'connected', me).catch(() => {});
+      },
+      onDisconnected: (code) => {
+        s.state = 'disconnected'; s.sock = null;
+        s.lastError = disconnectReason(code);
+        persistConn(id, 'disconnected', s.me).catch(() => {});
+
+        // User pressed Disconnect — stay down, don't fight it.
+        if (!s.shouldRun) {
+          console.log(`[whatsapp] company ${id} disconnected (code ${code}); staying down`);
+          return;
+        }
+
+        const R = web.DisconnectReason || {};
+
+        // Number got linked on another phone/session — reconnecting just gets us
+        // replaced again. Surface the error and stop.
+        if (code === R.connectionReplaced) {
+          console.log(`[whatsapp] company ${id} disconnected (code ${code}); linked elsewhere — not reconnecting`);
+          return;
+        }
+
+        // A session that can't recover on its own (logged out on the phone, the
+        // saved creds went invalid, multi-device mismatch, forbidden). Wipe the
+        // creds so the next socket emits a FRESH QR — otherwise Baileys keeps
+        // retrying the dead session and the UI is stuck "connecting" with no QR.
+        const sessionDead =
+          code === R.loggedOut || code === R.badSession ||
+          code === R.forbidden || code === R.multideviceMismatch;
+        if (sessionDead) {
+          try { fs.rmSync(authDir(id), { recursive: true, force: true }); } catch { /* ignore */ }
+          s.me = null;
+          s.state = 'connecting';   // hold the QR panel open for the fresh code
+          s.qr = null;
+        }
+
+        console.log(`[whatsapp] company ${id} disconnected (code ${code}); reconnecting${sessionDead ? ' with fresh QR' : ''}`);
         // Refetch the WA version on reconnect so a version bump self-heals.
         web.resetVersionCache();
-        setTimeout(() => { connectWeb(id).catch(() => {}); }, 3000);
-      }
-    },
-    onAck: (msgId, status) => { handleAck(id, msgId, status).catch(() => {}); },
-    onInbound: (from, text, replyJid) => { handleInbound(id, from, text, replyJid).catch(() => {}); },
-  });
-  s.sock = sock;
+        setTimeout(() => { connectWeb(id).catch(() => {}); }, sessionDead ? 1000 : 3000);
+      },
+      onAck: (msgId, status) => { handleAck(id, msgId, status).catch(() => {}); },
+      onInbound: (from, text, replyJid) => { handleInbound(id, from, text, replyJid).catch(() => {}); },
+    });
+    s.sock = sock;
+  } catch (e) {
+    // The socket failed to even start (e.g. transient network/handshake error).
+    // Without this, state would be stuck at 'connecting' forever with no QR and
+    // no retry, because onDisconnected never fires for a socket that never came up.
+    s.sock = null;
+    s.lastError = 'Could not start WhatsApp — retrying…';
+    console.error(`[whatsapp] company ${id} startSocket failed:`, e.message);
+    if (s.shouldRun) setTimeout(() => { connectWeb(id).catch(() => {}); }, 5000);
+  }
   ensureWorker();
   return getStatus(id);
 }
