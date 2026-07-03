@@ -59,6 +59,23 @@ exports.dashboardStats = async (req, res) => {
     }
     const priorMonthEnd     = localDateString(priorMonthEndObj);
 
+    // Like-for-like comparison window. In range mode the delta must compare
+    // the selected window against the SAME-LENGTH window immediately before
+    // it — comparing "last 30 days" against "last month same-days" produced
+    // absurd chips (e.g. ↑601%) whenever the two windows overlapped oddly.
+    // Legacy no-range mode keeps the classic "MTD vs last month same days".
+    let priorFrom = priorMonthStart;
+    let priorTo   = priorMonthEnd;
+    if (rangeMode) {
+      const fromObj    = new Date(monthStart + 'T00:00:00');
+      const spanMs     = Math.max(0, todayDateObj.getTime() - fromObj.getTime());
+      const priorToObj = new Date(fromObj);
+      priorToObj.setDate(priorToObj.getDate() - 1);
+      const priorFromObj = new Date(priorToObj.getTime() - spanMs);
+      priorFrom = localDateString(priorFromObj);
+      priorTo   = localDateString(priorToObj);
+    }
+
     /* ── Parallel fetch of all independent aggregates ─────────────────────
      *
      * Every read below is independent of every other read in this block.
@@ -87,6 +104,8 @@ exports.dashboardStats = async (req, res) => {
       receivableRows,
       payableRows,
       todayReceiptsRows,
+      opexRows,
+      salesmanRows,
     ] = await Promise.all([
       // Today's (or range) sales
       SalesBill.findAll({
@@ -190,6 +209,35 @@ exports.dashboardStats = async (req, res) => {
         ],
         raw: true,
       }),
+
+      // Operating expenses for the SAME window as the sales/purchase
+      // aggregates — feeds the P&L panel's "Operating expenses" row, which
+      // previously rendered a hardcoded ₹0 even though the Expenses module
+      // was busy booking vouchers. Period-consistent with revenue/COGS so
+      // Net profit = Gross − opex is honest for any selected range.
+      sequelize.query(
+        `SELECT COALESCE(SUM(total_amount), 0)::float AS total
+           FROM expense_vouchers
+          WHERE is_cancelled = false
+            AND voucher_date BETWEEN :from AND :to`,
+        { replacements: { from: monthStart, to: today }, type: sequelize.QueryTypes.SELECT },
+      ).catch(() => [{ total: 0 }]),   // table absent on very old installs
+
+      // Salesman leaderboard for the window. The unassigned bucket
+      // (walk-in / legacy bills with no salesman) is kept as a sentinel
+      // row so the frontend can show it as a footnote instead of letting
+      // it drown the named leaderboard on counter-heavy shops.
+      sequelize.query(
+        `SELECT COALESCE(NULLIF(TRIM(salesman_name), ''), '__none__') AS name,
+                COUNT(*)::int AS bills,
+                COALESCE(SUM(total_amount), 0)::float AS total
+           FROM sales_bills
+          WHERE is_cancelled = false
+            AND bill_date BETWEEN :from AND :to
+          GROUP BY 1
+          ORDER BY total DESC`,
+        { replacements: { from: monthStart, to: today }, type: sequelize.QueryTypes.SELECT },
+      ).catch(() => []),
     ]);
 
     const receivables = [{
@@ -345,7 +393,7 @@ exports.dashboardStats = async (req, res) => {
            FROM sales_bills
           WHERE is_cancelled = false
             AND bill_date BETWEEN :from AND :to`,
-        { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
+        { replacements: { from: priorFrom, to: priorTo }, type: sequelize.QueryTypes.SELECT },
       ).then(rows => rows[0]),
       sequelize.query(
         `SELECT COALESCE(SUM(total_amount), 0)::float AS total,
@@ -353,7 +401,7 @@ exports.dashboardStats = async (req, res) => {
            FROM purchase_bills
           WHERE is_cancelled = false
             AND bill_date BETWEEN :from AND :to`,
-        { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
+        { replacements: { from: priorFrom, to: priorTo }, type: sequelize.QueryTypes.SELECT },
       ).then(rows => rows[0]),
       sequelize.query(
         `SELECT COALESCE(SUM(sbi.quantity * sbi.cost_rate), 0)::float AS cogs
@@ -361,7 +409,7 @@ exports.dashboardStats = async (req, res) => {
            JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
           WHERE sb.is_cancelled = false
             AND sb.bill_date BETWEEN :from AND :to`,
-        { replacements: { from: priorMonthStart, to: priorMonthEnd }, type: sequelize.QueryTypes.SELECT },
+        { replacements: { from: priorFrom, to: priorTo }, type: sequelize.QueryTypes.SELECT },
       ).then(rows => rows[0]),
     ]);
 
@@ -392,6 +440,18 @@ exports.dashboardStats = async (req, res) => {
       monthly_gst_paid: +monthlyPurchGST.toFixed(2),
       monthly_gst_liability: monthlyGSTLiability,
       monthly_profit: monthlyProfit,
+      // Period-consistent operating expenses (see opex query above).
+      monthly_opex: +parseFloat(opexRows[0]?.total || 0).toFixed(2),
+      // Named-salesman leaderboard + the unassigned remainder, split so a
+      // counter-heavy shop's walk-in bills don't bury the actual salesmen.
+      salesman_leaderboard: (salesmanRows || [])
+        .filter(r => r.name !== '__none__')
+        .slice(0, 5)
+        .map(r => ({ name: r.name, bills: r.bills, total: +parseFloat(r.total || 0).toFixed(2) })),
+      salesman_unassigned: (() => {
+        const u = (salesmanRows || []).find(r => r.name === '__none__');
+        return u ? { bills: u.bills, total: +parseFloat(u.total || 0).toFixed(2) } : { bills: 0, total: 0 };
+      })(),
       receivables: { count: parseInt(receivables[0].count || 0), total: +parseFloat(receivables[0].total || 0).toFixed(2) },
       payables:    { count: parseInt(payables[0].count    || 0), total: +parseFloat(payables[0].total    || 0).toFixed(2) },
       low_stock_count: lowStock,
@@ -407,7 +467,7 @@ exports.dashboardStats = async (req, res) => {
         yesterday_date: yesterday,
         today_sales:     { count: yPriorSales.count,     total: yPriorSales.total },
         today_purchases: { count: yPriorPurchases.count, total: yPriorPurchases.total },
-        window: { from: priorMonthStart, to: priorMonthEnd },
+        window: { from: priorFrom, to: priorTo },
         monthly_sales:           priorSalesGross,
         monthly_purchases:       priorPurchGross,
         monthly_sales_excl_gst:  priorSalesExGST,
@@ -507,6 +567,26 @@ exports.dashboardInsights = async (req, res) => {
       { type: sequelize.QueryTypes.SELECT },
     );
 
+    // Top categories — same 7-day window as top products. With thousands of
+    // SKUs (and generic "loose stock" items), the category roll-up often
+    // says more about what's actually selling than any single product row.
+    // category_name is the snapshot stored on each bill item, so renames
+    // don't rewrite history and no extra join is needed.
+    const top5Categories = await sequelize.query(
+      `SELECT COALESCE(NULLIF(TRIM(sbi.category_name), ''), 'Uncategorised') AS category_name,
+              COALESCE(SUM(sbi.quantity), 0)::float     AS qty,
+              COALESCE(SUM(sbi.total_amount), 0)::float AS value,
+              COUNT(DISTINCT sbi.product_id)::int       AS skus
+         FROM sales_bill_items sbi
+         JOIN sales_bills sb ON sb.sales_bill_id = sbi.sales_bill_id
+        WHERE sb.is_cancelled = false
+          AND sb.bill_date >= CURRENT_DATE - INTERVAL '7 days'
+        GROUP BY 1
+        ORDER BY value DESC
+        LIMIT 5`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
     // Dead stock — count of active SKUs with on-hand qty and zero sales
     // in the last 60 days, plus the cost-basis value of that idle stock.
     // Capital that's frozen on shelves; the actionable signal is the
@@ -547,6 +627,7 @@ exports.dashboardInsights = async (req, res) => {
         purchase: billsDuePurchase,
       },
       top_selling_products: top5SellingProducts,
+      top_categories: top5Categories,
       dead_stock: deadStock,
       cheques_pending: chequesPending,
     });
@@ -726,22 +807,90 @@ exports.dashboardBusiness = async (req, res) => {
     const quickRatio   = currentLiabs > 0 ? +((cashPosition + ar) / currentLiabs).toFixed(2) : null;
 
     // ─── Customer concentration (top 5 by revenue last 90 days) ─────────
-    const top5Cust = await sequelize.query(`
-      SELECT p.party_id, p.party_name,
-             COALESCE(SUM(sb.total_amount), 0)::float AS revenue
-        FROM sales_bills sb
-        JOIN parties p ON p.party_id = sb.customer_id
-       WHERE sb.is_cancelled = false
-         AND sb.bill_date >= :day90Start
-       GROUP BY p.party_id, p.party_name
-       ORDER BY revenue DESC
-       LIMIT 5`,
-      { replacements: { day90Start }, type: sequelize.QueryTypes.SELECT });
+    // System Cash is EXCLUDED: walk-in counter sales are hundreds of small
+    // anonymous buyers, the exact opposite of concentration risk. With it
+    // included, a counter-heavy shop showed "Cash 42% · High risk" — the
+    // inverse of the truth. Counter sales are reported separately so the
+    // panel can still account for 100% of revenue.
+    const [top5Cust, [counterRow]] = await Promise.all([
+      sequelize.query(`
+        SELECT p.party_id, p.party_name,
+               COALESCE(SUM(sb.total_amount), 0)::float AS revenue
+          FROM sales_bills sb
+          JOIN parties p ON p.party_id = sb.customer_id
+         WHERE sb.is_cancelled = false
+           AND sb.bill_date >= :day90Start
+           AND COALESCE(p.is_system_cash, false) = false
+         GROUP BY p.party_id, p.party_name
+         ORDER BY revenue DESC
+         LIMIT 5`,
+        { replacements: { day90Start }, type: sequelize.QueryTypes.SELECT }),
+      sequelize.query(`
+        SELECT COALESCE(SUM(sb.total_amount), 0)::float AS revenue,
+               COUNT(*)::int AS bills
+          FROM sales_bills sb
+          JOIN parties p ON p.party_id = sb.customer_id
+         WHERE sb.is_cancelled = false
+           AND sb.bill_date >= :day90Start
+           AND COALESCE(p.is_system_cash, false) = true`,
+        { replacements: { day90Start }, type: sequelize.QueryTypes.SELECT }),
+    ]);
 
     const totalRev90 = sales90 || 1;
     const top5Sum = top5Cust.reduce((s, c) => s + (c.revenue || 0), 0);
     const concPct = +((top5Sum / totalRev90) * 100).toFixed(1);
     const concRisk = concPct < 30 ? 'low' : concPct < 50 ? 'moderate' : 'high';
+    const counterSales = {
+      revenue: +parseFloat(counterRow?.revenue || 0).toFixed(2),
+      bills: counterRow?.bills || 0,
+      pct: +(((counterRow?.revenue || 0) / totalRev90) * 100).toFixed(1),
+    };
+
+    // ─── Win-back list — regulars who went silent ────────────────────────
+    // Customers with ≥2 bills in the 60–240-day window and NOTHING in the
+    // last 60 days. In wholesale this is where revenue quietly leaks: the
+    // buyer moved to a competitor and nobody noticed. Ranked by what they
+    // used to spend, so the calls happen in value order.
+    const winbackCustomers = await sequelize.query(`
+      SELECT p.party_id, p.party_name, p.mobile_1,
+             MAX(sb.bill_date)::date AS last_bill,
+             (CURRENT_DATE - MAX(sb.bill_date))::int AS days_silent,
+             COALESCE(SUM(sb.total_amount) FILTER (
+               WHERE sb.bill_date >= CURRENT_DATE - INTERVAL '240 days'), 0)::float AS past_revenue,
+             COUNT(*) FILTER (
+               WHERE sb.bill_date >= CURRENT_DATE - INTERVAL '240 days')::int AS past_bills
+        FROM parties p
+        JOIN sales_bills sb ON sb.customer_id = p.party_id AND sb.is_cancelled = false
+       WHERE p.party_type IN ('Customer','Both')
+         AND p.is_active = true
+         AND COALESCE(p.is_system_cash, false) = false
+       GROUP BY p.party_id, p.party_name, p.mobile_1
+      HAVING MAX(sb.bill_date) < CURRENT_DATE - INTERVAL '60 days'
+         AND COUNT(*) FILTER (
+               WHERE sb.bill_date >= CURRENT_DATE - INTERVAL '240 days'
+                 AND sb.bill_date <  CURRENT_DATE - INTERVAL '60 days') >= 2
+       ORDER BY past_revenue DESC
+       LIMIT 5`,
+      { type: sequelize.QueryTypes.SELECT });
+
+    // ─── Per-account cash & bank balances ────────────────────────────────
+    // Same ledger basis + reversal-pair exclusion as the headline cash
+    // position, broken out per account so the owner sees "SBI ₹X · HDFC ₹Y
+    // · Cash ₹Z" at a glance. The rows sum to cash_position by construction.
+    const bankBalances = await sequelize.query(`
+      SELECT la.ledger_id, la.ledger_name, la.sub_group,
+             COALESCE(SUM(le.debit_amount - le.credit_amount), 0)::float AS balance
+        FROM ledger_accounts la
+        LEFT JOIN ledger_entries le ON le.ledger_id = la.ledger_id
+             AND le.reversal_of_id IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id
+             )
+       WHERE la.sub_group IN ('Cash-in-Hand','Bank Accounts','Bank OD A/c')
+       GROUP BY la.ledger_id, la.ledger_name, la.sub_group
+       ORDER BY ABS(COALESCE(SUM(le.debit_amount - le.credit_amount), 0)) DESC
+       LIMIT 6`,
+      { type: sequelize.QueryTypes.SELECT });
 
     // ─── Inventory breakdown by velocity ────────────────────────────────
     // Fast/Med/Slow/Dead classification based on 30-day unit sales.
@@ -796,7 +945,8 @@ exports.dashboardBusiness = async (req, res) => {
     // For each top-5 customer, compute their current outstanding ÷ credit
     // limit so the receivables table can show a "credit used" % column.
     const topCustomersWithCredit = await sequelize.query(`
-      SELECT p.party_id, p.party_name, p.gstin, p.credit_limit::float AS credit_limit,
+      SELECT p.party_id, p.party_name, p.gstin, p.mobile_1,
+             p.credit_limit::float AS credit_limit,
              p.credit_days::int AS credit_days,
              COALESCE(SUM(sb.balance_amount), 0)::float AS outstanding,
              COUNT(sb.sales_bill_id)::int AS bills,
@@ -809,7 +959,7 @@ exports.dashboardBusiness = async (req, res) => {
         LEFT JOIN sales_bills sb ON sb.customer_id = p.party_id
              AND sb.is_cancelled = false AND sb.balance_amount > 0
        WHERE p.party_type IN ('Customer','Both') AND p.is_active = true
-       GROUP BY p.party_id, p.party_name, p.gstin, p.credit_limit, p.credit_days
+       GROUP BY p.party_id, p.party_name, p.gstin, p.mobile_1, p.credit_limit, p.credit_days
       HAVING COALESCE(SUM(sb.balance_amount), 0) > 0
        ORDER BY outstanding DESC
        LIMIT 10
@@ -848,6 +998,7 @@ exports.dashboardBusiness = async (req, res) => {
         risk: concRisk,
         top_n: top5Cust.length,
         total_revenue_90d: +totalRev90.toFixed(2),
+        counter_sales: counterSales,
         top: top5Cust.map(c => ({
           party_id: c.party_id,
           party_name: c.party_name,
@@ -855,6 +1006,23 @@ exports.dashboardBusiness = async (req, res) => {
           pct: +(((c.revenue || 0) / totalRev90) * 100).toFixed(1),
         })),
       },
+
+      winback_customers: winbackCustomers.map(c => ({
+        party_id: c.party_id,
+        party_name: c.party_name,
+        mobile_1: c.mobile_1,
+        last_bill: c.last_bill,
+        days_silent: c.days_silent,
+        past_revenue: +parseFloat(c.past_revenue || 0).toFixed(2),
+        past_bills: c.past_bills,
+      })),
+
+      bank_balances: bankBalances.map(b => ({
+        ledger_id: b.ledger_id,
+        ledger_name: b.ledger_name,
+        sub_group: b.sub_group,
+        balance: +parseFloat(b.balance || 0).toFixed(2),
+      })),
 
       top_overdue_with_credit: topCustomersWithCredit.map(c => ({
         ...c,
@@ -912,7 +1080,9 @@ function computeRecommendedActions({ ar, ap, cashPosition, invValue,
         impact: recovery,
         impact_label: `≈ ${formatCompact(recovery)} recovered`,
         type: 'cash',
-        route: '/reports/stock',
+        // Fast/Slow Stock report — /reports/stock was removed; navigating
+        // there 404'd the two inventory actions.
+        route: '/reports/fast-slow-stock',
       });
     }
   }
@@ -948,7 +1118,9 @@ function computeRecommendedActions({ ar, ap, cashPosition, invValue,
         impact: reduction,
         impact_label: `≈ ${formatCompact(reduction)} freed`,
         type: 'cash',
-        route: '/reports/stock',
+        // Fast/Slow Stock report — /reports/stock was removed; navigating
+        // there 404'd the two inventory actions.
+        route: '/reports/fast-slow-stock',
       });
     }
   }

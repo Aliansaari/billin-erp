@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { DatePicker, Tooltip } from 'antd';
+import { WhatsAppOutlined } from '@ant-design/icons';
 import { reportAPI } from '../api';
 import { readSectionPrefs, isSectionVisible } from '../config/dashboardSections';
 import './dashboard-editorial.css';
@@ -180,13 +181,15 @@ export default function Dashboard() {
         setCustomRange={(r) => { setCustomRange(r); setPeriod(r ? 'CUSTOM' : '30D'); }}
         onReload={() => load(period)}
       />
-      {show('quickstats')   && <PageHeader stats={stats} insights={insights} aging={aging} business={business} />}
-      {show('kpis')         && <KpiStrip stats={stats} series={series} insights={insights} business={business} />}
+      {show('quickstats')   && <PageHeader stats={stats} insights={insights} aging={aging} business={business} period={period} />}
+      {show('kpis')         && <KpiStrip stats={stats} series={series} insights={insights} business={business} period={period} />}
+      {show('week')         && <WeekAheadRow insights={insights} business={business} navigate={navigate} />}
       {show('money')        && <MoneyMovementRow stats={stats} series={series} business={business} period={period} bucket={trendBucket} />}
       {show('trends')       && <SalesPurchaseTrendRow stats={stats} series={series} period={period} bucket={trendBucket} />}
       {show('insight')      && <InsightBar tone="primary" insight={buildPrimaryInsight({ stats, insights, aging, business })} />}
       {show('receivables')  && <ReceivablesSection aging={aging} insights={insights} business={business} navigate={navigate} />}
       {show('intelligence') && <SalesIntelligenceRow insights={insights} business={business} stats={stats} />}
+      {show('growth')       && <GrowthRow stats={stats} insights={insights} business={business} navigate={navigate} />}
       {show('health')       && <OperationalHealthRow business={business} insights={insights} />}
       {show('actions')      && <InsightBar tone="actions" actions={business?.actions || []} navigate={navigate} />}
     </div>
@@ -253,9 +256,13 @@ function computeDateRange(period) {
 /* ═══════════════════════════════════════════════════════════════════════
  *  PAGE HEADER — greeting, situational subtitle, 4 quick stats
  * ═══════════════════════════════════════════════════════════════════════ */
-function PageHeader({ stats, insights, aging }) {
+function PageHeader({ stats, insights, aging, period }) {
   const greeting = useMemo(() => greetingForHour(new Date().getHours()), []);
   const firstName = useMemo(() => firstNameFromAuth(), []);
+  // Every request now carries from/to, so these counts cover the SELECTED
+  // window — labelling them "today" when 30D is active was a lie.
+  const periodWord = period === '7D' ? '7 days' : period === '30D' ? '30 days'
+    : period === '90D' ? '90 days' : period === 'FY' ? 'this FY' : 'period';
 
   // Quick stats
   const billsToday = (stats?.today_sales?.count || 0) + (stats?.today_purchases?.count || 0);
@@ -283,8 +290,8 @@ function PageHeader({ stats, insights, aging }) {
         <InsightBanner {...subtitle} />
       </div>
       <div className="ed-quick-stats">
-        <QStat tone="primary" icon="invoice" label="Bills today"  value={billsToday} sub={`${todaySales} sale · ${todayPurch} purch`}
-               tip="Number of bills you entered today — sales plus purchases. A quick pulse of today's activity." />
+        <QStat tone="primary" icon="invoice" label={`Bills · ${periodWord}`} value={billsToday} sub={`${todaySales} sale · ${todayPurch} purch`}
+               tip="Bills entered in the selected period — sales plus purchases. A quick pulse of activity." />
         <QStat tone="warn"    icon="folder"  label="Open bills"   value={openSales + openPurch} sub={`${openSales} AR · ${openPurch} AP`}
                tip="Bills not yet fully settled. AR (accounts receivable) = sales customers still owe you; AP (accounts payable) = purchases you still owe suppliers." />
         <QStat tone="info"    icon="ticket"  label="Avg ticket"   value={formatINR(avgTicket, { compact: true })} sub={salesCount > 0 ? `across ${salesCount} bills` : 'no sales yet'} mono cur
@@ -330,10 +337,13 @@ function QStat({ tone = 'idle', icon, label, value, sub, mono, cur, tip }) {
 /* ═══════════════════════════════════════════════════════════════════════
  *  KPI STRIP — 5 cards: Cash, Receivables, Payables, Sales MTD, Stock
  * ═══════════════════════════════════════════════════════════════════════ */
-function KpiStrip({ stats, series, insights, business }) {
+function KpiStrip({ stats, series, insights, business, period }) {
   // Sparkline data — last 14 days
   const last14 = (series || []).slice(-14);
   const cashRunway = business?.cash_runway_days;
+  const salesLabel = period === 'FY' ? 'Sales · FY'
+    : period === 'CUSTOM' ? 'Sales · range'
+    : `Sales · ${period || '30D'}`;
 
   const cards = [
     {
@@ -342,12 +352,15 @@ function KpiStrip({ stats, series, insights, business }) {
       tip: 'Total money you can use right now — all bank balances plus cash in hand. “Runway” is roughly how many days this lasts at your recent spending rate.',
       value: business?.cash_position ?? null,
       // Honest sub-line: "0 day runway" on a negative balance reads like a
-      // countdown when the real story is the books show net outflow.
+      // countdown when the real story is the books show net outflow. When
+      // negative, the sub is a LINK to the Banks page where opening
+      // balances get fixed — the card diagnoses AND points at the cure.
       sub: (business?.cash_position ?? 0) < 0
-        ? 'negative — verify opening balances'
+        ? 'negative — set opening balances →'
         : (cashRunway != null && cashRunway > 0)
           ? `${cashRunway} day runway`
           : 'all banks + cash',
+      subTo: (business?.cash_position ?? 0) < 0 ? '/banks' : null,
       sparkKey: 'receipts',
       delta: null,
       isCurrency: true,
@@ -372,8 +385,8 @@ function KpiStrip({ stats, series, insights, business }) {
     },
     {
       tone: 'pos',
-      label: 'Sales MTD',
-      tip: 'Total sales so far this month (MTD = month-to-date), excluding GST. The % compares with the same point last month — green is up, red is down.',
+      label: salesLabel,
+      tip: 'Total sales in the selected period, excluding GST. The % compares against the equal-length window immediately before it — green is up, red is down.',
       value: stats?.monthly_sales_excl_gst || 0,
       sub: buildSalesSub(stats),
       sparkKey: 'sales',
@@ -400,7 +413,8 @@ function KpiStrip({ stats, series, insights, business }) {
   );
 }
 
-function KpiCard({ tone, label, value, sub, delta, isCurrency, sparkKey, series, tip }) {
+function KpiCard({ tone, label, value, sub, subTo, delta, isCurrency, sparkKey, series, tip }) {
+  const navigate = useNavigate();
   const sparkValues = sparkKey
     ? series.map((s) => Number(s[sparkKey] || 0))
     : [];
@@ -425,7 +439,13 @@ function KpiCard({ tone, label, value, sub, delta, isCurrency, sparkKey, series,
           ? <><span className="ed-cur">₹</span>{showValue.slice(1)}</>
           : showValue}
       </div>
-      <div className="ed-kpi-sub">{sub || ' '}</div>
+      {subTo ? (
+        <button type="button" className="ed-kpi-sub ed-kpi-sub-link" onClick={() => navigate(subTo)}>
+          {sub}
+        </button>
+      ) : (
+        <div className="ed-kpi-sub">{sub || ' '}</div>
+      )}
       {sparkValues.length > 0 ? <Sparkline values={sparkValues} tone={tone} /> : <div style={{ height: 24 }} />}
     </div>
   );
@@ -451,9 +471,111 @@ function Sparkline({ values, tone }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+ *  THIS WEEK & BANKS — dated bills due ±7 days, pending cheques, and
+ *  per-account cash/bank balances. The left panel answers "what money
+ *  moves this week?"; the right panel answers "where is my cash right
+ *  now?" — the two questions owners ask before anything else each day.
+ * ═══════════════════════════════════════════════════════════════════════ */
+function WeekAheadRow({ insights, business, navigate }) {
+  const dueIn  = insights?.bills_due_soon?.sales    || { count: 0, total: 0 };
+  const dueOut = insights?.bills_due_soon?.purchase || { count: 0, total: 0 };
+  const cheq   = insights?.cheques_pending          || { count: 0, total: 0 };
+  const netWeek = (dueIn.total || 0) - (dueOut.total || 0);
+  const banks = business?.bank_balances || [];
+  const cashTotal = business?.cash_position ?? null;
+
+  const subGroupTag = (sg) =>
+    sg === 'Cash-in-Hand' ? 'cash' : sg === 'Bank OD A/c' ? 'od' : 'bank';
+
+  return (
+    <section className="ed-row-week">
+      {/* Left — the week's dated money movements */}
+      <div className="ed-panel">
+        <div className="ed-panel-head">
+          <div className="ed-panel-title-row">
+            <div className="ed-panel-title">This <em>week</em>
+              <InfoTip label="This week" text="Bills whose due date falls in the next 7 days — expected money in from customers, money out to suppliers, plus cheques still pending clearance. Only bills that carry a due date are counted." />
+            </div>
+            <div className="ed-panel-meta">Next 7 days</div>
+          </div>
+        </div>
+        <div className="ed-week-grid">
+          <button type="button" className="ed-week-cell" onClick={() => navigate('/reports/bills-receivable')} title="Open Bills Receivable">
+            <div className="ed-week-k"><span className="ed-mk ed-mk-pos" />Due in</div>
+            <div className="ed-week-v ed-pos-text"><span className="ed-cur">₹</span>{formatINR(dueIn.total || 0, { compact: true })}</div>
+            <div className="ed-week-sub">{dueIn.count || 0} customer bills</div>
+          </button>
+          <button type="button" className="ed-week-cell" onClick={() => navigate('/reports/bills-payable')} title="Open Bills Payable">
+            <div className="ed-week-k"><span className="ed-mk ed-mk-neg" />Due out</div>
+            <div className="ed-week-v ed-neg-text"><span className="ed-cur">₹</span>{formatINR(dueOut.total || 0, { compact: true })}</div>
+            <div className="ed-week-sub">{dueOut.count || 0} supplier bills</div>
+          </button>
+          <button type="button" className="ed-week-cell" onClick={() => navigate('/banks/cheques')} title="Open Cheque Register">
+            <div className="ed-week-k"><span className="ed-mk ed-mk-warn" />Cheques pending</div>
+            <div className="ed-week-v"><span className="ed-cur">₹</span>{formatINR(cheq.total || 0, { compact: true })}</div>
+            <div className="ed-week-sub">{cheq.count || 0} not yet cleared</div>
+          </button>
+          <div className="ed-week-cell ed-week-cell--static">
+            <div className="ed-week-k"><span className="ed-mk ed-mk-accent" />Net this week</div>
+            <div className={`ed-week-v ${netWeek >= 0 ? 'ed-pos-text' : 'ed-neg-text'}`}>
+              {netWeek < 0 ? '−' : ''}<span className="ed-cur">₹</span>{formatINR(Math.abs(netWeek), { compact: true })}
+            </div>
+            <div className="ed-week-sub">due in − due out</div>
+          </div>
+        </div>
+        {(dueIn.count || 0) + (dueOut.count || 0) === 0 && (
+          <div className="ed-week-note">No dated bills fall due this week — bills without a due date aren't counted here.</div>
+        )}
+      </div>
+
+      {/* Right — per-account cash & bank balances */}
+      <div className="ed-panel">
+        <div className="ed-panel-head">
+          <div className="ed-panel-title-row">
+            <div className="ed-panel-title">Cash & <em>banks</em>
+              <InfoTip label="Cash & banks" text="Live balance of every cash and bank ledger, straight from your books. The rows add up to the Cash-position card above." />
+            </div>
+            <button type="button" className="ed-section-link" onClick={() => navigate('/banks')}>Banks →</button>
+          </div>
+        </div>
+        <div className="ed-bank-list">
+          {banks.length === 0 ? (
+            <div className="ed-empty-mini">No cash or bank ledgers yet — add one in the Bank module.</div>
+          ) : banks.map((b) => (
+            <button
+              key={b.ledger_id}
+              type="button"
+              className="ed-bank-row"
+              onClick={() => navigate(b.sub_group === 'Cash-in-Hand' ? '/banks' : `/banks/${b.ledger_id}/statement`)}
+              title="Open statement"
+            >
+              <span className={`ed-bank-tag ed-bank-tag--${subGroupTag(b.sub_group)}`}>
+                {subGroupTag(b.sub_group) === 'cash' ? 'CASH' : subGroupTag(b.sub_group) === 'od' ? 'OD' : 'BANK'}
+              </span>
+              <span className="ed-bank-name">{b.ledger_name}</span>
+              <span className={`ed-bank-bal ${b.balance < 0 ? 'ed-neg-text' : ''}`}>
+                {b.balance < 0 ? '−' : ''}<span className="ed-cur-sm">₹</span>{formatINR(Math.abs(b.balance), { compact: true })}
+              </span>
+            </button>
+          ))}
+        </div>
+        {banks.length > 0 && cashTotal != null && (
+          <div className="ed-panel-foot">
+            <span>Total cash position</span>
+            <span className={`ed-strong ${cashTotal < 0 ? 'ed-neg-text' : ''}`}>
+              {cashTotal < 0 ? '−' : ''}₹{formatINR(Math.abs(cashTotal), { compact: true })}
+            </span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
  *  MONEY MOVEMENT — Cash Flow Chart (60%) + P&L MTD (40%)
  * ═══════════════════════════════════════════════════════════════════════ */
-function MoneyMovementRow({ stats, series, period, bucket }) {
+function MoneyMovementRow({ stats, series, business, period, bucket }) {
   // Slice series to the selected period. The trend-bucket prop is shared
   // with SalesPurchaseTrendRow so the cash-flow chart aggregates at the
   // same granularity (day/week/month) and the legend text stays in sync.
@@ -467,14 +589,18 @@ function MoneyMovementRow({ stats, series, period, bucket }) {
   const received = sum(slice, 'receipts');
   const paid = sum(slice, 'payments');
   const net = received - paid;
-  const avgBal = slice.length ? (received - paid) / slice.length + (stats?.cash_position || 0) : (stats?.cash_position || 0);
+  // "Cash now" comes from the business endpoint (ledger-based) — the stats
+  // payload never carried cash_position, so this cell silently showed ₹0.
+  const cashNow = business?.cash_position ?? null;
 
-  // P&L MTD from stats
+  // P&L for the selected period. Opex now flows from the Expenses module
+  // (stats.monthly_opex, period-consistent) — it was a hardcoded 0, which
+  // made Net profit always equal Gross profit.
   const rev = stats?.monthly_sales_excl_gst || 0;
   const cogs = stats?.monthly_cogs || (rev - (stats?.monthly_profit || 0));
   const grossProfit = rev - cogs;
-  const opex = 0; // not yet computed
-  const netProfit = stats?.monthly_profit || 0;
+  const opex = stats?.monthly_opex || 0;
+  const netProfit = grossProfit - opex;
 
   return (
     <section className="ed-row-charts">
@@ -493,7 +619,7 @@ function MoneyMovementRow({ stats, series, period, bucket }) {
             <Csum tone="pos" label="Received" value={received} delta={null} />
             <Csum tone="neg" label="Paid out" value={paid} delta={null} />
             <Csum tone="net" label="Net flow" value={net} delta={null} signed />
-            <Csum tone="bal" label="Cash now" value={stats?.cash_position || 0} delta={null} />
+            <Csum tone="bal" label="Cash now" value={cashNow ?? 0} delta={null} signed={cashNow != null && cashNow < 0} />
           </div>
           <CashFlowChart series={slice} interval={interval} />
           <div className="ed-chart-legend">
@@ -514,9 +640,9 @@ function MoneyMovementRow({ stats, series, period, bucket }) {
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
             <div className="ed-panel-title">Profit & <em>loss</em>
-              <InfoTip label="Profit & loss" text="Your profit picture for the period: sales minus cost of goods sold and expenses. Shows whether the business is truly making money, not just turnover." />
+              <InfoTip label="Profit & loss" text="Your profit picture for the period: sales minus cost of goods sold and operating expenses. Shows whether the business is truly making money, not just turnover." />
             </div>
-            <div className="ed-panel-meta">Month to date</div>
+            <div className="ed-panel-meta">{periodLabel}</div>
           </div>
         </div>
         <div className="ed-pl-rows">
@@ -883,6 +1009,7 @@ function ReceivablesSection({ aging, insights, business, navigate }) {
     ? business.top_overdue_with_credit.map(c => ({
         party_id: c.party_id,
         party_name: c.party_name,
+        mobile: c.mobile_1,
         balance: Number(c.outstanding) || 0,
         oldest_days: c.oldest_days,
         credit_used_pct: c.credit_used_pct,
@@ -935,7 +1062,7 @@ function ReceivablesSection({ aging, insights, business, navigate }) {
           {buckets.map((b) => {
             const pct = (b.amount / total) * 100;
             return (
-              <div key={b.key} className="ed-aging-bucket">
+              <div key={b.key} className={`ed-aging-bucket${b.key === 'b4' && b.amount > 0 ? ' ed-aging-bucket--alarm' : ''}`}>
                 <div className="ed-aging-bucket-head">
                   <span className={`ed-aging-dot ed-aging-${b.tone}`} />
                   <span className="ed-aging-bucket-label">{b.label}</span>
@@ -1003,14 +1130,30 @@ function ReceivablesSection({ aging, insights, business, navigate }) {
                         <span className="ed-cur-sm">₹</span>{formatINR(c.balance || 0, { compact: true })}
                       </td>
                       <td className="ed-num">
-                        <button
-                          type="button"
-                          className="ed-row-act-btn ed-row-act-primary"
-                          onClick={(e) => { e.stopPropagation(); navigate(`/parties/${c.party_id}`); }}
-                          title="Send reminder"
-                        >
-                          →
-                        </button>
+                        <div className="ed-row-acts">
+                          {waHref(c.mobile) && (
+                            <button
+                              type="button"
+                              className="ed-wa-btn"
+                              title={`WhatsApp payment reminder to ${c.mobile}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const msg = `Dear ${c.party_name}, your outstanding balance with us is ₹${formatINR(c.balance || 0)}. Kindly arrange the payment at your earliest convenience. Thank you!`;
+                                window.open(waHref(c.mobile, msg), '_blank', 'noopener,noreferrer');
+                              }}
+                            >
+                              <WhatsAppOutlined />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="ed-row-act-btn ed-row-act-primary"
+                            onClick={(e) => { e.stopPropagation(); navigate(`/parties/${c.party_id}`); }}
+                            title="Open statement"
+                          >
+                            →
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1144,7 +1287,7 @@ function SalesIntelligenceRow({ insights, business, stats }) {
         <div className="ed-panel-head">
           <div className="ed-panel-title-row">
             <div className="ed-panel-title">Customer <em>concentration</em>
-              <InfoTip label="Customer concentration" text="What share of your last-90-day sales came from just your top 5 customers. A high % is risky — if one of them stops buying or delays payment, your business takes a big hit. Under 30% is low risk." />
+              <InfoTip label="Customer concentration" text="What share of your last-90-day sales came from just your top 5 credit customers. A high % is risky — if one of them stops buying or delays payment, your business takes a big hit. Under 30% is low risk. Walk-in counter sales are excluded (many small anonymous buyers are the opposite of concentration risk) and shown separately below." />
             </div>
             <div className="ed-panel-meta">Top 5 · 90-day revenue</div>
           </div>
@@ -1184,11 +1327,151 @@ function SalesIntelligenceRow({ insights, business, stats }) {
                         <span className="ed-conc-pct-row">{(c.pct || 0).toFixed(1)}%</span>
                       </div>
                     ))}
+                    {(conc.counter_sales?.revenue || 0) > 0 && (
+                      <div className="ed-conc-row ed-conc-row--counter">
+                        <span className="ed-conc-marker ed-conc-marker--counter" />
+                        <span className="ed-conc-name">Counter sales · walk-in</span>
+                        <span className="ed-conc-val"><span className="ed-cur-sm">₹</span>{formatINR(conc.counter_sales.revenue, { compact: true })}</span>
+                        <span className="ed-conc-pct-row">{(conc.counter_sales.pct || 0).toFixed(1)}%</span>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
             </>
           )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ *  GROWTH SIGNALS — win-back calls · salesman leaderboard · top categories
+ *  Forward-looking companions to the Sales-intelligence row: who to call
+ *  back, who's selling, and which category the money actually comes from.
+ * ═══════════════════════════════════════════════════════════════════════ */
+function GrowthRow({ stats, insights, business, navigate }) {
+  const winback    = business?.winback_customers || [];
+  const leaders    = stats?.salesman_leaderboard || [];
+  const unassigned = stats?.salesman_unassigned  || { bills: 0, total: 0 };
+  const cats       = insights?.top_categories    || [];
+  const maxLead    = leaders[0]?.total || 1;
+  const maxCat     = cats[0]?.value || 1;
+  const catTones   = ['apparel', 'fabric', 'access', 'footwear'];
+
+  return (
+    <section className="ed-row-3col">
+      {/* Win-back calls */}
+      <div className="ed-panel">
+        <div className="ed-panel-head">
+          <div className="ed-panel-title-row">
+            <div className="ed-panel-title">Win-back <em>calls</em>
+              <InfoTip label="Win-back calls" text="Customers who bought from you regularly but haven't ordered in 60+ days. Ranked by what they used to spend — one WhatsApp or call here often recovers a lost regular before a competitor keeps them." />
+            </div>
+            <div className="ed-panel-meta">Silent 60+ days</div>
+          </div>
+        </div>
+        <div className="ed-topc-list">
+          {winback.length === 0 ? (
+            <div className="ed-empty-mini">No regulars have gone quiet — all active customers ordered recently.</div>
+          ) : winback.map((c) => {
+            const wa = waHref(c.mobile_1,
+              `Hello ${c.party_name}, it's been a while since your last order with us. Fresh stock has arrived — we would love to serve you again!`);
+            return (
+              <div key={c.party_id} className="ed-topc-row">
+                <div className="ed-winback-days">{c.days_silent}d</div>
+                <div className="ed-topc-info">
+                  <div className="ed-topc-name">{c.party_name}</div>
+                  <div className="ed-topc-meta">{c.past_bills} bills · last {dayjs(c.last_bill).format('D MMM')}</div>
+                </div>
+                {wa && (
+                  <button
+                    type="button"
+                    className="ed-wa-btn"
+                    title={`WhatsApp ${c.mobile_1}`}
+                    onClick={() => window.open(wa, '_blank', 'noopener,noreferrer')}
+                  >
+                    <WhatsAppOutlined />
+                  </button>
+                )}
+                <div className="ed-topc-value">
+                  <span className="ed-cur-sm">₹</span>{formatINR(c.past_revenue || 0, { compact: true })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Salesman leaderboard */}
+      <div className="ed-panel">
+        <div className="ed-panel-head">
+          <div className="ed-panel-title-row">
+            <div className="ed-panel-title">Salesman <em>leaderboard</em>
+              <InfoTip label="Salesman leaderboard" text="Sales billed under each salesman in the selected period. Bills with no salesman tagged are summed in the footnote so they don't drown the board." />
+            </div>
+            <div className="ed-panel-meta">This period</div>
+          </div>
+        </div>
+        <div className="ed-topc-list">
+          {leaders.length === 0 ? (
+            <div className="ed-empty-mini">
+              No salesman tagged on bills this period.
+              <button type="button" className="ed-inline-link" onClick={() => navigate('/reports/sales-by-salesman')}>Salesman report →</button>
+            </div>
+          ) : leaders.map((s, i) => (
+            <div key={s.name} className="ed-topc-row">
+              <div className="ed-topc-rank">{String(i + 1).padStart(2, '0')}</div>
+              <div className="ed-topc-info">
+                <div className="ed-topc-name">{s.name}</div>
+                <div className="ed-topc-meta">{s.bills} bills</div>
+              </div>
+              <div className="ed-topc-bar-wrap">
+                <div className="ed-topc-bar" style={{ width: `${((s.total || 0) / maxLead) * 100}%` }} />
+              </div>
+              <div className="ed-topc-value">
+                <span className="ed-cur-sm">₹</span>{formatINR(s.total || 0, { compact: true })}
+              </div>
+            </div>
+          ))}
+        </div>
+        {leaders.length > 0 && unassigned.total > 0 && (
+          <div className="ed-panel-foot">
+            <span>No salesman tagged</span>
+            <span className="ed-strong">₹{formatINR(unassigned.total, { compact: true })} · {unassigned.bills} bills</span>
+          </div>
+        )}
+      </div>
+
+      {/* Top categories */}
+      <div className="ed-panel">
+        <div className="ed-panel-head">
+          <div className="ed-panel-title-row">
+            <div className="ed-panel-title">Top <em>categories</em>
+              <InfoTip label="Top categories" text="Sales value by category over the last 7 days. With thousands of SKUs — and generic loose-stock items — the category view usually tells you more about what's really selling than any single product." />
+            </div>
+            <div className="ed-panel-meta">Last 7 days</div>
+          </div>
+        </div>
+        <div className="ed-topc-list">
+          {cats.length === 0 ? (
+            <div className="ed-empty-mini">No sales in the last 7 days.</div>
+          ) : cats.map((c, i) => (
+            <div key={c.category_name} className="ed-prod-row">
+              <div className={`ed-prod-cat ed-prod-cat-${catTones[i % catTones.length]}`} />
+              <div className="ed-prod-info">
+                <div className="ed-prod-name">{c.category_name}</div>
+                <div className="ed-prod-meta">{c.skus} SKUs · {Math.round(c.qty)} units</div>
+              </div>
+              <div className="ed-topc-bar-wrap">
+                <div className="ed-topc-bar" style={{ width: `${((c.value || 0) / maxCat) * 100}%` }} />
+              </div>
+              <div className="ed-prod-amt">
+                <span className="ed-cur-sm">₹</span>{formatINR(c.value || 0, { compact: true })}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </section>
@@ -1389,7 +1672,7 @@ function OperationalHealthRow({ business, insights }) {
             <div className="ed-effic-rows">
               <EfficRow label="DSO" detail="Days Sales Outstanding" value={bv.dso} target={45} cap={80} invert={false}
                 tip="Days Sales Outstanding — the average days your customers take to pay you. Lower is better (target under 45 days). High DSO means cash is stuck with customers." />
-              <EfficRow label="DPO" detail={bv.dpo != null && bv.dpo < 30 ? 'Paying too fast' : 'Days Payable Outstanding'} value={bv.dpo} target={40} cap={80} invert={true}
+              <EfficRow label="DPO" detail={bv.dpo != null && bv.dpo < 30 ? 'Paying too fast' : bv.dpo != null && bv.dpo > 100 ? 'Stretching suppliers — watch relationships' : 'Days Payable Outstanding'} value={bv.dpo} target={40} cap={80} invert={true}
                 tip="Days Payable Outstanding — the average days you take to pay suppliers. Paying too fast strains your cash; paying very slowly can hurt supplier relationships." />
               <EfficRow label="DIO" detail="Days Inventory Outstanding" value={bv.dio} target={60} cap={120} invert={false}
                 tip="Days Inventory Outstanding — the average days stock sits before it's sold. Lower means faster-moving inventory and less cash locked up in goods." />
@@ -1406,13 +1689,23 @@ function EfficRow({ label, detail, value, target, cap, invert, tip }) {
   const pct = v != null ? Math.min(100, (v / cap) * 100) : 0;
   const benchPct = Math.min(100, (target / cap) * 100);
 
-  // Tone: lower is better for DSO/DIO (invert=false), higher is better for DPO (invert=true)
+  // Tone: lower is better for DSO/DIO (invert=false). DPO (invert=true)
+  // is judged differently — paying FAST burns free supplier credit (warn),
+  // paying near/above target is good for cash, and only an extreme stretch
+  // (>2.5× target) turns amber for relationship risk. Never red: slow
+  // supplier payment props up a tight cash position, it isn't a crisis.
   let tone = 'flat';
   if (v != null) {
-    const diff = invert ? (target - v) : (v - target);
-    if (Math.abs(diff) / target < 0.1) tone = 'pos';
-    else if (Math.abs(diff) / target < 0.25) tone = 'warn';
-    else tone = invert ? (diff > 0 ? 'pos' : 'neg') : (diff > 0 ? 'neg' : 'pos');
+    if (invert) {
+      if (v < target * 0.75) tone = 'warn';
+      else if (v <= target * 2.5) tone = 'pos';
+      else tone = 'warn';
+    } else {
+      const diff = v - target;
+      if (Math.abs(diff) / target < 0.1) tone = 'pos';
+      else if (Math.abs(diff) / target < 0.25) tone = 'warn';
+      else tone = diff > 0 ? 'neg' : 'pos';
+    }
   }
 
   // Insufficient data — show muted state instead of misleading 0
@@ -1577,6 +1870,16 @@ function buildPrimaryInsight({ stats, insights, aging, business }) {
 /* ═══════════════════════════════════════════════════════════════════════
  *  HELPERS
  * ═══════════════════════════════════════════════════════════════════════ */
+
+/* wa.me deep link — same normalisation as PartyStatementPage: strip
+ * non-digits, prepend 91 for bare 10-digit Indian numbers. Returns null
+ * when there's no usable mobile so callers can hide the button. */
+function waHref(mobile, text) {
+  let phone = String(mobile || '').replace(/\D/g, '');
+  if (!phone) return null;
+  if (phone.length === 10) phone = '91' + phone;
+  return `https://wa.me/${phone}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+}
 
 function greetingForHour(h) {
   if (h < 12) return 'Good morning';

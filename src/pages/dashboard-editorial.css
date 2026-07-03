@@ -1724,18 +1724,20 @@
  * ──────────────────────────────────────────────────────────────────────── */
 @media (max-width: 1280px) {
   .ed-row-charts     { grid-template-columns: 1fr; }
+  .ed-row-week       { grid-template-columns: 1fr; }
   .ed-row-3col       { grid-template-columns: 1fr; }
   .ed-row-3col-inner { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
   .ed-kpi-strip     { grid-template-columns: repeat(2, 1fr); }
   .ed-aging-summary { grid-template-columns: repeat(2, 1fr); }
+  .ed-week-grid     { grid-template-columns: repeat(2, 1fr); }
   .ed-chart-summary { grid-template-columns: repeat(2, 1fr); }
   .ed-quick-stats   { gap: 20px; }
   .ed-page-title    { font-size: 32px; }
 }
 @media (max-width: 720px) {
-  .ed-page-head, .ed-topbar, .ed-section, .ed-row-charts, .ed-row-3col, .ed-kpi-strip { margin-left: 14px; margin-right: 14px; padding-left: 14px; padding-right: 14px; }
+  .ed-page-head, .ed-topbar, .ed-section, .ed-row-charts, .ed-row-3col, .ed-row-week, .ed-kpi-strip { margin-left: 14px; margin-right: 14px; padding-left: 14px; padding-right: 14px; }
   .ed-quick-stats { width: 100%; }
 }
 
@@ -1786,4 +1788,155 @@
   line-height: 1.55;
   padding: 9px 12px;
   border-radius: 8px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ *  THIS WEEK & BANKS ROW
+ * ──────────────────────────────────────────────────────────────────────── */
+.ed-row-week {
+  margin: 0 28px 24px;
+  display: grid;
+  grid-template-columns: 1.7fr 1fr;   /* matches .ed-row-charts rhythm */
+  gap: 16px;
+}
+.ed-week-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--ed-line);
+  border-top: 1px solid var(--ed-line);
+}
+.ed-week-cell {
+  display: block; width: 100%;
+  background: var(--ed-paper);
+  border: none; text-align: left;
+  padding: 16px 18px 18px;
+  cursor: pointer;
+  transition: background-color .14s ease;
+  font: inherit; color: inherit;
+}
+.ed-week-cell:hover { background: var(--ed-wash, rgba(127,127,127,0.05)); }
+.ed-week-cell--static { cursor: default; }
+.ed-week-cell--static:hover { background: var(--ed-paper); }
+.ed-week-k {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ed-ink-5);
+  margin-bottom: 10px;
+}
+.ed-week-v {
+  font-variation-settings: "opsz" 30;
+  font-weight: 500; font-size: 22px;
+  letter-spacing: -0.025em; line-height: 1;
+  color: var(--ed-ink-1);
+  margin-bottom: 5px;
+}
+.ed-week-v .ed-cur { font-size: 13px; opacity: 0.5; margin-right: 1px; font-weight: 400; }
+.ed-week-sub { font-size: 10.5px; color: var(--ed-ink-5); }
+.ed-week-note {
+  padding: 10px 18px 14px;
+  font-size: 11.5px; color: var(--ed-ink-5);
+  border-top: 1px solid var(--ed-line);
+}
+
+/* Cash & banks list */
+.ed-bank-list { display: flex; flex-direction: column; }
+.ed-bank-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; text-align: left;
+  background: transparent; border: none;
+  border-top: 1px solid var(--ed-line);
+  padding: 11px 18px;
+  cursor: pointer; font: inherit; color: inherit;
+  transition: background-color .14s ease;
+}
+.ed-bank-row:hover { background: var(--ed-wash, rgba(127,127,127,0.05)); }
+.ed-bank-tag {
+  flex: 0 0 auto;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+  padding: 2px 7px; border-radius: 4px;
+}
+.ed-bank-tag--bank { color: var(--ed-info, var(--ed-accent)); background: var(--ed-accent-soft, rgba(127,127,127,0.12)); }
+.ed-bank-tag--cash { color: var(--ed-pos);  background: var(--ed-pos-soft); }
+.ed-bank-tag--od   { color: var(--ed-warn); background: var(--ed-warn-soft); }
+.ed-bank-name {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 13px; font-weight: 600; color: var(--ed-ink-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ed-bank-bal {
+  flex: 0 0 auto;
+  font-variation-settings: "opsz" 20;
+  font-size: 13.5px; font-weight: 600; color: var(--ed-ink-1);
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ *  SHARED MICRO-COMPONENTS (WhatsApp button, row actions, links, alarms)
+ * ──────────────────────────────────────────────────────────────────────── */
+.ed-wa-btn {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  border: 1px solid rgba(37, 211, 102, 0.35);
+  background: rgba(37, 211, 102, 0.10);
+  color: #25d366;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color .14s ease, transform .14s ease;
+}
+.ed-wa-btn:hover { background: rgba(37, 211, 102, 0.22); transform: translateY(-1px); }
+.ed-row-acts { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
+
+.ed-kpi-sub-link {
+  display: inline-block;
+  background: none; border: none; padding: 0;
+  font: inherit; text-align: left;
+  cursor: pointer;
+  color: var(--ed-neg);
+  font-size: 10.5px;
+  text-decoration: none;
+}
+.ed-kpi-sub-link:hover { text-decoration: underline; }
+
+.ed-inline-link {
+  background: none; border: none; padding: 0;
+  margin-left: 6px;
+  font: inherit; font-size: 12px; font-weight: 600;
+  color: var(--ed-accent, var(--ed-ink-2));
+  cursor: pointer;
+}
+.ed-inline-link:hover { text-decoration: underline; }
+
+.ed-winback-days {
+  flex: 0 0 auto;
+  min-width: 42px; text-align: center;
+  font-size: 11px; font-weight: 700;
+  color: var(--ed-warn);
+  background: var(--ed-warn-soft);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+/* 91+ bucket alarm — THE receivables story; give it presence without
+ * shouting: a soft red wash + a left accent bar, value already red. */
+.ed-aging-bucket--alarm {
+  background: var(--ed-neg-soft);
+  box-shadow: inset 3px 0 0 var(--ed-neg);
+}
+
+/* Counter-sales (walk-in) row in the concentration detail — neutral ink
+ * marker: informational, deliberately outside the risk palette. */
+.ed-conc-marker--counter { background: var(--ed-ink-4); }
+.ed-conc-row--counter .ed-conc-name { color: var(--ed-ink-3); }
+
+/* Gentle lift on panels + KPI cards — the "hours-daily" polish: the page
+ * responds to the pointer without any layout shift or attention theft. */
+.ed-panel, .ed-kpi {
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.ed-panel:hover, .ed-kpi:hover {
+  border-color: var(--ed-ink-5);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.05);
 }
