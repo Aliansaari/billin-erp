@@ -101,6 +101,10 @@ export const menuItems = [
       { key: '/suppliers?new=1', icon: <ShopOutlined />,          label: 'New Supplier',  perm: 'parties.create' },
       { key: '/customers',       icon: <UserOutlined />,          label: 'Customers',     perm: 'parties.view' },
       { key: '/suppliers',       icon: <BankOutlined />,          label: 'Suppliers',     perm: 'parties.view' },
+      // Members — loyalty enrolments. Flag-gated on the membership master
+      // switch (Features → Membership); hidden until the module is turned on.
+      { key: '/members',         icon: <CreditCardOutlined />,    label: 'Members',       perm: 'parties.view', flag: 'membership_enabled' },
+      { key: '/members/report',  icon: <BarChartOutlined />,      label: 'Member Report', perm: 'parties.view', flag: 'membership_enabled' },
     ],
   },
   {
@@ -236,6 +240,32 @@ export const menuItems = [
  * same icon the user already sees in the main nav — no need to keep
  * a parallel icon mapping in menuCatalog.
  */
+// ── Top-level tab detection (for natural Back / Esc) ──────────────────
+// Every menu leaf path (query stripped) is a "top-level tab" — a direct
+// sidebar destination. The Back handler treats these specially: pressing
+// Esc on a top-level tab goes straight Home in ONE step, instead of chaining
+// back through the history of previously-visited tabs. Rationale: switching
+// tabs (Sale → Purchase) "closes the loop" on the previous tab, so Back must
+// not return to it. Sub-pages (a bill opened from a list, a detail view) are
+// NOT in this set, so their Back still returns to the screen they came from.
+const _TOP_LEVEL_PATHS = (() => {
+  const set = new Set();
+  const walk = (items) => (items || []).forEach((it) => {
+    if (it && typeof it.key === 'string' && it.key.startsWith('/')) {
+      set.add(it.key.split('?')[0]);
+    }
+    if (it && it.children) walk(it.children);
+  });
+  walk(menuItems);
+  return set;
+})();
+
+export function isTopLevelRoute(pathname) {
+  if (!pathname) return false;
+  const p = (pathname.length > 1 && pathname.endsWith('/')) ? pathname.slice(0, -1) : pathname;
+  return _TOP_LEVEL_PATHS.has(p);
+}
+
 export function getRouteIcon(route) {
   for (const item of menuItems) {
     if (item.key === route) return item.icon;

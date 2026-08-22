@@ -82,6 +82,20 @@ exports.updateSystemSettings = async (req, res) => {
     if (req.body.cogs_method && !['weighted_avg', 'fifo'].includes(req.body.cogs_method)) {
       return res.status(400).json({ error: "cogs_method must be 'weighted_avg' or 'fifo'" });
     }
+    // Same guard for the membership card-number source enum — reject garbage
+    // before it reaches PG (which would 500 after the rest of the update).
+    if (req.body.membership_no_source && !['mobile', 'manual', 'auto'].includes(req.body.membership_no_source)) {
+      return res.status(400).json({ error: "membership_no_source must be 'mobile', 'manual', or 'auto'" });
+    }
+    // Loyalty redemption knobs must be sane non-negative numbers.
+    if (req.body.membership_redeem_value_per_point !== undefined && req.body.membership_redeem_value_per_point !== '') {
+      const v = parseFloat(req.body.membership_redeem_value_per_point);
+      if (!isFinite(v) || v < 0) return res.status(400).json({ error: 'membership_redeem_value_per_point must be a non-negative number' });
+    }
+    if (req.body.membership_points_min_redeem !== undefined && req.body.membership_points_min_redeem !== '') {
+      const v = parseInt(req.body.membership_points_min_redeem, 10);
+      if (!isFinite(v) || v < 0) return res.status(400).json({ error: 'membership_points_min_redeem must be a non-negative whole number' });
+    }
 
     // Onboarding-tier format validators (Indian ID + contact fields).
     // Each helper accepts empty/null as valid, so the operator can

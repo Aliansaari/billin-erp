@@ -296,7 +296,16 @@ export default function ProductList() {
       } else {
         const { data } = await productAPI.create(values);
         savedProductId = data.product_id || data.product?.product_id;
-        message.success(`Product added — Barcode: ${data.barcode || data.product?.barcode}`);
+        // { existing: true, product } means the controller matched an
+        // existing SKU and created nothing — don't report it as an add.
+        if (data.existing) {
+          message.warning(
+            `"${data.product?.product_name}" already exists in this category (Barcode: ${data.product?.barcode || '—'}). ` +
+            'Nothing was created — change the category, size, article number or pack size to add a separate SKU.',
+          );
+        } else {
+          message.success(`Product added — Barcode: ${data.barcode || data.product?.barcode}`);
+        }
       }
 
       // Sync the color list when the product is in multi-color mode.

@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Popover, Checkbox } from 'antd';
-import { SettingOutlined } from '@ant-design/icons';
+import { SettingOutlined, UserAddOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, productColorAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
+import PartyForm from '../parties/PartyForm';
 import { printDocument } from '../../services/printer';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
@@ -219,6 +220,8 @@ export default function PurchaseBillForm() {
   const [form]            = Form.useForm();
   const [items, setItems] = useState([]);
   const [parties, setParties]       = useState([]);
+  // Quick-add a new supplier from the purchase form (no navigation away).
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [categories, setCategories] = useState([]);
   // Multi-warehouse master toggle. When OFF the picker hides and every
   // bill posts against the seeded default godown — the loadGodowns
@@ -484,6 +487,23 @@ export default function PurchaseBillForm() {
   }, [id]);
 
   const loadParties    = async()=>{ try{ const{data}=await partyAPI.getSuppliers({limit:1000}); setParties((data.data||[]).filter(p=>p.is_active!==false)); }catch(e){} };
+  // Quick-add supplier: create inline, add to the list, and select on the bill.
+  const handleQuickAddSupplier = async (payload) => {
+    // Suppliers aren't loyalty members — drop any membership intent.
+    const { _enrol_membership, _membership_plan_id, ...partyData } = payload || {};
+    try {
+      const { data } = await partyAPI.create({ ...partyData, party_type: 'Supplier' });
+      const p = (data && data.data) ? data.data : data;
+      if (!p || !p.party_id) throw new Error('Create returned no party');
+      setParties(prev => [p, ...prev.filter(x => x.party_id !== p.party_id)]);
+      form.setFieldValue('supplier_id', p.party_id);
+      setQuickAddOpen(false);
+      message.success('Supplier added');
+      setTimeout(() => barcodeRef.current?.focus(), 60);
+    } catch (err) {
+      message.error(err?.response?.data?.error || 'Failed to add supplier');
+    }
+  };
   const loadCategories = async()=>{ try{ const{data}=await categoryAPI.getAllFlat(); setCategories(data||[]); }catch(e){} };
   const loadGodowns    = async()=>{
     try {
@@ -2290,14 +2310,25 @@ export default function PurchaseBillForm() {
                 accounting-style cash purchases don't carry a separate supplier bill
                 number, so the slot reuse is honest, not just convenient. */}
             <div className="pbf-top-row">
-              <div className="pbf-field">
+              <div className="pbf-field" style={{ display:'flex', flexDirection:'row', gap:6, alignItems:'stretch' }}>
                 {/* Supplier is hard-required. Cash purchases pick the
                     seeded system "Cash" party (pinned to the top); the
                     walk-in name appears in col 2 (same height + AntD
                     style as this Select) instead of supplier-bill-#. */}
+                <button type="button" title="Add a new supplier" aria-label="Add new supplier"
+                  onClick={() => setQuickAddOpen(true)}
+                  style={{ flex:'0 0 auto', width:36, alignSelf:'stretch',
+                    border:'1px solid var(--accent, #0e7490)', borderRadius:8,
+                    background:'var(--accent, #0e7490)', color:'#fff', fontSize:15,
+                    cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+                    boxShadow:'0 1px 2px rgba(0,0,0,0.12)' }}>
+                  <UserAddOutlined />
+                </button>
+                <div style={{ flex:1, minWidth:0 }}>
                 <Form.Item name="supplier_id" noStyle
                   rules={[{ required: true, message: 'Select a supplier (use Cash for walk-in vendors)' }]}>
                   <Select ref={supplierRef} showSearch placeholder="Supplier"
+                    style={{width:'100%'}}
                     optionFilterProp="label"
                     {...partySelectProps(parties, 'Supplier')}
                     // After picking the supplier, jump to the barcode /
@@ -2308,6 +2339,7 @@ export default function PurchaseBillForm() {
                     onSelect={() => setTimeout(() => barcodeRef.current?.focus(), 50)}
                   />
                 </Form.Item>
+                </div>
               </div>
               {/* Col 2 — supplier-bill-# OR walk-in name. Both rendered
                   but exactly one is display:flex so the grid track width
@@ -3155,6 +3187,14 @@ export default function PurchaseBillForm() {
         partyId={supplierIdW}
         settings={systemSettings}
         role="supplier"
+      />
+
+      {/* Quick-add a new supplier without leaving the purchase form. */}
+      <PartyForm
+        visible={quickAddOpen}
+        partyType="Supplier"
+        onCancel={() => setQuickAddOpen(false)}
+        onSubmit={handleQuickAddSupplier}
       />
     </Form>
   );

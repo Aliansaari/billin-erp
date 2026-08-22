@@ -2,13 +2,16 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMe
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Tag, Checkbox } from 'antd';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI, salesmanAPI } from '../../api';
+import { salesAPI, salesDraftAPI, partyAPI, productAPI, categoryAPI, settingsAPI, godownAPI, salesmanAPI, membershipAPI } from '../../api';
+import { evaluateMembership, autoDiscountToApply } from '../../utils/membershipDiscount';
 import { printDocument, shareBillViaWhatsApp, whatsappReady } from '../../services/printer';
 import { whatsappAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import useBack from '../../hooks/useBack';
 import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled, useMultiColorEnabled, useSystemSettings } from '../../hooks/useSystemSettings';
 import CustomerInsightPanel from '../../components/CustomerInsightPanel';
+import { UserAddOutlined } from '@ant-design/icons';
+import PartyForm from '../parties/PartyForm';
 import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
@@ -167,6 +170,8 @@ export default function SalesBillForm() {
   const [form]    = Form.useForm();
   const [items, setItems]       = useState([]);
   const [parties, setParties]   = useState([]);
+  // Quick-add a new customer from the sales form (no navigation away).
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [cats, setCats]         = useState([]);
   // Multi-warehouse master toggle. When OFF the picker hides and every
   // bill posts against the seeded default godown — loadGodowns below
@@ -228,6 +233,15 @@ export default function SalesBillForm() {
   const [sgstPct, setSgstPct]   = useState(0);
   const [igstPct, setIgstPct]   = useState(0);
   const [selectedParty, setSelectedParty] = useState(null);
+  // Membership (loyalty) — badge descriptor for the selected customer, plus a
+  // ref remembering the tier discount we auto-applied so we can cleanly undo
+  // it when the customer changes. Purely additive; drives only the existing
+  // discount field. See src/utils/membershipDiscount.js.
+  const [memberInfo, setMemberInfo] = useState(null);
+  const memberAutoDiscRef = useRef(null);
+  // Points the operator chose to redeem on this (new) bill. Reset whenever the
+  // customer changes. Clamped against balance + bill total in the totals calc.
+  const [redeemPoints, setRedeemPoints] = useState(0);
   const [discAmtVal, setDiscAmtVal]       = useState(0);
   const discAmtEditingRef                 = useRef(false);
   // Re-entrancy guard for Save — prevents duplicate-bill creation on rapid
@@ -282,6 +296,14 @@ export default function SalesBillForm() {
   // ── Customer Insight Panel (F8) ──────────────────────────────────
   const [insightOpen, setInsightOpen] = useState(false);
   const systemSettings = useSystemSettings();
+  // Membership feature gates (loyalty module + billing auto-discount + redeem).
+  const membershipEnabled      = !!systemSettings?.membership_enabled;
+  const membershipAutoDiscount = !!systemSettings?.membership_auto_discount_enabled;
+  const membershipRedeemEnabled = !!systemSettings?.membership_redeem_enabled;
+  const membershipPointsEnabled = !!systemSettings?.membership_points_enabled;
+  const membershipShowPanel     = systemSettings?.membership_show_sales_panel !== false; // default on
+  const redeemValuePerPoint    = Number(systemSettings?.membership_redeem_value_per_point ?? 1) || 0;
+  const redeemMinPoints        = Number(systemSettings?.membership_points_min_redeem ?? 0) || 0;
 
   // ── Inline-return state (customer brings goods back at counter) ──
   // The modal collects items into `inlineReturnItems`. On save the form
@@ -614,6 +636,33 @@ export default function SalesBillForm() {
       .catch(()=>{ if(!cancelled) setProdOpts([]); });
     return ()=>{ cancelled=true; };
   },[activeCatId, globalProductMode]);
+
+  // Quick-add customer: create the party inline, add it to the list, select
+  // it on the bill, and (optionally) enrol it as a member — all without
+  // leaving the sales form. PartyForm delegates the save here via onSubmit.
+  const handleQuickAddCustomer = async (payload) => {
+    const { _enrol_membership, _membership_plan_id, ...partyData } = payload || {};
+    try {
+      const { data } = await partyAPI.create(partyData);
+      const p = (data && data.data) ? data.data : data;
+      if (!p || !p.party_id) throw new Error('Create returned no party');
+      setParties(prev => [p, ...prev.filter(x => x.party_id !== p.party_id)]);
+      form.setFieldValue('customer_id', p.party_id);
+      setQuickAddOpen(false);
+      message.success('Customer added');
+      setTimeout(() => barcodeRef.current?.focus(), 60);
+      if (_enrol_membership && _membership_plan_id) {
+        try {
+          await membershipAPI.enroll({ party_id: p.party_id, plan_id: _membership_plan_id });
+          message.success('Enrolled as member');
+        } catch (e) {
+          message.warning('Customer added, but enrolment failed: ' + (e?.response?.data?.error || 'error'));
+        }
+      }
+    } catch (err) {
+      message.error(err?.response?.data?.error || 'Failed to add customer');
+    }
+  };
 
   useEffect(() => {
     partyAPI.getCustomers({limit:1000}).then(({data}) =>
@@ -1501,10 +1550,28 @@ export default function SalesBillForm() {
   // at a smaller total — the operator saw ₹X on screen and the books recorded
   // ₹X−special_discount. The "Paid + Return ≤ total" validators would also
   // accept payments above the actual saved total.
-  const rawTotal    = taxableAmt+totalGST
-    -parseFloat(splDisc||0)
-    +parseFloat(otherChr||0)
-    +parseFloat(freightChr||0);
+  // ── Membership points redemption (Phase 3b) ───────────────────────────
+  // A redemption is a post-tax rupee rebate applied through the SAME place
+  // special_discount is subtracted — no new money math. Points and value stay
+  // in lock-step: cap the redeemed points so their rupee value can never
+  // exceed the pre-redemption payable (total can't go negative) nor the
+  // member's balance. Only on NEW bills for an eligible member above the
+  // minimum-points threshold.
+  const redeemActive = !isEdit && membershipRedeemEnabled && !!memberInfo?.eligible
+    && (memberInfo.points || 0) >= redeemMinPoints && redeemValuePerPoint > 0;
+  const preRedeemTotal = taxableAmt + totalGST
+    - parseFloat(splDisc||0)
+    + parseFloat(otherChr||0)
+    + parseFloat(freightChr||0);
+  const maxRedeemByTotal = redeemValuePerPoint > 0
+    ? Math.floor(Math.max(0, preRedeemTotal) / redeemValuePerPoint) : 0;
+  const maxRedeemPoints = redeemActive
+    ? Math.min(Math.floor(memberInfo.points || 0), maxRedeemByTotal) : 0;
+  const redeemPointsClamped = redeemActive
+    ? Math.max(0, Math.min(Math.floor(redeemPoints || 0), maxRedeemPoints)) : 0;
+  const redeemValue = +(redeemPointsClamped * redeemValuePerPoint).toFixed(2);
+
+  const rawTotal    = preRedeemTotal - redeemValue;
   // Indian GST-standard practice rounds every voucher to the nearest rupee and
   // records the residue as a round_off ledger. We mirror that: the displayed net
   // total is always an integer, and the fractional difference lands in
@@ -1512,6 +1579,12 @@ export default function SalesBillForm() {
   // with the list total (which also shows the rounded value).
   const roundedTotal = Math.round(rawTotal);
   const roundOff     = +(roundedTotal - rawTotal).toFixed(2);
+  // Points this bill will earn (preview) — only when points are on and this is
+  // an eligible member. Mirrors the server rule: floor(netTotal/100 × rate).
+  const memberPointsToEarn = (!isEdit && membershipPointsEnabled && memberInfo?.eligible && memberInfo.pointsPer100 > 0)
+    ? Math.floor((roundedTotal / 100) * memberInfo.pointsPer100) : 0;
+  // Whether to render the member panel beside the totals.
+  const showMemberPanel = !!(memberInfo && memberInfo.eligible && membershipShowPanel);
   const maxPaid     = Math.max(0, roundedTotal - parseFloat(returnAmt || 0));
   const balance     = +(roundedTotal - parseFloat(returnAmt||0) - Math.min(paidAmt, maxPaid)).toFixed(2);
   const changeDue   = paymentMethod === 'Cash' ? Math.max(0, +((cashReceived || 0) - roundedTotal).toFixed(2)) : 0;
@@ -1552,6 +1625,50 @@ export default function SalesBillForm() {
     paidEditedRef.current = false;
     setCashReceived(0);
   },[customerId]);
+
+  /* ── Membership: badge + optional auto tier-discount ──────────────────
+     On customer change, fetch the customer's membership and show a badge.
+     If auto-discount is on (and this is a NEW bill), pre-fill the EXISTING
+     `discount_percentage` field with the tier % — never overriding a discount
+     the operator already typed. All money math stays in the existing bill
+     pipeline; this only writes that one field. The decision logic is the pure,
+     unit-tested helper in utils/membershipDiscount.js. */
+  useEffect(()=>{
+    // Undo a previously auto-applied tier discount when it's still untouched,
+    // so switching customers never leaves a stale member discount behind.
+    if(!isEdit && memberAutoDiscRef.current != null){
+      const cur = Number(form.getFieldValue('discount_percentage')) || 0;
+      if(cur === memberAutoDiscRef.current){
+        form.setFieldValue('discount_percentage', 0);
+      }
+    }
+    memberAutoDiscRef.current = null;
+    setMemberInfo(null);
+    setRedeemPoints(0);   // never carry a redemption across customers
+
+    if(!membershipEnabled || !customerId) return;
+    let cancelled = false;
+    membershipAPI.getByParty(customerId)
+      .then(({data})=>{
+        if(cancelled) return;
+        const ev = evaluateMembership(data && data.membership);
+        if(!ev) return;
+        setMemberInfo(ev);
+        const toApply = autoDiscountToApply({
+          evalResult: ev,
+          autoDiscountEnabled: membershipAutoDiscount,
+          isEdit,
+          currentDiscountPct: form.getFieldValue('discount_percentage'),
+        });
+        if(toApply != null){
+          form.setFieldValue('discount_percentage', toApply);
+          memberAutoDiscRef.current = toApply;
+          setMemberInfo((mi)=> mi ? { ...mi, applied:true } : mi);
+        }
+      })
+      .catch(()=>{ /* lookup failure must never block billing */ });
+    return ()=>{ cancelled = true; };
+  },[customerId, isEdit, membershipEnabled, membershipAutoDiscount]);
 
   /* Auto-fill paid amount based on credit policy.
      Fix: for credit customers, skip auto-fill if user already manually set paid_amount
@@ -1718,7 +1835,12 @@ export default function SalesBillForm() {
         // Pure-attribution FK. Null when no salesman picked. Rides through the
         // controller's generic billData spread — no salesController change.
         salesman_id:vals.salesman_id||null,
-        special_discount:parseFloat(splDisc)||0,
+        // Membership redemption: fold the redeemed rupee value into the
+        // existing special_discount (so server total math is unchanged) and
+        // send the points count so the server deducts them in the same
+        // transaction. Both are 0 on edit (redemption is create-only).
+        special_discount:(parseFloat(splDisc)||0) + redeemValue,
+        points_redeemed: redeemPointsClamped,
         other_charges:parseFloat(otherChr)||0,
         freight_charges:parseFloat(freightChr)||0,
         // When inline_return is sent the backend zeros this column anyway
@@ -1857,7 +1979,7 @@ export default function SalesBillForm() {
       message.error(data?.error || data?.message || 'Failed to save');
     }
     finally{setLoading(false); submittingRef.current=false;}
-  },[form,items,inlineReturnItems,inlineReturnTotal,discPct,billDiscAmt,roundedTotal,splDisc,otherChr,freightChr,returnAmt,isEdit,id,navigate,backTarget,selectedParty,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct]);
+  },[form,items,inlineReturnItems,inlineReturnTotal,discPct,billDiscAmt,roundedTotal,splDisc,otherChr,freightChr,returnAmt,isEdit,id,navigate,backTarget,selectedParty,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct,redeemValue,redeemPointsClamped]);
 
   const handleReset=()=>{
     setItems([]);setEntry(EMPTY);
@@ -2551,16 +2673,22 @@ export default function SalesBillForm() {
           <div className="sbf-top-inner">
 
             <div className="sbf-top-row">
-              <div className="sbf-field" style={{flex:'1 1 auto'}}>
+              <div className="sbf-field" style={{flex:'1 1 auto', display:'flex', flexDirection:'row', gap:6, alignItems:'stretch'}}>
                 {/* Customer is now hard-required. Cash sales select the
                     seeded system "Cash" party (pinned to the top of the
                     dropdown); a walk-in name field appears beside the
                     selector (cols 2+3 of the row's grid) when Cash is the
                     selection so the operator can capture the actual
                     person's name without creating a real party row. */}
+                <button type="button" className="sbf-addparty" title="Add a new customer"
+                  onClick={() => setQuickAddOpen(true)} aria-label="Add new customer">
+                  <UserAddOutlined />
+                </button>
+                <div style={{flex:1, minWidth:0}}>
                 <Form.Item name="customer_id" noStyle
                   rules={[{ required: true, message: 'Select a customer (use Cash for walk-ins)' }]}>
                   <Select ref={customerRef} showSearch placeholder="Customer"
+                    style={{width:'100%'}}
                     optionFilterProp="search"
                     // After the operator picks a customer, jump straight to
                     // the barcode cell — sales is a POS-style flow ("who's
@@ -2609,6 +2737,7 @@ export default function SalesBillForm() {
                     }}
                   />
                 </Form.Item>
+                </div>
               </div>
               {/* Col 2+3 of the row: ONE of two things depending on the
                   selected party.
@@ -2687,6 +2816,9 @@ export default function SalesBillForm() {
                         {status}
                       </span>
                     )}
+                    {/* Membership is now shown as a full panel beside the
+                        totals (see the member panel in the bottom bar), not as
+                        a top badge — keeps the header clean. */}
                   </div>
                 );
               })()}
@@ -3192,8 +3324,82 @@ export default function SalesBillForm() {
               </div>
             </div>
 
-            {/* RIGHT: Totals + Payment */}
+            {/* RIGHT: Member panel (active members only) + Totals + Payment */}
             <div className="sbf-bb-right">
+
+              {/* ── Membership panel ──────────────────────────────────────
+                  Shown beside the totals only when an ACTIVE member is the
+                  selected customer and the shop keeps the panel on. Rich,
+                  glanceable member context + the redeem control. Nothing here
+                  changes money math — the redeem value rides special_discount
+                  and the auto tier discount rides the bill discount field. */}
+              {showMemberPanel && (
+                <div className="sbf-card sbf-member">
+                  <div className="sbf-member-head">
+                    <span className="sbf-member-tier">★ {memberInfo.plan}</span>
+                    <span className="sbf-member-badge">Member</span>
+                  </div>
+
+                  <div className="sbf-member-points">
+                    <div className="pts">{Math.floor(memberInfo.points || 0).toLocaleString('en-IN')}<span> pts</span></div>
+                    <div className="val">≈ ₹{fmtN((memberInfo.points || 0) * redeemValuePerPoint)}</div>
+                  </div>
+
+                  <div className="sbf-member-stats">
+                    {memberInfo.discount > 0 && (
+                      <div className="sbf-member-stat">
+                        <span className="k">Tier discount</span>
+                        <span className="v">{memberInfo.discount}%{memberInfo.applied ? ' · applied' : (membershipAutoDiscount ? '' : ' · off')}</span>
+                      </div>
+                    )}
+                    {membershipPointsEnabled && memberInfo.pointsPer100 > 0 && (
+                      <div className="sbf-member-stat">
+                        <span className="k">Earns on this bill</span>
+                        <span className="v pos">+{memberPointsToEarn} pts</span>
+                      </div>
+                    )}
+                    <div className="sbf-member-stat">
+                      <span className="k">Card no.</span>
+                      <span className="v mono">{memberInfo.membershipNo || '—'}</span>
+                    </div>
+                    <div className="sbf-member-stat">
+                      <span className="k">Expires</span>
+                      <span className="v">{memberInfo.expiryDate ? dayjs(memberInfo.expiryDate).format('DD MMM YYYY') : 'No expiry'}</span>
+                    </div>
+                  </div>
+
+                  {redeemActive ? (
+                    <div className="sbf-member-redeem">
+                      <div className="rd-head">
+                        <span className="k">Redeem points</span>
+                        <span className="rd-avail">{maxRedeemPoints} usable</span>
+                      </div>
+                      <div className="rd-row">
+                        <InputNumber keyboard={false} size="small" min={0} max={maxRedeemPoints}
+                          className="rd-input" style={{ width: '100%' }} placeholder="pts to redeem"
+                          value={redeemPoints || undefined}
+                          onChange={(v) => setRedeemPoints(Math.max(0, Math.min(Math.floor(v || 0), maxRedeemPoints)))} />
+                        <span className="rd-value">{redeemValue > 0 ? `−${fmtN(redeemValue)}` : '₹0'}</span>
+                      </div>
+                      {maxRedeemPoints > 0 && (
+                        <button type="button" className="rd-all"
+                          onClick={() => setRedeemPoints(maxRedeemPoints)}>Use all {maxRedeemPoints}</button>
+                      )}
+                    </div>
+                  ) : (membershipRedeemEnabled && redeemMinPoints > 0 && (memberInfo.points || 0) < redeemMinPoints) ? (
+                    <div className="sbf-member-progress">
+                      <div className="mp-head">
+                        <span>Redeem unlocks at {redeemMinPoints} pts</span>
+                        <span>{Math.floor(memberInfo.points || 0)}/{redeemMinPoints}</span>
+                      </div>
+                      <div className="mp-bar">
+                        <div className="mp-fill" style={{ width: `${Math.min(100, Math.round(((memberInfo.points || 0) / redeemMinPoints) * 100))}%` }} />
+                      </div>
+                      <div className="mp-hint">{Math.max(0, redeemMinPoints - Math.floor(memberInfo.points || 0))} more to redeem</div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
 
               {/* Totals card — 6 rows to match Payment card height.
                     CGST+SGST share a single % input (they're always equal in
@@ -3915,6 +4121,14 @@ export default function SalesBillForm() {
         onClose={() => setInsightOpen(false)}
         partyId={customerId}
         settings={systemSettings}
+      />
+
+      {/* Quick-add a new customer without leaving the sales form. */}
+      <PartyForm
+        visible={quickAddOpen}
+        partyType="Customer"
+        onCancel={() => setQuickAddOpen(false)}
+        onSubmit={handleQuickAddCustomer}
       />
     </Form>
   );

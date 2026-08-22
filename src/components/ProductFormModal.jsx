@@ -182,9 +182,18 @@ export default function ProductFormModal({ open, onCancel, onSaved, defaultName 
       });
       const { data } = await productAPI.create(payload);
       // productAPI.create returns either the product directly or
-      // { existing: true, product } if name+size+article+qpb matched.
+      // { existing: true, product } if category+name+size+article+qpb
+      // matched — in that case NOTHING was created, so say so instead of
+      // claiming success with someone else's barcode.
       const product = data?.product || data;
-      message.success(`Product added — Barcode: ${product?.barcode || ''}`);
+      if (data?.existing) {
+        message.warning(
+          `"${product?.product_name}" already exists in this category (Barcode: ${product?.barcode || '—'}). ` +
+          'Nothing was created — change the category, size, article number or pack size to add a separate SKU.',
+        );
+      } else {
+        message.success(`Product added — Barcode: ${product?.barcode || ''}`);
+      }
       onSaved && onSaved(product);
     } catch (e) {
       message.error(e?.response?.data?.error || 'Failed to save');

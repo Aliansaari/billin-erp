@@ -69,6 +69,9 @@ const ComplianceAuditLogFactory = require('./ComplianceAuditLog');
 const SalesmanFactory = require('./Salesman');
 const WhatsappSettingsFactory = require('./WhatsappSettings');
 const WhatsappOutboxFactory = require('./WhatsappOutbox');
+const MembershipPlanFactory = require('./MembershipPlan');
+const MembershipFactory = require('./Membership');
+const MembershipPointsLedgerFactory = require('./MembershipPointsLedger');
 
 /**
  * Define all models + associations on a given Sequelize instance.
@@ -128,6 +131,9 @@ function defineModels(sequelize) {
   const Salesman = SalesmanFactory(sequelize);
   const WhatsappSettings = WhatsappSettingsFactory(sequelize);
   const WhatsappOutbox = WhatsappOutboxFactory(sequelize);
+  const MembershipPlan = MembershipPlanFactory(sequelize);
+  const Membership = MembershipFactory(sequelize);
+  const MembershipPointsLedger = MembershipPointsLedgerFactory(sequelize);
 
   // ── Associations ──
   
@@ -462,6 +468,31 @@ function defineModels(sequelize) {
   // is not part of party ledger/history and must not surface there).
   WhatsappOutbox.belongsTo(Party, { foreignKey: 'party_id', as: 'party' });
 
+  // ── Membership (loyalty) ────────────────────────────────────────────
+  //
+  // MembershipPlan → memberships: RESTRICT on delete so a plan that has
+  // members can't be silently wiped (the controller also guards this and
+  // steers the operator to soft-delete via is_active=false instead).
+  //
+  // Party → membership: 1:1 sidecar. CASCADE so hard-deleting a party (rare;
+  // parties are normally soft-deleted and the party controller blocks
+  // deletion of parties with transactions) also removes the now-orphan
+  // enrolment. A membership carries no financial history in Phase 1, so
+  // cascading is safe; the append-only points ledger added in a later phase
+  // will carry its own retention rules.
+  MembershipPlan.hasMany(Membership,   { foreignKey: 'plan_id',  as: 'memberships', onDelete: 'RESTRICT' });
+  Membership.belongsTo(MembershipPlan, { foreignKey: 'plan_id',  as: 'plan' });
+  Party.hasOne(Membership,             { foreignKey: 'party_id', as: 'membership', onDelete: 'CASCADE' });
+  Membership.belongsTo(Party,          { foreignKey: 'party_id', as: 'party' });
+
+  // Membership → append-only points ledger. CASCADE: removing a membership
+  // (e.g. its party is hard-deleted) takes its point history with it — the
+  // history is meaningless without the member and carries no double-entry
+  // money (points are a loyalty-program liability tracked separately, never
+  // posted to ledger_entries).
+  Membership.hasMany(MembershipPointsLedger,   { foreignKey: 'membership_id', as: 'pointsLedger', onDelete: 'CASCADE' });
+  MembershipPointsLedger.belongsTo(Membership, { foreignKey: 'membership_id', as: 'membership' });
+
   return {
     sequelize,
     Role,
@@ -512,6 +543,9 @@ function defineModels(sequelize) {
     Salesman,
     WhatsappSettings,
     WhatsappOutbox,
+    MembershipPlan,
+    Membership,
+    MembershipPointsLedger,
   };
 }
 
@@ -633,6 +667,9 @@ module.exports = {
   Salesman: makeProxy('Salesman'),
   WhatsappSettings: makeProxy('WhatsappSettings'),
   WhatsappOutbox: makeProxy('WhatsappOutbox'),
+  MembershipPlan: makeProxy('MembershipPlan'),
+  Membership: makeProxy('Membership'),
+  MembershipPointsLedger: makeProxy('MembershipPointsLedger'),
 
   // Multi-tenant escape hatches — used by the connection pool +
   // middleware. Don't import these from controllers; stick with the

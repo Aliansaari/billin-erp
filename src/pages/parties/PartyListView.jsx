@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { message, Modal, Spin } from 'antd';
 import dayjs from 'dayjs';
-import { partyAPI, authAPI, dataAPI } from '../../api';
+import { partyAPI, authAPI, dataAPI, settingsAPI, membershipAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import PartyForm from './PartyForm';
+import CustomerDetailModal from './CustomerDetailModal';
 import './party-list-view.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -42,6 +43,52 @@ const fmtCompact = (v) => {
 const fmtDate = (d) => d ? dayjs(d).format('DD MMM') : '—';
 const daysAgo = (d) => d ? dayjs().diff(dayjs(d), 'day') : null;
 
+/* ── Collections helpers ──────────────────────────────────────────────────────
+ * WhatsApp reminders go out as a pre-filled wa.me deep-link (works whether or
+ * not the Baileys/Cloud-API integration is connected). We remember who was
+ * reminded in localStorage — a per-machine follow-up log that needs no DB
+ * migration and answers the "did I already chase them?" question at a glance. */
+const REMIND_KEY = 'plv_reminders'; // { [party_id]: ISO timestamp }
+const loadReminders = () => {
+  try { return JSON.parse(localStorage.getItem(REMIND_KEY) || '{}') || {}; }
+  catch { return {}; }
+};
+const markReminded = (ids) => {
+  const map = loadReminders();
+  const now = new Date().toISOString();
+  ids.forEach((id) => { map[id] = now; });
+  try { localStorage.setItem(REMIND_KEY, JSON.stringify(map)); } catch {}
+  return map;
+};
+const remindedLabel = (iso) => {
+  if (!iso) return null;
+  const d = dayjs().diff(dayjs(iso), 'day');
+  if (d <= 0) return 'reminded today';
+  if (d === 1) return 'reminded yesterday';
+  return `reminded ${d}d ago`;
+};
+// Shop name for the reminder text — reuse the value the app already stashes for
+// statements/letterheads; fall back to a generic phrasing if it isn't set.
+const shopName = () =>
+  (typeof window !== 'undefined' && window.__APP_COMPANY_NAME__) ||
+  (() => { try { return localStorage.getItem('zehen_last_company_name'); } catch { return null; } })() ||
+  '';
+const buildReminderText = (p) => {
+  const amt = fmt(Math.abs(parseFloat(p.current_balance || 0)));
+  const shop = shopName();
+  const lines = [
+    `Namaste ${p.party_name} 🙏`,
+    '',
+    `This is a gentle payment reminder${shop ? ` from ${shop}` : ''}.`,
+    `Your outstanding balance is ${amt}.`,
+  ];
+  if (p._aging_days != null) lines.push(`Oldest pending bill: ${p._aging_days} days.`);
+  lines.push('', 'Kindly arrange the payment at your earliest convenience. Thank you!');
+  return lines.join('\n');
+};
+const waReminderUrl = (p) =>
+  `https://wa.me/91${p.mobile_1}?text=${encodeURIComponent(buildReminderText(p))}`;
+
 // Inline SVG icon set — keeps the component self-contained, no @ant-design/icons
 // mass-import needed in this file. Each is a thin-stroke 24×24 Lucide-style icon.
 const Ico = {
@@ -62,12 +109,17 @@ const Ico = {
   Report: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>),
   Block: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>),
   More: (props) => (<svg viewBox="0 0 24 24" fill="currentColor" {...props}><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>),
+  Bell: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>),
+  Close: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" {...props}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>),
 };
 
 // Default visible columns — persisted in localStorage so admin's choice
 // survives reload. The schema is the same for customers & suppliers; the
 // contextual labels differ and are rendered in the header only.
-const DEFAULT_COLS = { status: true, contact: true, outstanding: true, aging: true, credit: true, last: true, actions: true };
+// Credit usage is off by default — for most parties it reads "No limit set",
+// so it's dead weight in the resting view. Admins can re-enable it from the
+// Columns dropdown; their choice persists per localStorage.
+const DEFAULT_COLS = { status: true, contact: true, outstanding: true, aging: true, credit: false, last: true, actions: true };
 const COLS_KEY = (partyType) => `plv_cols_${partyType}`;
 
 export default function PartyListView({ partyType }) {
@@ -90,6 +142,21 @@ export default function PartyListView({ partyType }) {
   const [expandedId, setExpandedId] = useState(null);
   const [expandData, setExpandData] = useState(null);
   const [hideTotals, setHideTotals] = useState(false);
+
+  // Collections follow-up log (localStorage) + bulk reminder run modal.
+  const [reminders, setReminders] = useState(loadReminders);
+  const [remindRun, setRemindRun] = useState(null); // { parties:[], done:Set } | null
+
+  // F8 full-details popup + the shop "From" info its parcel-tag printer needs.
+  const [detailParty, setDetailParty] = useState(null);
+  const [company, setCompany] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    settingsAPI.getSystem()
+      .then((r) => { if (alive) setCompany(r.data?.data || r.data || {}); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
   const [cols, setCols] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(COLS_KEY(partyType)) || 'null');
@@ -349,6 +416,28 @@ export default function PartyListView({ partyType }) {
     const route = isCustomer ? '/reports/customer-statement' : '/reports/supplier-statement';
     navigate(`${route}?id=${p.party_id}`);
   };
+
+  /* ── Collections — WhatsApp reminders ──────────────────────────────────────
+     Single reminder opens WhatsApp with a pre-filled message; bulk opens a
+     "reminder run" modal so the operator can send one chat at a time (browsers
+     can't open N WhatsApp tabs at once). Every send is logged to localStorage
+     so the row shows "reminded Nd ago". */
+  const sendReminder = useCallback((p) => {
+    if (!p?.mobile_1) { message.warning(`No mobile number on file for ${p?.party_name || 'this party'}`); return false; }
+    window.open(waReminderUrl(p), '_blank', 'noopener,noreferrer');
+    setReminders(markReminded([p.party_id]));
+    return true;
+  }, []);
+  const openRemindRun = (rows) => {
+    const eligible = (rows || []).filter(p => owingBalance(p) > 0.01);
+    if (eligible.length === 0) { message.info('None of the selected parties have an outstanding balance.'); return; }
+    setRemindRun({ parties: eligible, done: new Set() });
+  };
+  const runReminder = (p) => {
+    if (sendReminder(p)) {
+      setRemindRun(prev => prev ? { ...prev, done: new Set(prev.done).add(p.party_id) } : prev);
+    }
+  };
   // Toggle active state for one or many parties. Single-row preserves
   // the original confirm copy. Multi-row counts the to-activate vs
   // to-deactivate split and asks once. Both go through partyAPI.toggleActive
@@ -411,12 +500,23 @@ export default function PartyListView({ partyType }) {
   const handleFormSubmit = async (values) => {
     setFormLoading(true);
     try {
+      // Membership intent (create-only) — not party columns; strip before save.
+      const { _enrol_membership, _membership_plan_id, ...vals } = values;
       if (editingParty) {
-        await partyAPI.update(editingParty.party_id, values);
+        await partyAPI.update(editingParty.party_id, vals);
         message.success(`${partyType} updated`);
       } else {
-        await partyAPI.create({ ...values, party_type: partyType });
+        const { data } = await partyAPI.create({ ...vals, party_type: partyType });
+        const p = (data && data.data) ? data.data : data;
         message.success(`${partyType} added`);
+        if (_enrol_membership && _membership_plan_id && p?.party_id) {
+          try {
+            await membershipAPI.enroll({ party_id: p.party_id, plan_id: _membership_plan_id });
+            message.success('Enrolled as member');
+          } catch (e) {
+            message.warning('Added, but enrolment failed: ' + (e?.response?.data?.error || 'error'));
+          }
+        }
       }
       setFormOpen(false); setEditingParty(null);
       loadData();
@@ -767,6 +867,8 @@ export default function PartyListView({ partyType }) {
                       isMultiSelected={sel.selectedSet.has(idx) && sel.cursorIdx !== idx}
                       profitPeriod={profitPeriod}
                       onProfitPeriodChange={handleProfitPeriodChange}
+                      remindedAt={reminders[p.party_id]}
+                      onRemind={sendReminder}
                     />
                   ))}
                 </tbody>
@@ -775,6 +877,29 @@ export default function PartyListView({ partyType }) {
           )}
         </div>
       </div>
+
+      {/* ── Collections bar — appears only on a genuine multi-select (>1).
+          Keeps the resting page clean; surfaces bulk chase actions on demand.
+          Single-row reminders live on the row's hover "Remind" button. */}
+      {isCustomer && isMulti && (
+        <div className="plv-selbar">
+          <div className="plv-selbar-lead">
+            <span className="n plv-num">{selectionCount}</span> selected
+            {(() => {
+              const owed = selectedRows.reduce((s, p) => s + Math.max(0, owingBalance(p)), 0);
+              return owed > 0 ? <span className="amt"> · <b className="plv-num">{fmt(owed)}</b> outstanding</span> : null;
+            })()}
+          </div>
+          <div className="plv-selbar-actions">
+            <button className="plv-btn receipt" onClick={() => openRemindRun(selectedRows)}>
+              <Ico.WhatsApp/> Remind on WhatsApp
+            </button>
+            <button className="plv-btn" onClick={() => sel.clear()}>
+              <Ico.Close/> Clear
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Bottom action strip — all party actions on F-keys.
           F1 Open jumps to the statement page; F2 opens the edit modal;
@@ -828,7 +953,12 @@ export default function PartyListView({ partyType }) {
             onAction: () => handleExport(),
           },
           {
-            id: 'toggle', key: 'F8',
+            id: 'details', key: 'F8', label: 'Details',
+            disabled: isMulti || !single,
+            onAction: () => single && setDetailParty(single),
+          },
+          {
+            id: 'toggle', key: 'F9',
             label: (single && !single.is_active) ? 'Activate' : 'Deactivate',
             tone: 'danger',
             disabled: !activeRow,
@@ -852,6 +982,71 @@ export default function PartyListView({ partyType }) {
         partyType={partyType}
         loading={formLoading}
       />
+
+      {/* ── F8 full-details popup (with 10×10cm parcel-tag printer) ── */}
+      <CustomerDetailModal
+        open={!!detailParty}
+        party={detailParty}
+        isCustomer={isCustomer}
+        company={company}
+        onClose={() => setDetailParty(null)}
+        onEdit={(p) => { setDetailParty(null); handleEditParty(p); }}
+        onStatement={(p) => handleViewReport(p)}
+        onReceipt={(p) => navigate(
+          isCustomer ? '/receipt/new' : '/payment/new',
+          { state: { preselect: { party_id: p.party_id } } },
+        )}
+        onRemind={(p) => sendReminder(p)}
+        onToggleActive={(p) => { setDetailParty(null); handleBulkToggleActive([p]); }}
+      />
+
+      {/* ── Bulk reminder run modal ──
+          Deep-link reminders can only open one WhatsApp chat at a time, so
+          bulk sends are a guided run: send each in turn, tick as you go. */}
+      <div className={`plv-scrim${remindRun ? ' open' : ''}`} onClick={() => setRemindRun(null)}/>
+      <div className={`plv-remind-modal${remindRun ? ' open' : ''}`} role="dialog" aria-modal="true">
+        {remindRun && (() => {
+          const total = remindRun.parties.length;
+          const doneN = remindRun.done.size;
+          return (
+            <>
+              <div className="plv-remind-hd">
+                <div>
+                  <div className="title">Send payment reminders</div>
+                  <div className="sub">{doneN} of {total} sent · opens WhatsApp with a pre-filled message for each customer</div>
+                </div>
+                <button className="plv-remind-x" onClick={() => setRemindRun(null)} title="Close"><Ico.Close/></button>
+              </div>
+              <div className="plv-remind-body">
+                {remindRun.parties.map((p) => {
+                  const sent = remindRun.done.has(p.party_id);
+                  const noNum = !p.mobile_1;
+                  return (
+                    <div key={p.party_id} className={`plv-remind-row${sent ? ' sent' : ''}`}>
+                      <div className="who">
+                        <span className="nm">{p.party_name}</span>
+                        <span className="dt">{noNum ? 'No mobile number' : p.mobile_1}</span>
+                      </div>
+                      <span className="amt plv-num">{fmt(Math.max(0, owingBalance(p)))}</span>
+                      <button
+                        className={`plv-remind-send${sent ? ' done' : ''}`}
+                        disabled={noNum}
+                        onClick={() => runReminder(p)}
+                      >
+                        {sent ? '✓ Sent · resend' : <><Ico.WhatsApp/> Send</>}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="plv-remind-ft">
+                <span className="hint">Tip: reminders are logged locally so each row shows when it was last chased.</span>
+                <button className="plv-btn primary" onClick={() => setRemindRun(null)}>Done</button>
+              </div>
+            </>
+          );
+        })()}
+      </div>
 
       {/* ── Admin password modal ── */}
       <div className={`plv-scrim${pwModal ? ' open' : ''}`} onClick={() => !pwLoading && setPwModal(null)}/>
@@ -893,7 +1088,7 @@ export default function PartyListView({ partyType }) {
 }
 
 /* ── Row component ────────────────────────────────────────────────────────── */
-function PartyRow({ p, idx, cols, isCustomer, expanded, expandData, onExpand, onClickRow, isCursor, isMultiSelected, profitPeriod, onProfitPeriodChange }) {
+function PartyRow({ p, idx, cols, isCustomer, expanded, expandData, onExpand, onClickRow, isCursor, isMultiSelected, profitPeriod, onProfitPeriodChange, remindedAt, onRemind }) {
   const bal = parseFloat(p.current_balance || 0);
   const owing = isCustomer ? bal : -bal;
   const absBal = Math.abs(bal);
@@ -935,7 +1130,8 @@ function PartyRow({ p, idx, cols, isCustomer, expanded, expandData, onExpand, on
                 <span className="txt">{p.party_name}</span>
               </div>
               <div className="sub">
-                {[p.city, p.gstin].filter(Boolean).join(' · ') || '—'}
+                <span className="meta">{[p.city, p.gstin].filter(Boolean).join(' · ') || '—'}</span>
+                {remindedAt && <span className="plv-reminded"><Ico.Bell/>{remindedLabel(remindedAt)}</span>}
               </div>
             </div>
           </div>
@@ -950,18 +1146,19 @@ function PartyRow({ p, idx, cols, isCustomer, expanded, expandData, onExpand, on
 
         {cols.contact && (
           <td>
-            <div className="plv-contact-icons">
-              {p.mobile_1 && (
-                <>
-                  <a className="plv-cib" href={`tel:+91${p.mobile_1}`} onClick={(e) => e.stopPropagation()} title={`Call ${p.mobile_1}`}><Ico.Phone/></a>
-                  <a className="plv-cib" href={`https://wa.me/91${p.mobile_1}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={`WhatsApp ${p.mobile_1}`}><Ico.WhatsApp/></a>
-                </>
-              )}
-              {p.email && (
-                <a className="plv-cib" href={`mailto:${p.email}`} onClick={(e) => e.stopPropagation()} title={p.email}><Ico.Email/></a>
+            <div className="plv-contact">
+              <span className="plv-contact-phone">{p.mobile_1 || '—'}</span>
+              {isCustomer && p.mobile_1 && owing > 0.01 && (
+                <button
+                  type="button"
+                  className="plv-remind-btn"
+                  onClick={(e) => { e.stopPropagation(); onRemind?.(p); }}
+                  title={`Send WhatsApp payment reminder to ${p.party_name}`}
+                >
+                  <Ico.WhatsApp/> Remind
+                </button>
               )}
             </div>
-            <div className="plv-contact-phone">{p.mobile_1 || '—'}</div>
           </td>
         )}
 
@@ -982,7 +1179,7 @@ function PartyRow({ p, idx, cols, isCustomer, expanded, expandData, onExpand, on
 
         {cols.aging && (
           <td>
-            <AgingCell days={p._aging_days} buckets={p._aging_buckets}/>
+            <AgingCell days={p._aging_days}/>
           </td>
         )}
 
@@ -1082,47 +1279,19 @@ function MiniTxnRow({ e }) {
   );
 }
 
-/* Aging cell — how old this party's oldest open bill is, plus a stacked bar
-   showing how their open-balance is distributed across the four buckets.
-   `days` and `buckets` both come from the list endpoint's enrichment pass.
-   `null` means no open bill → show dash. */
-function AgingCell({ days, buckets }) {
-  if (days == null) return <span style={{ color: 'var(--fg-tertiary)', fontSize: 12 }}>—</span>;
+/* Aging cell — how old this party's oldest open bill is. Calmed from the old
+   number + loud uppercase label + stacked bar down to a single glanceable
+   signal: the day count and a small tone-tinted label. Only the genuinely
+   overdue (90+) band carries the strong red; the earlier bands stay muted so
+   the list doesn't read as one wall of alarm. `null` = no open bill → dash. */
+function AgingCell({ days }) {
+  if (days == null) return <span className="plv-aging-none">—</span>;
   const cls = days <= 30 ? 'a0' : days <= 60 ? 'a30' : days <= 90 ? 'a60' : 'a90';
-  const label = days <= 30 ? 'Not yet due' : days <= 60 ? 'Watchful' : days <= 90 ? 'Chase' : 'Critical';
-  const colorKey = cls === 'a0' ? '0' : cls === 'a30' ? '30' : cls === 'a60' ? '60' : '90';
-  // Normalise the bucket sums into percentages for a stacked bar. When the
-  // server hasn't sent buckets (older cache, empty response), fall back to a
-  // single solid fill in the "oldest-bucket" colour so the layout doesn't
-  // collapse.
-  const segs = (() => {
-    if (!buckets) return [{ cls, w: 100 }];
-    const tot = (buckets.b0 || 0) + (buckets.b30 || 0) + (buckets.b60 || 0) + (buckets.b90 || 0);
-    if (tot <= 0) return [{ cls, w: 100 }];
-    return [
-      { cls: 'a0',  w: (buckets.b0  || 0) / tot * 100 },
-      { cls: 'a30', w: (buckets.b30 || 0) / tot * 100 },
-      { cls: 'a60', w: (buckets.b60 || 0) / tot * 100 },
-      { cls: 'a90', w: (buckets.b90 || 0) / tot * 100 },
-    ].filter(s => s.w > 0);
-  })();
+  const label = days <= 30 ? 'On time' : days <= 60 ? 'Watch' : days <= 90 ? 'Chase' : 'Overdue';
   return (
-    <div className="plv-aging-cell">
-      <div className="plv-aging-days">
-        <span className={`plv-num aging-days-${cls}`} style={{ fontSize: 14, fontWeight: 700, color: `var(--plv-age-${colorKey})` }}>
-          {days}
-        </span>
-        <span style={{ fontSize: 11, color: 'var(--fg-tertiary)' }}>days oldest</span>
-      </div>
-      <span style={{
-        fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase',
-        color: `var(--plv-age-${colorKey})`,
-      }}>{label}</span>
-      <div className="plv-aging-bar">
-        {segs.map((s, i) => (
-          <span key={i} className={`plv-aging-seg ${s.cls}`} style={{ width: `${s.w}%` }}/>
-        ))}
-      </div>
+    <div className={`plv-aging2 ${cls}`}>
+      <span className="days plv-num">{days}<span className="u">d</span></span>
+      <span className="lbl">{label}</span>
     </div>
   );
 }

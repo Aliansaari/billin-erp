@@ -50,6 +50,14 @@ const roleColors = {
  * shortcuts share one visual UI. Letters / sub-text come from
  * ALT_MENUS, keyed by anchorKey === item.key. Falls back to plain
  * children if the catalog has no entry. */
+// Top-level "section" a path belongs to (its sidebar group), used to keep the
+// back-history natural. Pages with no menu group (Home, Dashboard, Members…)
+// are each treated as their own section via their own path.
+function sectionOf(pathname) {
+  const g = getOpenKeys(pathname);
+  return g.length ? g[0] : pathname;
+}
+
 function CollapsedItem({ item, currentPath, navigate }) {
   const [popupPos, setPopupPos] = useState(null);
   const hideTimer = useRef(null);
@@ -225,7 +233,19 @@ export default function Sidebar({ collapsed, setCollapsed }) {
   // because confirmLeave returns undefined when used without its callback.
   const navigate = (to, opts) => {
     if (to === location.pathname) return;
-    useNavGuard.getState().confirmLeave(() => rawNavigate(to, opts));
+    // Natural-back hygiene: when the sidebar moves to a DIFFERENT top-level
+    // section from a non-Home page, REPLACE the current history entry so
+    // pressing Back (Esc) from the new tab doesn't chain into the tab you just
+    // left — switching tabs "closes the loop" on the previous one. Navigating
+    // WITHIN a section (a form → its list) or drilling into a detail stays a
+    // normal push, so Back still returns to the exact previous screen.
+    const cur = location.pathname;
+    const toPath = String(to).split('?')[0];
+    let finalOpts = opts;
+    if (!(opts && opts.replace) && cur !== '/' && sectionOf(cur) !== sectionOf(toPath)) {
+      finalOpts = { ...(opts || {}), replace: true };
+    }
+    useNavGuard.getState().confirmLeave(() => rawNavigate(to, finalOpts));
   };
 
   const themeStyle = useThemeStore((s) => s.themeStyle);

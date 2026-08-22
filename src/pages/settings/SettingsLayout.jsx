@@ -7,6 +7,7 @@ import {
   AppstoreOutlined, CodeOutlined, KeyOutlined, BellOutlined,
   CalendarOutlined, TeamOutlined, InboxOutlined, ImportOutlined,
   IdcardOutlined, WifiOutlined, WhatsAppOutlined, RobotOutlined,
+  CreditCardOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -49,6 +50,10 @@ const SETTINGS_GROUPS = [
       // Salesmen — master list of sales staff credited on bills. No flag
       // gate; always available to company-settings managers.
       { path: 'salesmen',       icon: <IdcardOutlined />,   label: 'Salesmen',        perm: 'settings.manage_company' },
+      // Membership Plans — loyalty tiers. Flag-gated on the membership master
+      // switch (Features → Membership), so the entry only appears once the
+      // module is turned on.
+      { path: 'membership-plans', icon: <TagsOutlined />,   label: 'Membership Plans', perm: 'settings.manage_company', flag: 'membership_enabled' },
     ],
   },
   {
@@ -57,6 +62,9 @@ const SETTINGS_GROUPS = [
     label: 'Preferences',
     items: [
       { path: 'modules',          icon: <ThunderboltOutlined />, label: 'Features',         perm: 'settings.manage_company' },
+      // Membership — the loyalty module's own home (master switch lives here,
+      // so it's always visible to settings managers, not flag-gated).
+      { path: 'membership',       icon: <CreditCardOutlined />,  label: 'Membership',       perm: 'settings.manage_company' },
       { path: 'defaults',         icon: <ControlOutlined />,     label: 'Defaults',         perm: 'settings.manage_company' },
       { path: 'customer-insight', icon: <TeamOutlined />,        label: 'Party Insight',    perm: 'settings.manage_company' },
     ],

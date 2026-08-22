@@ -396,6 +396,103 @@ module.exports = (sequelize) => {
     insight_show_bill_stats:       { type: DataTypes.BOOLEAN, defaultValue: true },
     insight_show_pay_time:         { type: DataTypes.BOOLEAN, defaultValue: true },
     insight_show_lifetime_profit:  { type: DataTypes.BOOLEAN, defaultValue: true },
+
+    // ── Membership (loyalty) module ───────────────────────────────────
+    // Master switch. OFF (default) hides every membership surface across
+    // the app — the Members nav entry, the Plans settings page, and the
+    // enrolment card on the customer detail popup. Existing installs are
+    // unaffected until an admin turns it on.
+    membership_enabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    // Where a new membership's card number comes from at enrolment time:
+    //   'mobile' — default to the customer's mobile (frictionless; the
+    //              cashier can look them up by phone). Editable afterwards.
+    //   'manual' — the operator types the card number.
+    //   'auto'   — the system generates a sequential number.
+    // This only sets the DEFAULT shown in the enrolment form; the operator
+    // can always override the individual number. The stored value is still
+    // a plain, editable membership_no on each membership row.
+    membership_no_source: {
+      type: DataTypes.ENUM('mobile', 'manual', 'auto'),
+      defaultValue: 'mobile',
+      allowNull: false,
+    },
+    // When ON, selecting a member on a NEW sales bill pre-fills the bill's
+    // trade-discount % with the member's tier discount. It flows through the
+    // EXISTING discount field/pipeline — no separate math — and never
+    // overrides a discount the operator already typed, nor touches an edited
+    // bill. Default OFF so turning on membership doesn't silently change
+    // billing until the shop opts in.
+    membership_auto_discount_enabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    // When ON, a completed sale earns the member loyalty points at their
+    // plan's points_per_100 rate (floored to whole points), recorded in the
+    // append-only membership_points_ledger and reversed automatically if the
+    // bill is cancelled. Default OFF. Points never affect a bill total or any
+    // ledger — they are a loyalty balance only.
+    membership_points_enabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    // When ON, a member can redeem points on a sale. The redeemed rupee value
+    // (points × value_per_point) is applied as a flat bill discount via the
+    // EXISTING special_discount field — no new money math — and the points are
+    // deducted through the append-only ledger inside the sale's transaction.
+    membership_redeem_enabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    // Rupee value of one loyalty point at redemption. Default ₹1/point.
+    membership_redeem_value_per_point: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 1,
+    },
+    // Minimum points a member must hold before any redemption is allowed
+    // (0 = no minimum). Prevents dribbling tiny redemptions.
+    membership_points_min_redeem: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    // ── Membership reminders (opt-in; operator-initiated via wa.me) ─────
+    // These only surface the corresponding section + a one-click WhatsApp
+    // reminder in the Membership report. Nothing is ever auto-sent — the
+    // operator clicks to open a pre-filled WhatsApp chat (same safe pattern
+    // as the payment-reminder button). Each toggle is independent so a shop
+    // uses only what it wants.
+    membership_remind_expiry: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    membership_remind_birthday: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    // How many days ahead a membership counts as "expiring soon".
+    membership_expiry_reminder_days: {
+      type: DataTypes.INTEGER,
+      defaultValue: 7,
+    },
+    // Loyalty-points expiry, in months of INACTIVITY. 0 (default) = points
+    // never expire (lifetime). When > 0, a member's whole points balance
+    // lapses after this many months with no earning or spending; any activity
+    // resets the clock. Enforced by a daily sweep that writes an auditable
+    // 'expire' ledger row (never silently zeroed).
+    membership_points_expiry_months: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    // Show the rich membership panel (tier, points, discount, redeem) on the
+    // Sales Bill — beside the totals — whenever an ACTIVE member is selected.
+    // Default ON. Turning it off hides the panel but keeps auto-discount /
+    // points earning working behind the scenes.
+    membership_show_sales_panel: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
   }, {
     tableName: 'system_settings',
     timestamps: false,

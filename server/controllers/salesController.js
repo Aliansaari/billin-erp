@@ -22,6 +22,7 @@ const { denyIfGodownInaccessible, scopeWhereByGodown } = require('../middleware/
 const { checkPartyForBillSave } = require('../utils/partyGuards');
 const { computeCostRateForSale } = require('../utils/displayCost');
 const { consumeFIFO, isFifoMode, recordSaleConsumption, reverseConsumptionForBill } = require('../utils/costLayers');
+const { accrueForSale: accruePointsForSale, redeemForSale: redeemPointsForSale, reverseForSale: reversePointsForSale } = require('../services/membershipPoints');
 
 // Per-line batch validation for sales / sales-return / sales edits.
 // Centralised so the stock-out (sale) and stock-in (sales return) paths
@@ -1409,6 +1410,48 @@ exports.create = async (req, res) => {
       }
     }
 
+    // ── Membership: REDEEM points (part of the sale — must be consistent) ──
+    // The rupee value of the redemption was already applied by the client via
+    // the special_discount field, so no total math changes here. This deducts
+    // the points in the SAME transaction; if the member lacks the points (or
+    // isn't active) it THROWS → the whole bill rolls back and we return 400.
+    // We never grant the discount without taking the points.
+    const pointsToRedeem = Math.floor(parseFloat(billData.points_redeemed) || 0);
+    if (pointsToRedeem > 0) {
+      if (!sysSettings || !sysSettings.membership_redeem_enabled) {
+        if (!t.finished) await t.rollback();
+        return res.status(400).json({ error: 'Point redemption is not enabled' });
+      }
+      try {
+        await redeemPointsForSale({
+          salesBill: bill,
+          pointsRedeemed: pointsToRedeem,
+          valuePerPoint: sysSettings.membership_redeem_value_per_point,
+          userId: req.user && req.user.user_id,
+        }, { transaction: t });
+      } catch (err) {
+        if (!t.finished) await t.rollback();
+        return res.status(err.status || 400).json({ error: err.message || 'Point redemption failed' });
+      }
+    }
+
+    // ── Membership: EARN points (best-effort, atomic via SAVEPOINT) ──
+    // Earn points on the completed sale. Wrapped in a nested transaction so
+    // any points failure rolls back ONLY the points writes — the sale still
+    // commits. Points touch no bill/tax/ledger/party figure (see
+    // services/membershipPoints.js). No-op unless points are enabled and the
+    // customer is an active member.
+    try {
+      await sequelize.transaction({ transaction: t }, async (sp) => {
+        await accruePointsForSale(
+          { salesBill: bill, userId: req.user && req.user.user_id },
+          { transaction: sp },
+        );
+      });
+    } catch (e) {
+      console.error('[membership points accrue] non-fatal:', e.message);
+    }
+
     await t.commit();
 
     if (idempotency_key) {
@@ -1487,6 +1530,10 @@ exports.update = async (req, res) => {
   try {
     const { id } = req.params;
     let { items: newItems, paid_amount = 0, return_amount = 0, special_discount = 0, other_charges = 0, freight_charges = 0, cgst_pct = 0, sgst_pct = 0, igst_pct = 0, gst_mode, bill_mode, amount, gst_rate: amountGstRate, hsn_code: amountHsnCode, description: amountDescription, inline_return, ...billData } = req.body;
+    // Redemption is create-only in the current release. Never let an edit
+    // silently rewrite points_redeemed (the points ledger row is set at
+    // creation and reversed on cancel — edit doesn't touch loyalty points).
+    delete billData.points_redeemed;
 
     // Same amount-only synthesis as create() — see comment block there.
     if (bill_mode === 'amount') {
@@ -2553,6 +2600,20 @@ exports.cancel = async (req, res) => {
         userId: req.user?.user_id, transaction: t,
         reversalDate: ret.return_date,
       });
+    }
+
+    // ── Membership loyalty points: reverse this bill's points ──
+    // Give back (or reclaim) points the cancelled sale had earned/redeemed.
+    // SAVEPOINT-wrapped so a points failure never blocks the cancellation.
+    try {
+      await sequelize.transaction({ transaction: t }, async (sp) => {
+        await reversePointsForSale(
+          { salesBillId: bill.sales_bill_id, userId: req.user && req.user.user_id },
+          { transaction: sp },
+        );
+      });
+    } catch (e) {
+      console.error('[membership points reverse] non-fatal:', e.message);
     }
 
     await t.commit();

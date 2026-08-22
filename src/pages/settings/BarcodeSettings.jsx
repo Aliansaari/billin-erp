@@ -12,7 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import JsBarcode from 'jsbarcode';
 import { settingsAPI } from '../../api';
 import { listPrinters } from '../../services/printer';
-import { printLabelHTML, BARCODE_PRINTER_KEY, BARCODE_SILENT_KEY } from '../../components/BarcodePrintModal';
+import { printLabelHTML, makeBarcodeDataUrl, BARCODE_PRINTER_KEY, BARCODE_SILENT_KEY } from '../../components/BarcodePrintModal';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './ModuleSettings.css';
 
@@ -138,8 +138,8 @@ function BarcodePreview({ value = 'SAMPLE123', height = 28, fontSize = 8 }) {
     if (!ref.current) return;
     try {
       JsBarcode(ref.current, value, {
-        format: 'CODE128', width: 1.2, height,
-        displayValue: true, fontSize, margin: 2,
+        format: 'CODE128', width: 2, height,
+        displayValue: true, fontSize, fontOptions: 'bold', margin: 2,
         background: '#ffffff', lineColor: '#000000',
       });
     } catch (_) {}
@@ -546,26 +546,17 @@ export default function BarcodeSettings() {
           const dataUrl = await QRCode.toDataURL(SAMPLE_ROW.barcode, { width: mmPx(qrMm), margin: 1 });
           codeImg = { dataUrl, wMm: qrMm, hMm: qrMm };
         } else {
-          const bcHMm = Math.max(5, sz || Math.min(availH, hMm * 0.45));
+          // Shared crisp/bold renderer (same as the real product-label print).
+          const bcHMm = Math.max(5, sz || Math.min(availH, hMm * 0.4));
           const bcWMm = Math.max(10, availW);
-          const cv = document.createElement('canvas');
-          JsBarcode(cv, SAMPLE_ROW.barcode, {
-            format: 'CODE128', width: 2, height: Math.max(20, mmPx(bcHMm) - 16),
-            displayValue: true, fontSize: 12, margin: 5, background: '#fff', lineColor: '#000',
-          });
-          const out = document.createElement('canvas');
-          out.width = mmPx(bcWMm); out.height = cv.height + 16;
-          const ctx = out.getContext('2d');
-          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, out.width, out.height);
-          ctx.drawImage(cv, 0, 0, out.width, out.height);
-          codeImg = { dataUrl: out.toDataURL('image/png'), wMm: bcWMm, hMm: bcHMm };
+          codeImg = { dataUrl: makeBarcodeDataUrl(SAMPLE_ROW.barcode), wMm: bcWMm, hMm: bcHMm, par: 'none' };
         }
       }
 
       let body = '';
       if (codeEl && codeImg) {
         body += `<image href="${codeImg.dataUrl}" x="${codeEl.x}" y="${codeEl.y}"
-          width="${codeImg.wMm}" height="${codeImg.hMm}" preserveAspectRatio="xMinYMin meet"/>`;
+          width="${codeImg.wMm}" height="${codeImg.hMm}" preserveAspectRatio="${codeImg.par || 'xMinYMin meet'}"/>`;
       }
       for (const el of elements) {
         if (!el.visible || el.id === 'code') continue;

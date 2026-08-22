@@ -758,6 +758,29 @@ export const salesmanAPI = {
   delete:  (id) => api.delete(`/salesmen/${id}`),
 };
 
+// Membership (loyalty) module. Plans are the reusable tiers (managed in
+// Settings → Membership Plans); memberships are per-customer enrolments.
+// `plans.getAll` without params returns only active plans (what the enrolment
+// picker wants); pass { include_inactive: 'true' } on the management page.
+// None of these endpoints touch any bill total or ledger — loyalty metadata only.
+export const membershipAPI = {
+  // Plans
+  getPlans:    (params) => api.get('/membership/plans', { params }),
+  getPlan:     (id) => api.get(`/membership/plans/${id}`),
+  createPlan:  (data) => api.post('/membership/plans', data),
+  updatePlan:  (id, data) => api.put(`/membership/plans/${id}`, data),
+  deletePlan:  (id) => api.delete(`/membership/plans/${id}`),
+  // Memberships
+  getMembers:      (params) => api.get('/membership/memberships', { params }),
+  getByParty:      (partyId) => api.get(`/membership/memberships/by-party/${partyId}`),
+  getPoints:       (id) => api.get(`/membership/memberships/${id}/points`),
+  getReport:       (params) => api.get('/membership/report', { params }),
+  enroll:          (data) => api.post('/membership/memberships', data),
+  bulkEnroll:      (data) => api.post('/membership/memberships/bulk-enroll', data),
+  updateMember:    (id, data) => api.put(`/membership/memberships/${id}`, data),
+  deleteMember:    (id) => api.delete(`/membership/memberships/${id}`),
+};
+
 // Indian states reference list — backs the state-picker dropdowns on
 // Company Profile + onboarding wizard. List is server-driven so an
 // admin can edit the table directly; falls back to the built-in

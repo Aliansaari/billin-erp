@@ -227,6 +227,7 @@ app.use('/api/backup', require('./routes/backup'));
 app.use('/api/print', require('./routes/print'));
 app.use('/api/godowns', require('./routes/godowns'));
 app.use('/api/salesmen', require('./routes/salesmen'));
+app.use('/api/membership', require('./routes/membership'));
 app.use('/api/whatsapp', require('./routes/whatsapp'));
 app.use('/api/states', require('./routes/states'));
 app.use('/api/stock-transfers', require('./routes/stockTransfers'));
@@ -479,7 +480,7 @@ async function startServer() {
     //
     // Bump MIGRATION_VERSION whenever you add/change any migration below.
     // A simple integer counter works: just increment it.
-    const MIGRATION_VERSION = '11';
+    const MIGRATION_VERSION = '12';
     const migVersionFile = path.join(os.homedir(), '.zehen', 'migration-version.txt');
     let skipMigrations = false;
     try {
@@ -759,6 +760,80 @@ async function startServer() {
       console.error('[Interest ledgers seed] Error:', err.message);
     });
 
+    // ── Membership (loyalty) settings columns ──
+    // The membership_plans / memberships TABLES are full Sequelize models, so
+    // sequelize.sync() above already created them on this (master) DB — no
+    // explicit CREATE TABLE needed here (mirrors how the salesmen master table
+    // is left to sync). This block only adds the two system_settings columns,
+    // because sync({alter:false}) never adds columns to the pre-existing
+    // system_settings table on an upgraded install. Idempotent. Membership is
+    // loyalty metadata only — nothing here touches any total/tax/ledger/balance.
+    await sequelize.query(`
+      DO $membership$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_enabled') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_enabled BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_no_source') THEN
+          IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_system_settings_membership_no_source') THEN
+            CREATE TYPE enum_system_settings_membership_no_source AS ENUM ('mobile', 'manual', 'auto');
+          END IF;
+          ALTER TABLE system_settings ADD COLUMN membership_no_source enum_system_settings_membership_no_source NOT NULL DEFAULT 'mobile';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_auto_discount_enabled') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_auto_discount_enabled BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_points_enabled') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_points_enabled BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_redeem_enabled') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_redeem_enabled BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_redeem_value_per_point') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_redeem_value_per_point DECIMAL(10,2) DEFAULT 1;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_points_min_redeem') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_points_min_redeem INTEGER DEFAULT 0;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_remind_expiry') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_remind_expiry BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_remind_birthday') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_remind_birthday BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_expiry_reminder_days') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_expiry_reminder_days INTEGER DEFAULT 7;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_points_expiry_months') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_points_expiry_months INTEGER DEFAULT 0;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='system_settings' AND column_name='membership_show_sales_panel') THEN
+          ALTER TABLE system_settings ADD COLUMN membership_show_sales_panel BOOLEAN DEFAULT true;
+        END IF;
+        -- memberships.date_of_birth — the memberships table is created by
+        -- sequelize.sync() on master; sync never adds columns to an existing
+        -- table, so add it here for installs that predate birthday reminders.
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='memberships')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='memberships' AND column_name='date_of_birth') THEN
+          ALTER TABLE memberships ADD COLUMN date_of_birth DATE;
+        END IF;
+      END $membership$;
+    `).catch((err) => {
+      console.error('[Membership settings migration] Error:', err.message);
+    });
+
     // ── Per-bank posting: bank_ledger_id on splits + sales_bills ──
     //
     // Before this migration, every non-cash payment posted to a single
@@ -925,6 +1000,12 @@ async function startServer() {
         -- avoid a constraint-validation scan over a large sales_bills table.
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bills' AND column_name='salesman_id') THEN
           ALTER TABLE sales_bills ADD COLUMN salesman_id INTEGER;
+        END IF;
+        -- Loyalty points redeemed on the bill (count; the rupee value is
+        -- already inside special_discount, so no total math changes). Metadata
+        -- linking the bill to its points-ledger 'redeem' row.
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bills' AND column_name='points_redeemed') THEN
+          ALTER TABLE sales_bills ADD COLUMN points_redeemed DECIMAL(12,2) DEFAULT 0;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales_bills' AND column_name='special_discount') THEN
           ALTER TABLE sales_bills ADD COLUMN special_discount DECIMAL(15,2) DEFAULT 0;
@@ -3248,6 +3329,24 @@ async function startServer() {
       console.log(`[migrations] skipped in ${Date.now() - migStart}ms`);
     } // end migration gate
 
+    // ── Durable additive-schema guard (every boot, version-gate-independent) ──
+    // The inline migrations above are VERSION-GATED — skipped once this DB is
+    // stamped at MIGRATION_VERSION. That means an additive column/table added
+    // without bumping the version would silently never apply to this primary
+    // DB (the exact cause of the membership "settings won't load" incidents).
+    // To make additive schema self-healing, run the idempotent per-company
+    // migrations here too — EVERY boot, regardless of the gate. Every block in
+    // there is CREATE/ALTER ... IF NOT EXISTS, so on an up-to-date DB this is a
+    // fast no-op; on a DB missing a newly-added column it adds it. This is what
+    // guarantees the membership module's columns/tables are always present.
+    // Best-effort — a failure here never blocks boot.
+    try {
+      const { runCompanySchemaMigrations } = require('./services/companySchemaMigrations');
+      await runCompanySchemaMigrations(sequelize);
+    } catch (e) {
+      console.error('[additive-schema guard] non-fatal:', e.message);
+    }
+
     // ── Data repair: Cash-party bills should never carry a balance ────
     // Cash sales/purchases are paid at the counter.  Imported data may
     // have balance_amount > 0 for Cash-party bills — fix them silently.
@@ -3317,6 +3416,23 @@ async function startServer() {
       } catch (e) {
         console.error('[balance-reconcile] Failed:', e.message);
       }
+    }
+
+    // ── Membership loyalty-points expiry sweep ──────────────────────────
+    // Best-effort, non-blocking: expire points after N months of inactivity
+    // (no-op when membership_points_expiry_months = 0 / lifetime). Runs once
+    // shortly after boot and then daily. Scoped to the primary company DB
+    // (the desktop single-company case). Never throws into the boot path.
+    try {
+      const { sweepExpiredPoints } = require('./services/membershipPoints');
+      const runSweep = () => sweepExpiredPoints()
+        .then((r) => { if (r && r.members > 0) console.log(`[membership] expired ${r.points} pts across ${r.members} member(s)`); })
+        .catch((e) => console.error('[membership] points expiry sweep:', e.message));
+      setTimeout(runSweep, 15000);                      // ~15s after boot
+      const sweepTimer = setInterval(runSweep, 24 * 60 * 60 * 1000); // daily
+      if (sweepTimer.unref) sweepTimer.unref();
+    } catch (e) {
+      console.error('[membership] could not schedule points expiry sweep:', e.message);
     }
 
     console.log(`[perf] server total startup: ${Date.now() - serverBootStart}ms`);

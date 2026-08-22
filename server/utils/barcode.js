@@ -47,14 +47,28 @@ async function generateBarcode(transaction) {
  * Find an existing product that exactly matches all key fields.
  * Matching rules:
  *   - product_name     (required, case-insensitive trimmed)
+ *   - category_id      (if provided — same name under a DIFFERENT category
+ *                       is a different SKU, so it must not match)
  *   - size_value       (if provided, case-insensitive trimmed)
  *   - article_number   (if provided, case-insensitive trimmed)
  *   - quantity_per_box (always — changing pack size = different SKU = different barcode)
  *
  * Case-insensitive comparison prevents "Blue Shirt" and "blue shirt" from
  * creating two separate products with two different barcodes.
+ *
+ * Callers that don't know the category (purchase auto-create resolves a line
+ * by name/size/article only) simply omit category_id and keep the previous
+ * category-agnostic behaviour.
+ *
+ * `size` and `size_value` are both accepted: bill lines carry `size`, the
+ * product master carries `size_value`. Before this alias the product form's
+ * payload never contributed a size condition at all.
  */
-async function findExistingProduct(Product, { product_name, size, article_number, quantity_per_box }, transaction) {
+async function findExistingProduct(
+  Product,
+  { product_name, category_id, size, size_value, article_number, quantity_per_box },
+  transaction,
+) {
   if (!product_name) return null;
   const norm = (v) => (v == null ? '' : String(v).trim());
 
@@ -62,9 +76,18 @@ async function findExistingProduct(Product, { product_name, size, article_number
     whereFn(fn('LOWER', fn('TRIM', col('product_name'))), norm(product_name).toLowerCase()),
   ];
 
-  if (norm(size)) {
+  // Only constrain by category when the caller supplied one. A blank/0
+  // category means "unknown", not "uncategorised", so it must not narrow
+  // the search or the purchase auto-create path would spawn duplicates.
+  const catId = parseInt(category_id, 10);
+  if (Number.isInteger(catId) && catId > 0) {
+    conditions.push({ category_id: catId });
+  }
+
+  const sizeIn = norm(size) || norm(size_value);
+  if (sizeIn) {
     conditions.push(
-      whereFn(fn('LOWER', fn('TRIM', fn('COALESCE', col('size_value'), ''))), norm(size).toLowerCase())
+      whereFn(fn('LOWER', fn('TRIM', fn('COALESCE', col('size_value'), ''))), sizeIn.toLowerCase())
     );
   }
   if (norm(article_number)) {

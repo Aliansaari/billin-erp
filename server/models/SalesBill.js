@@ -153,6 +153,15 @@ module.exports = (sequelize) => {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0,
     },
+    // Loyalty points the member redeemed on this bill (count, not money).
+    // The RUPEE value of the redemption is already folded into
+    // special_discount above (so the total math is unchanged); this column
+    // is metadata that links the bill to its 'redeem' points-ledger row and
+    // feeds the membership report. Nullable/0 for non-member and legacy bills.
+    points_redeemed: {
+      type: DataTypes.DECIMAL(12, 2),
+      defaultValue: 0,
+    },
     other_charges: {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0,

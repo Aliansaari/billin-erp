@@ -113,6 +113,17 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
   useEffect(() => { navigateRef.current = navigate; });
   useEffect(() => { canGoBackRef.current = locationKey !== 'default'; }, [locationKey]);
 
+  // Natural "Back": return to the exact previous in-app screen. Returns true
+  // when it handled the navigation, false (no history) to fall through to the
+  // caller's declared onAction fallback. History chaining across unrelated
+  // tabs is prevented at the source — the sidebar replaces history when you
+  // switch to a different section — so plain navigate(-1) is the right,
+  // natural behaviour here.
+  const runBack = () => {
+    if (canGoBackRef.current) { navigateRef.current(-1); return true; }
+    return false;
+  };
+
   // Pre-parse bindings once per render so the keydown handler doesn't
   // re-parse strings on every keypress.
   const parsed = useMemo(() => actions.map(a => ({
@@ -147,10 +158,11 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
         // contract). `hidden` actions stay active so they can alias a
         // visible button.
         if (a.disabled) return;
-        // History-aware Back (see note above the navigate refs).
-        if (a.id === 'back' && a.historyBack !== false && canGoBackRef.current) {
-          navigateRef.current(-1);
-          return;
+        // History-aware Back (see note above the navigate refs). runBack
+        // returns false only when there's no in-app history AND this isn't a
+        // top-level tab — in which case we fall through to the page's onAction.
+        if (a.id === 'back' && a.historyBack !== false) {
+          if (runBack()) return;
         }
         try { a.onAction?.(e); }
         catch (err) { console.error('[ActionStrip]', a.id, err); }
@@ -174,9 +186,8 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
             className={`astrip-btn tone-${a.tone || 'default'}`}
             onClick={(e) => {
               e.preventDefault();
-              if (a.id === 'back' && a.historyBack !== false && canGoBackRef.current) {
-                navigateRef.current(-1);
-                return;
+              if (a.id === 'back' && a.historyBack !== false) {
+                if (runBack()) return;
               }
               a.onAction?.(e);
             }}

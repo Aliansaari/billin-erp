@@ -1844,3 +1844,74 @@
   .sbf-summary, .sbf-totals, .sbf-payment { width: 100%; }
   .sbf-top-row, .sbf-top-row-2 { grid-template-columns: 1fr !important; }
 }
+
+/* ── Membership panel (sales bill, beside totals; active members only) ── */
+.sbf-member {
+  width: 244px;
+  gap: 9px;
+  /* Size to its own content instead of stretching to the tall totals/payment
+     cards — that stretch left a big empty gap at the bottom of the card. */
+  align-self: flex-start;
+  border-color: rgba(201, 162, 39, 0.38);
+  background: linear-gradient(180deg, rgba(201, 162, 39, 0.08), var(--bg-panel) 62%);
+}
+.sbf-member-head { display: flex; align-items: center; justify-content: space-between; }
+.sbf-member-tier { font-weight: 800; font-size: 15px; color: var(--fg-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbf-member-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+  color: #9A7B10; background: rgba(201, 162, 39, 0.18); padding: 2px 8px; border-radius: 999px; flex: 0 0 auto;
+}
+.sbf-member-points {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 4px 0 8px; border-bottom: 1px solid var(--border-subtle);
+}
+.sbf-member-points .pts { font-size: 26px; font-weight: 800; color: #9A7B10; line-height: 1; }
+.sbf-member-points .pts span { font-size: 12px; font-weight: 600; color: var(--fg-tertiary); margin-left: 2px; }
+.sbf-member-points .val { font-size: 12px; color: var(--fg-tertiary); }
+.sbf-member-stats { display: flex; flex-direction: column; gap: 6px; }
+.sbf-member-stat { display: flex; align-items: center; justify-content: space-between; font-size: 12px; gap: 8px; }
+.sbf-member-stat .k { color: var(--fg-tertiary); }
+.sbf-member-stat .v { font-weight: 600; color: var(--fg-primary); text-align: right; }
+.sbf-member-stat .v.pos { color: var(--success, #1a7f37); }
+.sbf-member-stat .v.mono { font-family: var(--font-mono, monospace); font-size: 11px; }
+.sbf-member-redeem {
+  margin-top: 2px; border-top: 1px solid var(--border-subtle); padding-top: 8px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sbf-member-redeem .rd-head { display: flex; align-items: center; justify-content: space-between; }
+.sbf-member-redeem .rd-head .k {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+  color: var(--fg-secondary, var(--fg-tertiary));
+}
+.sbf-member-redeem .rd-avail { font-size: 11px; color: var(--fg-tertiary); }
+.sbf-member-redeem .rd-row { display: flex; align-items: center; gap: 8px; }
+.sbf-member-redeem .rd-value { font-weight: 700; color: var(--danger, #c0392b); min-width: 62px; text-align: right; }
+.sbf-member-redeem .rd-all { border: none; background: none; color: #9A7B10; font-size: 11px; font-weight: 700; cursor: pointer; text-align: left; padding: 0; }
+.sbf-member-redeem.muted { color: var(--fg-tertiary); font-size: 12px; }
+.sbf-member-progress { margin-top: 2px; border-top: 1px solid var(--border-subtle); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.sbf-member-progress .mp-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--fg-tertiary); }
+.sbf-member-progress .mp-bar { height: 6px; border-radius: 999px; background: rgba(201, 162, 39, 0.16); overflow: hidden; }
+.sbf-member-progress .mp-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #C9A227, #9A7B10); transition: width 0.3s ease; }
+.sbf-member-progress .mp-hint { font-size: 11px; color: var(--fg-tertiary); }
+@media (max-width: 1180px) {
+  .sbf-member { width: 100%; }
+}
+
+/* ── Quick-add party (+) button beside the customer/supplier selector ── */
+.sbf-addparty {
+  flex: 0 0 auto;
+  width: 36px;
+  align-self: stretch;
+  border: 1px solid var(--accent, #0e7490);
+  border-radius: 8px;
+  background: var(--accent, #0e7490);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  transition: filter 0.12s, transform 0.06s;
+}
+.sbf-addparty:hover  { filter: brightness(1.08); }
+.sbf-addparty:active { transform: translateY(1px); }
+.sbf-addparty .anticon { font-size: 15px; }

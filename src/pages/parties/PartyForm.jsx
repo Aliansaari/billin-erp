@@ -20,7 +20,8 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Modal, message } from 'antd';
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import { partyAPI } from '../../api';
+import { partyAPI, membershipAPI } from '../../api';
+import { useSystemSettings } from '../../hooks/useSystemSettings';
 import EntityFormModal from '../../components/EntityFormModal';
 
 const { Section, Field } = EntityFormModal;
@@ -81,6 +82,27 @@ export default function PartyForm({
   const [initial, setInitial] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Membership: on a NEW customer, optionally enrol them in a loyalty plan.
+  const settings = useSystemSettings();
+  const membershipEnabled = !!settings?.membership_enabled;
+  const [enrolMember, setEnrolMember] = useState(false);
+  const [memberPlan, setMemberPlan] = useState(null);
+  const [plans, setPlans] = useState([]);
+  const showMembership = !isEdit && membershipEnabled
+    && (form.party_type === 'Customer' || form.party_type === 'Both');
+
+  useEffect(() => {
+    if (!visible) return;
+    setEnrolMember(false); setMemberPlan(null);
+    if (membershipEnabled) {
+      membershipAPI.getPlans().then(({ data }) => {
+        const list = Array.isArray(data) ? data : [];
+        setPlans(list);
+        setMemberPlan(list.length ? list[0].plan_id : null);
+      }).catch(() => setPlans([]));
+    }
+  }, [visible, membershipEnabled]);
 
   // Hydrate form on open / when initialValues change. Edit mode
   // pre-fills from the saved row; create mode resets to defaults
@@ -145,8 +167,14 @@ export default function PartyForm({
       if (payload[k] === '' || payload[k] == null) delete payload[k];
       else payload[k] = parseFloat(payload[k]);
     });
+    // Membership intent (create-only). The parent's onSubmit creates the
+    // party and, when these are set, enrols it in the chosen plan.
+    if (showMembership && enrolMember && memberPlan) {
+      payload._enrol_membership = true;
+      payload._membership_plan_id = memberPlan;
+    }
     onSubmit?.(payload);
-  }, [form, validate, onSubmit]);
+  }, [form, validate, onSubmit, showMembership, enrolMember, memberPlan]);
 
   const handleSaveAndClose = handleSave;
 
@@ -388,6 +416,28 @@ export default function PartyForm({
           </select>
         </Field>
       </Section>
+
+      {showMembership && (
+        <Section label="Membership">
+          <Field label="Loyalty membership" span="full"
+            help="Optionally enrol this new customer in a loyalty plan right away.">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input type="checkbox" checked={enrolMember}
+                onChange={(e) => setEnrolMember(e.target.checked)} />
+              <span>Enrol as member on save</span>
+            </label>
+          </Field>
+          {enrolMember && (
+            <Field label="Plan">
+              <select className="efm-select" value={memberPlan || ''}
+                onChange={(e) => setMemberPlan(Number(e.target.value) || null)}>
+                {plans.length === 0 && <option value="">No active plans — add one in Settings → Membership Plans</option>}
+                {plans.map((p) => <option key={p.plan_id} value={p.plan_id}>{p.plan_name}</option>)}
+              </select>
+            </Field>
+          )}
+        </Section>
+      )}
 
     </EntityFormModal>
   );

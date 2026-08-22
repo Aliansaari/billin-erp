@@ -106,28 +106,41 @@ const FIELD_VAL = {
   },
 };
 
-// ── Generate barcode PNG data URL ─────────────────────────────────────────────
-function makeBarcodeDataUrl(value, widthPx, heightPx) {
+// ── Generate a crisp, dark barcode PNG data URL ───────────────────────────────
+// Why the old labels printed faint/faded and wouldn't scan: the barcode was
+// rasterised to a SMALL canvas and then UPSCALED to the label width with image
+// smoothing ON — that turns every crisp black/white bar edge into a grey
+// gradient, so thin bars wash out. Fix:
+//   1. Render the barcode once (crisp black on white).
+//   2. Upscale it to a HIGH resolution with smoothing OFF (nearest-neighbour),
+//      so every bar stays 100% solid black — no grey, no fade.
+//   3. Let the label SVG SHRINK that high-res image to fit (down-scaling is
+//      clean; it's only up-scaling thin bars that fades them).
+// The result is a bold, solid barcode that any scanner reads, at a shorter
+// height (scanners don't need tall bars).
+export function makeBarcodeDataUrl(value) {
   try {
-    const canvas = document.createElement('canvas');
-    JsBarcode(canvas, String(value), {
+    const src = document.createElement('canvas');
+    JsBarcode(src, String(value), {
       format:       'CODE128',
-      width:        2,
-      height:       Math.max(20, heightPx - 16),
+      width:        2,          // module ratio; final X-dimension = label width ÷ modules
+      height:       56,         // short bars
       displayValue: true,
-      fontSize:     12,
-      margin:       5,
+      fontSize:     16,
+      fontOptions:  'bold',
+      textMargin:   1,
+      margin:       6,
       background:   '#ffffff',
       lineColor:    '#000000',
     });
-    // Scale the generated canvas to exact requested width
+    // Upscale to ≥ ~1400px wide with NO smoothing so bars stay razor-sharp.
+    const scale = Math.max(1, Math.ceil(1400 / Math.max(1, src.width)));
     const out = document.createElement('canvas');
-    out.width  = widthPx;
-    out.height = canvas.height + 16; // bars + text
+    out.width  = src.width  * scale;
+    out.height = src.height * scale;
     const ctx = out.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, out.width, out.height);
-    ctx.drawImage(canvas, 0, 0, out.width, out.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(src, 0, 0, out.width, out.height);
     return out.toDataURL('image/png');
   } catch (_) { return ''; }
 }
@@ -158,7 +171,7 @@ function buildLabelSVG(row, companyName, layout, codeImg) {
     body += `<image href="${codeImg.dataUrl}"
       x="${codeEl.x}" y="${codeEl.y}"
       width="${codeImg.wMm}" height="${codeImg.hMm}"
-      preserveAspectRatio="xMinYMin meet"/>`;
+      preserveAspectRatio="${codeImg.par || 'xMinYMin meet'}"/>`;
   }
 
   // Text elements (drawn last = top layer, always visible)
@@ -325,12 +338,17 @@ export default function BarcodePrintModal({ visible, onClose, billNumber, items,
               wMm: qrMm, hMm: qrMm,
             };
           } else {
-            // Use user-defined size as height; width fills available space
-            const bcHMm = Math.max(5, userSize || Math.min(availH, hMm * 0.45));
+            // Width fills the available label width (widest bars = easiest to
+            // scan); height is the user's size or a short default. The barcode
+            // itself is vector, so this box just positions it.
+            const bcHMm = Math.max(5, userSize || Math.min(availH, hMm * 0.4));
             const bcWMm = Math.max(10, availW);
             codeCache[row.barcode] = {
-              dataUrl: makeBarcodeDataUrl(row.barcode, mmPx(bcWMm, 300), mmPx(bcHMm, 300)),
+              dataUrl: makeBarcodeDataUrl(row.barcode),
               wMm: bcWMm, hMm: bcHMm,
+              // Stretch the 1D barcode to fill the label width → the widest,
+              // boldest bars (best scannability). QR stays square (meet).
+              par: 'none',
             };
           }
         }

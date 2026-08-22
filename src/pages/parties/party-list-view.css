@@ -495,20 +495,36 @@
 .plv-status-tag.blacklist{ background: var(--plv-blacklist-s);color: var(--plv-blacklist); }
 .plv-status-tag.blacklist::before { content: '⛔'; font-size: 9px; }
 
-/* Contact cell */
-.plv-contact-icons { display: flex; gap: 4px; align-items: center; }
-.plv-cib {
-  width: 28px; height: 28px; border-radius: 6px;
-  display: grid; place-items: center;
-  background: var(--bg-muted);
-  color: var(--fg-secondary);
+/* Contact cell — clean phone number by default; a WhatsApp "Remind" button
+   reveals on row hover so the resting list stays free of icon clutter. */
+.plv-contact { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.plv-contact-phone { font-size: 13px; color: var(--fg-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plv-remind-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 24px; padding: 0 9px;
+  border-radius: 99px;
+  border: 1px solid color-mix(in srgb, var(--success) 32%, transparent);
+  background: var(--success-bg);
+  color: var(--success);
+  font: inherit; font-size: 11px; font-weight: 700;
   cursor: pointer;
-  transition: all .12s;
-  border: none;
+  white-space: nowrap;
+  opacity: 0; transform: translateX(-4px);
+  transition: opacity .12s, transform .12s, background .12s;
+  pointer-events: none;
 }
-.plv-cib:hover { background: var(--success-bg); color: var(--success); }
-.plv-cib svg { width: 13px; height: 13px; }
-.plv-contact-phone { font-size: 11.5px; color: var(--fg-secondary); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.plv-remind-btn svg { width: 12px; height: 12px; }
+.plv-table tbody tr.row:hover .plv-remind-btn { opacity: 1; transform: none; pointer-events: auto; }
+.plv-remind-btn:hover { background: color-mix(in srgb, var(--success) 18%, transparent); }
+
+/* "reminded Nd ago" follow-up chip under the party name */
+.plv-party-nm .sub { display: flex; align-items: center; gap: 8px; }
+.plv-party-nm .sub .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plv-reminded {
+  display: inline-flex; align-items: center; gap: 3px;
+  color: var(--plv-age-30); font-weight: 600; flex-shrink: 0;
+}
+.plv-reminded svg { width: 10px; height: 10px; }
 
 /* Outstanding */
 .plv-out-v {
@@ -523,19 +539,27 @@
   letter-spacing: 0.5px; margin-left: 3px;
 }
 
-/* Aging cell — stacked bar showing how a party's open balance splits across
-   the four aging buckets. Matches the v5 mockup's aging column. */
-.plv-aging-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.plv-aging-days { display: flex; align-items: baseline; gap: 6px; }
-.plv-aging-bar {
-  height: 5px; border-radius: 99px; overflow: hidden;
-  display: flex; background: var(--bg-muted); margin-top: 2px;
+/* Aging cell — calmed to a single glanceable signal: day count + a small
+   tone-tinted label. Only the 90+ "Overdue" band carries a filled red pill;
+   earlier bands are a soft tinted label so the list isn't a wall of alarm. */
+.plv-aging2 { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+.plv-aging2 .days {
+  font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--fg-primary); line-height: 1;
 }
-.plv-aging-seg { height: 100%; }
-.plv-aging-seg.a0  { background: var(--plv-age-0); }
-.plv-aging-seg.a30 { background: var(--plv-age-30); }
-.plv-aging-seg.a60 { background: var(--plv-age-60); }
-.plv-aging-seg.a90 { background: var(--plv-age-90); }
+.plv-aging2 .days .u { font-size: 10px; font-weight: 600; color: var(--fg-tertiary); margin-left: 1px; }
+.plv-aging2 .lbl {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px;
+  padding: 2px 8px; border-radius: 99px;
+  white-space: nowrap;
+}
+.plv-aging2.a0  .lbl { color: var(--plv-age-0);  background: var(--plv-age-0-s); }
+.plv-aging2.a30 .lbl { color: var(--plv-age-30); background: var(--plv-age-30-s); }
+.plv-aging2.a60 .lbl { color: var(--plv-age-60); background: var(--plv-age-60-s); }
+/* The genuinely overdue band is the only one that reads "loud". */
+.plv-aging2.a90 .lbl { color: #FDFAF2; background: var(--plv-age-90); }
+.plv-aging2.a90 .days { color: var(--plv-age-90); }
+.plv-aging-none { color: var(--fg-tertiary); font-size: 12px; }
 
 /* Credit cell */
 .plv-credit-cell { display: flex; flex-direction: column; gap: 4px; }
@@ -759,3 +783,97 @@
   border-top: 1px solid var(--border-subtle);
   background: var(--bg-muted);
 }
+
+/* ── Collections selection bar ──
+   Slides in above the ActionStrip only when >1 row is selected. */
+.plv-selbar {
+  flex-shrink: 0;
+  margin: 0 12px 8px;
+  padding: 9px 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  background: var(--bg-panel);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(45,31,21,0.10);
+  animation: plv-selbar-in .18s cubic-bezier(.2,.7,.2,1);
+}
+@keyframes plv-selbar-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.plv-selbar-lead { font-size: 13px; color: var(--fg-secondary); }
+.plv-selbar-lead .n { font-weight: 700; color: var(--fg-primary); font-size: 15px; }
+.plv-selbar-lead .amt b { color: var(--accent); font-weight: 700; }
+.plv-selbar-actions { display: flex; align-items: center; gap: 8px; }
+
+/* ── Bulk reminder run modal ── */
+.plv-remind-modal {
+  position: fixed;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%) scale(0.96);
+  width: 480px; max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 80px);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 40px 80px rgba(29,26,21,0.35), 0 8px 30px rgba(29,26,21,0.18);
+  opacity: 0; pointer-events: none;
+  transition: all .28s cubic-bezier(.2,.7,.2,1);
+  z-index: 1101;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.plv-remind-modal.open { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
+.plv-remind-hd {
+  padding: 18px 20px 14px;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.plv-remind-hd .title {
+  font-family: 'Source Sans 3', sans-serif;
+  font-size: 18px; font-weight: 600; color: var(--fg-primary);
+  letter-spacing: -0.01em;
+}
+.plv-remind-hd .sub { font-size: 12px; color: var(--fg-secondary); margin-top: 3px; }
+.plv-remind-x {
+  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--fg-secondary); cursor: pointer; transition: all .12s;
+}
+.plv-remind-x:hover { background: var(--bg-muted); color: var(--fg-primary); }
+.plv-remind-x svg { width: 15px; height: 15px; }
+.plv-remind-body { padding: 8px 12px; overflow-y: auto; flex: 1; }
+.plv-remind-row {
+  display: grid;
+  grid-template-columns: 1fr auto 118px;
+  align-items: center; gap: 12px;
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.plv-remind-row:last-child { border-bottom: none; }
+.plv-remind-row.sent { opacity: 0.62; }
+.plv-remind-row .who { display: flex; flex-direction: column; min-width: 0; }
+.plv-remind-row .who .nm { font-size: 13.5px; font-weight: 600; color: var(--fg-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plv-remind-row .who .dt { font-size: 11px; color: var(--fg-tertiary); font-variant-numeric: tabular-nums; }
+.plv-remind-row .amt { font-size: 13.5px; font-weight: 700; color: var(--danger); font-variant-numeric: tabular-nums; text-align: right; }
+.plv-remind-send {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  height: 30px; padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--success) 32%, transparent);
+  background: var(--success-bg); color: var(--success);
+  font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: all .12s; white-space: nowrap;
+}
+.plv-remind-send svg { width: 13px; height: 13px; }
+.plv-remind-send:hover:not(:disabled) { background: color-mix(in srgb, var(--success) 18%, transparent); }
+.plv-remind-send.done { background: transparent; color: var(--fg-tertiary); border-color: var(--border); font-weight: 600; }
+.plv-remind-send:disabled { opacity: 0.4; cursor: not-allowed; }
+.plv-remind-ft {
+  padding: 12px 20px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
+}
+.plv-remind-ft .hint { font-size: 11px; color: var(--fg-tertiary); }

@@ -221,6 +221,12 @@ async function runCompanySchemaMigrations(sequelize) {
                      WHERE table_name='sales_bills' AND column_name='salesman_id') THEN
         ALTER TABLE sales_bills ADD COLUMN salesman_id INTEGER;
       END IF;
+      -- Loyalty points redeemed on the bill (count only; the rupee value is
+      -- folded into special_discount so no total math changes).
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='sales_bills' AND column_name='points_redeemed') THEN
+        ALTER TABLE sales_bills ADD COLUMN points_redeemed DECIMAL(12,2) DEFAULT 0;
+      END IF;
     END $$;
   `);
 
@@ -394,6 +400,145 @@ async function runCompanySchemaMigrations(sequelize) {
       ADD COLUMN IF NOT EXISTS label_layout        TEXT,
       ADD COLUMN IF NOT EXISTS label_company_name  VARCHAR(120);
   `).catch(() => { /* table created by sync with these columns on a fresh DB */ });
+
+  // ── Membership (loyalty) module ─────────────────────────────────────
+  // Column shapes match the Sequelize models (MembershipPlan / Membership).
+  // Created explicitly here — like `salesmen` and the WhatsApp tables above —
+  // so a company DB built via the bootstrap path (which does NOT call sync())
+  // still gets them. Idempotent (CREATE TYPE / TABLE IF NOT EXISTS). On a DB
+  // that DID sync, sync already built these from the models and the guards
+  // below all skip. NOTHING here touches any total/tax/ledger/balance — a
+  // membership is loyalty metadata, not a financial record.
+  await sequelize.query(`
+    DO $membership$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'membership_plans') THEN
+        CREATE TABLE membership_plans (
+          plan_id               SERIAL PRIMARY KEY,
+          plan_name             VARCHAR(80)   NOT NULL,
+          discount_percent      DECIMAL(5,2)  NOT NULL DEFAULT 0,
+          points_per_100        DECIMAL(8,2)  NOT NULL DEFAULT 0,
+          validity_months       INTEGER,
+          min_spend_to_upgrade  DECIMAL(15,2) NOT NULL DEFAULT 0,
+          sort_order            INTEGER       NOT NULL DEFAULT 0,
+          is_active             BOOLEAN       DEFAULT true,
+          notes                 TEXT,
+          created_date          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          modified_date         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'memberships') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_memberships_status') THEN
+          CREATE TYPE enum_memberships_status AS ENUM ('Active', 'Suspended', 'Expired');
+        END IF;
+        CREATE TABLE memberships (
+          membership_id   SERIAL PRIMARY KEY,
+          party_id        INTEGER NOT NULL UNIQUE REFERENCES parties(party_id) ON DELETE CASCADE,
+          plan_id         INTEGER NOT NULL REFERENCES membership_plans(plan_id) ON DELETE RESTRICT,
+          membership_no   VARCHAR(40) NOT NULL UNIQUE,
+          status          enum_memberships_status NOT NULL DEFAULT 'Active',
+          enrolled_date   DATE NOT NULL DEFAULT CURRENT_DATE,
+          expiry_date     DATE,
+          date_of_birth   DATE,
+          points_balance  DECIMAL(12,2) NOT NULL DEFAULT 0,
+          notes           TEXT,
+          created_date    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          modified_date   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX idx_memberships_plan   ON memberships(plan_id);
+        CREATE INDEX idx_memberships_status ON memberships(status);
+      END IF;
+
+      -- date_of_birth added after the initial memberships table shipped —
+      -- ALTER for company DBs that already have the table without it.
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='memberships' AND column_name='date_of_birth') THEN
+        ALTER TABLE memberships ADD COLUMN date_of_birth DATE;
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'membership_points_ledger') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_membership_points_ledger_type') THEN
+          CREATE TYPE enum_membership_points_ledger_type AS ENUM ('earn', 'redeem', 'adjust', 'expire', 'reverse');
+        END IF;
+        CREATE TABLE membership_points_ledger (
+          entry_id              SERIAL PRIMARY KEY,
+          membership_id         INTEGER NOT NULL REFERENCES memberships(membership_id) ON DELETE CASCADE,
+          type                  enum_membership_points_ledger_type NOT NULL,
+          points                DECIMAL(12,2) NOT NULL DEFAULT 0,
+          source_type           VARCHAR(20),
+          source_sales_bill_id  INTEGER,
+          note                  TEXT,
+          created_by            INTEGER,
+          created_at            TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX idx_mpl_membership ON membership_points_ledger(membership_id);
+        CREATE INDEX idx_mpl_bill       ON membership_points_ledger(source_sales_bill_id) WHERE source_sales_bill_id IS NOT NULL;
+      END IF;
+    END $membership$;
+  `);
+
+  // system_settings membership columns — the master switch + card-number
+  // source default. sync({alter:false}) never adds columns to an existing
+  // system_settings table, so add them here for company DBs that predate
+  // the module. Idempotent.
+  await sequelize.query(`
+    DO $membership_settings$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_enabled') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_enabled BOOLEAN DEFAULT false;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_no_source') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_system_settings_membership_no_source') THEN
+          CREATE TYPE enum_system_settings_membership_no_source AS ENUM ('mobile', 'manual', 'auto');
+        END IF;
+        ALTER TABLE system_settings ADD COLUMN membership_no_source enum_system_settings_membership_no_source NOT NULL DEFAULT 'mobile';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_auto_discount_enabled') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_auto_discount_enabled BOOLEAN DEFAULT false;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_points_enabled') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_points_enabled BOOLEAN DEFAULT false;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_redeem_enabled') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_redeem_enabled BOOLEAN DEFAULT false;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_redeem_value_per_point') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_redeem_value_per_point DECIMAL(10,2) DEFAULT 1;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_points_min_redeem') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_points_min_redeem INTEGER DEFAULT 0;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_remind_expiry') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_remind_expiry BOOLEAN DEFAULT false;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_remind_birthday') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_remind_birthday BOOLEAN DEFAULT false;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_expiry_reminder_days') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_expiry_reminder_days INTEGER DEFAULT 7;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_points_expiry_months') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_points_expiry_months INTEGER DEFAULT 0;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name='system_settings' AND column_name='membership_show_sales_panel') THEN
+        ALTER TABLE system_settings ADD COLUMN membership_show_sales_panel BOOLEAN DEFAULT true;
+      END IF;
+    END $membership_settings$;
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };
