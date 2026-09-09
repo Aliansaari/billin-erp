@@ -5,6 +5,7 @@
  * a Browse list. Swipe the sheet down (or tap the backdrop / ✕) to close.
  * ──────────────────────────────────────────────────────────────────── */
 import { isOfflineSession } from '../../api';
+import { tap as hapticTap, warn as hapticWarn } from '../utils/haptics';
 import { Toast } from 'antd-mobile';
 import React, { useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
@@ -114,12 +115,14 @@ function CommandCentreSheet({ onClose }) {
     // door rather than letting someone fill in a whole bill and only discover
     // it at the moment they press save. Read-only destinations still open.
     if (isOfflineSession() && /\/(new|edit)(\/|$)/.test(route)) {
+      hapticWarn();
       Toast.show({
         content: 'Shop computer is offline — you can view saved figures, but not create or edit.',
         duration: 2600,
       });
       return;
     }
+    hapticTap();
     onClose();
     setTimeout(() => navigate(route), 160);
   };

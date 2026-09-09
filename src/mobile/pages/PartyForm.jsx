@@ -1,4 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────
+import { success as hapticSuccess, warn as hapticWarn } from '../utils/haptics';
  * PartyForm — shared mobile form for /customer/new and /supplier/new
  *
  * Per the mockup: four collapsible sections (Identity, Address,
@@ -170,22 +171,22 @@ export default function PartyForm({ type }) {
   const handleSave = async () => {
     if (saving) return;
     if (!partyName.trim()) {
-      Toast.show({ icon: 'fail', content: 'Party name is required' });
+      hapticWarn(); Toast.show({ icon: 'fail', content: 'Party name is required' });
       setOpenSection('identity');
       return;
     }
     if (!mobile1.trim() || mobile1.replace(/\D/g, '').length < 10) {
-      Toast.show({ icon: 'fail', content: 'Mobile number is required (10 digits)' });
+      hapticWarn(); Toast.show({ icon: 'fail', content: 'Mobile number is required (10 digits)' });
       setOpenSection('identity');
       return;
     }
     if (gstin && !gstinIsValid) {
-      Toast.show({ icon: 'fail', content: 'GSTIN format is invalid' });
+      hapticWarn(); Toast.show({ icon: 'fail', content: 'GSTIN format is invalid' });
       setOpenSection('tax');
       return;
     }
     if (pan && !panIsValid) {
-      Toast.show({ icon: 'fail', content: 'PAN format is invalid' });
+      hapticWarn(); Toast.show({ icon: 'fail', content: 'PAN format is invalid' });
       setOpenSection('tax');
       return;
     }
@@ -214,7 +215,7 @@ export default function PartyForm({ type }) {
     setSaving(true);
     try {
       const res = await partyAPI.create(body);
-      Toast.show({ icon: 'success', content: `${type} saved` });
+      hapticSuccess(); Toast.show({ icon: 'success', content: `${type} saved` });
       const id = res.data?.party_id || res.data?.id;
       if (id) {
         // navigate to the party detail; fall back to /search where it'll show.
@@ -224,7 +225,7 @@ export default function PartyForm({ type }) {
       }
     } catch (e) {
       const msg = e?.response?.data?.error || e?.message || 'Save failed';
-      Toast.show({ icon: 'fail', content: msg });
+      hapticWarn(); Toast.show({ icon: 'fail', content: msg });
     } finally {
       setSaving(false);
     }

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { tap as hapticTap } from '../utils/haptics';
 import CommandCentre from './CommandCentre';
 
 const HomeIcon = ({ filled }) => filled ? (
@@ -63,7 +64,7 @@ export default function TabBar() {
           <button
             key={t.key}
             className={`tabbar-item${active === t.key ? ' active' : ''}`}
-            onClick={() => navigate(t.path)}
+            onClick={() => { hapticTap(); navigate(t.path); }}
             role="tab"
             aria-selected={active === t.key}
           >
@@ -79,7 +80,7 @@ export default function TabBar() {
           <button
             key={t.key}
             className={`tabbar-item${active === t.key ? ' active' : ''}`}
-            onClick={() => navigate(t.path)}
+            onClick={() => { hapticTap(); navigate(t.path); }}
             role="tab"
             aria-selected={active === t.key}
           >

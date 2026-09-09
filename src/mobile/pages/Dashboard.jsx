@@ -7,6 +7,7 @@ import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/o
 import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import { activeCompanyName } from '../utils/identity';
 import { getCached, setCached } from '../utils/screenCache';
+import { tap as hapticTap } from '../utils/haptics';
 import useAuthStore from '../../store/authStore';
 import ActivityRow from '../components/ActivityRow';
 import {
@@ -298,7 +299,7 @@ export default function Dashboard() {
           way to retry — previously the only way to refresh was to leave the
           tab and come back. */}
       <PullToRefresh
-        onRefresh={async () => { await loadDashboard(); }}
+        onRefresh={async () => { hapticTap(); await loadDashboard(); }}
         pullingText="Pull to refresh"
         canReleaseText="Release to refresh"
         refreshingText="Refreshing…"

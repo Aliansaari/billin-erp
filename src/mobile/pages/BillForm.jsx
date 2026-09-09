@@ -1,4 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────
+import { success as hapticSuccess, warn as hapticWarn, tap as hapticTap } from '../utils/haptics';
  * BillForm — shared mobile form for /sale/new and /purchase/new
  *
  * Per the editorial mockup: customer/supplier at top, scan-first item
@@ -181,7 +182,7 @@ export default function BillForm({ type }) {
 
   const handleScan = async () => {
     if (!Capacitor.isNativePlatform()) {
-      Toast.show({ icon: 'fail', content: 'Scanner only works on the device build' });
+      hapticWarn(); Toast.show({ icon: 'fail', content: 'Scanner only works on the device build' });
       return;
     }
     let BarcodeScanner;
@@ -189,16 +190,16 @@ export default function BillForm({ type }) {
       ({ BarcodeScanner } = await import('@capacitor-mlkit/barcode-scanning'));
       const supported = await BarcodeScanner.isSupported();
       if (!supported.supported) {
-        Toast.show({ icon: 'fail', content: 'Scanner not supported' });
+        hapticWarn(); Toast.show({ icon: 'fail', content: 'Scanner not supported' });
         return;
       }
       const perm = await BarcodeScanner.requestPermissions();
       if (perm.camera !== 'granted' && perm.camera !== 'limited') {
-        Toast.show({ icon: 'fail', content: 'Camera permission denied' });
+        hapticWarn(); Toast.show({ icon: 'fail', content: 'Camera permission denied' });
         return;
       }
     } catch (e) {
-      Toast.show({ icon: 'fail', content: e?.message || 'Scanner not available' });
+      hapticWarn(); Toast.show({ icon: 'fail', content: e?.message || 'Scanner not available' });
       return;
     }
 
@@ -218,7 +219,7 @@ export default function BillForm({ type }) {
         // User cancelled — that's the exit. If they cancelled BEFORE
         // any item was added, stay quiet; if they added items, confirm.
         if (added > 0) {
-          Toast.show({ icon: 'success', content: `Added ${added} item${added === 1 ? '' : 's'}` });
+          hapticSuccess(); Toast.show({ icon: 'success', content: `Added ${added} item${added === 1 ? '' : 's'}` });
         }
         return;
       }
@@ -279,7 +280,7 @@ export default function BillForm({ type }) {
         // open with the keyboard. Re-entering the camera after this
         // would block the manual entry the operator now needs.
         if (added > 0) {
-          Toast.show({ icon: 'success', content: `Added ${added} item${added === 1 ? '' : 's'}` });
+          hapticSuccess(); Toast.show({ icon: 'success', content: `Added ${added} item${added === 1 ? '' : 's'}` });
         }
         setEditingIdx(-1);
         setItemOpen({ barcode: code });
@@ -291,11 +292,11 @@ export default function BillForm({ type }) {
   const handleSave = async () => {
     if (saving) return;
     if (!items.length) {
-      Toast.show({ icon: 'fail', content: 'Add at least one item' });
+      hapticWarn(); Toast.show({ icon: 'fail', content: 'Add at least one item' });
       return;
     }
     if (!godownId) {
-      Toast.show({ icon: 'fail', content: 'No godown configured. Set one up first.' });
+      hapticWarn(); Toast.show({ icon: 'fail', content: 'No godown configured. Set one up first.' });
       return;
     }
 
@@ -381,7 +382,7 @@ export default function BillForm({ type }) {
         ? await purchaseAPI.create(body)
         : await salesAPI.create(body);
       const savedId = res.data?.bill_id || res.data?.id || res.data?.sales_bill_id || res.data?.purchase_bill_id;
-      Toast.show({ icon: 'success', content: 'Saved' });
+      hapticSuccess(); Toast.show({ icon: 'success', content: 'Saved' });
       if (savedId) {
         navigate(`/vouchers/${isPurchase ? 'purchase' : 'sales'}/${savedId}`, { replace: true });
       } else {
@@ -389,7 +390,7 @@ export default function BillForm({ type }) {
       }
     } catch (e) {
       const msg = e?.response?.data?.error || e?.message || 'Save failed';
-      Toast.show({ icon: 'fail', content: msg });
+      hapticWarn(); Toast.show({ icon: 'fail', content: msg });
     } finally {
       setSaving(false);
     }

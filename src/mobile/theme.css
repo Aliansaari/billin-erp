@@ -685,3 +685,50 @@ a, button, [role="button"], .tap {
 /* Never let a horizontal overflow turn the whole app into a scrollable page —
    wide content (tables, chip rows) scrolls inside its own container. */
 body { overflow-x: hidden; }
+
+/* ── Press feedback ───────────────────────────────────────────────────
+ *
+ * A native list answers the finger the instant it lands — before any
+ * navigation happens. Without that, a tap feels like it "went nowhere" for
+ * the ~200ms until the next screen paints, which is most of why the app read
+ * as a web page.
+ *
+ * Scoped to elements that are ACTUALLY interactive (button / [role=button] /
+ * a), so a stray class name on a static container never picks up a press
+ * animation it cannot honour. The scale is deliberately tiny: 1.5% reads as
+ * physical, more reads as a toy.
+ */
+button[class*="-row"], [role="button"][class*="-row"],
+button[class*="-card"], [role="button"][class*="-card"],
+button[class*="-tile"], [role="button"][class*="-tile"],
+button[class*="-item"], [role="button"][class*="-item"],
+a[class*="-row"], a[class*="-card"],
+div[role="button"][class*="row"] {
+  transition: transform 0.13s cubic-bezier(0.2, 0.8, 0.2, 1),
+              background-color 0.13s ease;
+  will-change: transform;
+}
+
+button[class*="-row"]:active, [role="button"][class*="-row"]:active,
+button[class*="-card"]:active, [role="button"][class*="-card"]:active,
+button[class*="-tile"]:active, [role="button"][class*="-tile"]:active,
+button[class*="-item"]:active, [role="button"][class*="-item"]:active,
+a[class*="-row"]:active, a[class*="-card"]:active,
+div[role="button"][class*="row"]:active {
+  transform: scale(0.985);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button[class*="-row"], [role="button"][class*="-row"],
+  button[class*="-card"], [role="button"][class*="-card"] { transition: none; }
+  button[class*="-row"]:active, [role="button"][class*="-row"]:active,
+  button[class*="-card"]:active, [role="button"][class*="-card"]:active { transform: none; }
+}
+
+/* Momentum + bounce INSIDE scrollers. The page itself must not rubber-band
+   (that reveals white behind the app and is the giveaway of a web view), but
+   a list that stops dead at its end feels equally wrong. */
+[class$="-list"], [class*="-scroll"], .dash, .adm-pull-to-refresh-content {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { select as hapticSelect, warn as hapticWarn } from '../utils/haptics';
 import ReactDOM from 'react-dom';
 import { Toast, Dialog } from 'antd-mobile';
 import api, { beginCompanySwitch, endCompanySwitch } from '../../api';
@@ -56,6 +57,7 @@ export default function CompanySwitchSheet({ open, onClose }) {
 
     // Cover the screen for the whole switch. The sheet used to stay open and
     // interactive while the request ran, which read as a frozen dialog.
+    hapticSelect();
     setSwitching(c);
     beginCompanySwitch();
     try {
@@ -75,6 +77,7 @@ export default function CompanySwitchSheet({ open, onClose }) {
     } catch (e) {
       endCompanySwitch();
       setSwitching(null);
+      hapticWarn();
       Toast.show({
         icon: 'fail',
         content: e?.response?.data?.error || e?.message || 'Could not switch company.',
