@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import api, { partyAPI, productAPI } from '../../api';
+import { parseSearch, matchesSearch } from '../utils/searchPrefix';
 import { formatINR } from '../utils/format';
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -230,9 +231,15 @@ export default function Search() {
     setLoading(true);
     const t = setTimeout(() => {
       const voucherTerm = stripVoucherPrefix(term);
+      // `a:` article, `b:` barcode, `n:` name, `h:` HSN. The server searches
+      // every field, so send the bare term and narrow the product results to
+      // the requested field here. A wider fetch keeps the match count useful
+      // once the prefix is applied.
+      const parsedProduct = parseSearch(term);
+      const productTerm = parsedProduct.term || term;
       Promise.allSettled([
         wantParties  ? partyAPI.getAll({ search: term, limit: 12 })                   : Promise.resolve(null),
-        wantProducts ? productAPI.search(term, { limit: 12 })                          : Promise.resolve(null),
+        wantProducts ? productAPI.search(productTerm, { limit: parsedProduct.scope ? 60 : 12 }) : Promise.resolve(null),
         wantVouchers ? api.get('/sales',     { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
         wantVouchers ? api.get('/purchases', { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
         wantVouchers ? api.get('/payments',  { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
@@ -244,7 +251,12 @@ export default function Search() {
           return Array.isArray(d) ? d : [];
         };
         setParties(wantParties  ? pick(p).slice(0, 12)  : []);
-        setProducts(wantProducts ? pick(pr).slice(0, 12) : []);
+        const productRows = wantProducts
+          ? (parsedProduct.scope
+              ? pick(pr).filter((row) => matchesSearch(row, parsedProduct))
+              : pick(pr))
+          : [];
+        setProducts(productRows.slice(0, 12));
         setVouchers(wantVouchers ? [
           ...pick(s)  .map((v) => ({ ...v, _vt: 'sale' })),
           ...pick(pu) .map((v) => ({ ...v, _vt: 'purchase' })),
@@ -503,7 +515,7 @@ export default function Search() {
             ref={inputRef}
             placeholder={
               scope === 'parties'  ? 'Search parties…' :
-              scope === 'products' ? 'Search products…' :
+              scope === 'products' ? 'Search products…  a: article  b: barcode' :
               scope === 'actions'  ? 'Search pages & reports…' :
               'Search parties, products, vouchers, pages…'
             }

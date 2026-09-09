@@ -5,6 +5,7 @@ import { Capacitor } from '@capacitor/core';
 import { productAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
 import { fetchSnapshot, sectionOf, sectionWasTrimmed, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
+import { parseSearch, matchesSearch } from '../utils/searchPrefix';
 import { formatINR } from '../utils/format';
 import { shareViaNative } from '../utils/sharePdf';
 import './Stock.css';
@@ -95,33 +96,44 @@ export default function Stock() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    // Page through every product.
+    // Page through every product — PROGRESSIVELY.
     //
-    // A single `limit: 10000` looked like it fetched everything, but the
-    // server clamps every request to maxLimit = 500 (utils/helpers
-    // sanitizePagination), so the stock screen silently showed only the first
-    // 500 items with no indication anything was missing. Follow the `total`
-    // the API reports instead of trusting one oversized request.
-    (async () => {
+    // Two separate problems here. The server clamps every request to
+    // maxLimit=500 (sanitizePagination), so a single `limit: 10000` silently
+    // truncated the catalogue. But fetching all pages before rendering was
+    // worse for a big shop: ten sequential round trips over a tunnel is
+    // several seconds staring at a blank list.
+    //
+    // So: render page one the moment it lands, then fill the rest in behind
+    // it. The screen is usable immediately and the list grows under the user.
+    const loadStock = async () => {
       const PAGE = 500;
       const first = await productAPI.getAll({ limit: PAGE, page: 1 });
       const firstRows = Array.isArray(first.data) ? first.data : (first.data?.data || []);
-      const total = Number(first.data?.total ?? firstRows.length);
-      const all = [...firstRows];
+      if (cancelled) return;
 
+      setProducts(firstRows);
+      setOffline(null);
+      setLoading(false);              // usable now, not after every page
+
+      const total = Number(first.data?.total ?? firstRows.length);
       const pages = Math.ceil(total / PAGE);
-      for (let pageNo = 2; pageNo <= pages && !cancelled; pageNo++) {
-        const r = await productAPI.getAll({ limit: PAGE, page: pageNo });
-        const rows = Array.isArray(r.data) ? r.data : (r.data?.data || []);
-        if (!rows.length) break;
-        all.push(...rows);
-      }
-      return all;
-    })()
-      .then((raw) => {
-        if (cancelled) return;
-        setProducts(raw);
-      })
+      if (pages <= 1) return;
+
+      // Remaining pages in parallel, then ONE state update so React renders
+      // once rather than once per page.
+      const rest = await Promise.all(
+        Array.from({ length: pages - 1 }, (_, i) =>
+          productAPI.getAll({ limit: PAGE, page: i + 2 })
+            .then((r) => (Array.isArray(r.data) ? r.data : (r.data?.data || [])))
+            .catch(() => [])),
+      );
+      if (cancelled) return;
+      const more = rest.flat();
+      if (more.length) setProducts((prev) => [...prev, ...more]);
+    };
+
+    loadStock()
       .catch(async (e) => {
         if (cancelled) return;
         if (isUnreachable(e)) {
@@ -270,14 +282,10 @@ export default function Stock() {
       rows = rows.filter((p) => stockStatus(p) === filter);
     }
     if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((p) =>
-        String(p.product_name || p.name || '').toLowerCase().includes(q) ||
-        String(p.sku || p.barcode || '').toLowerCase().includes(q) ||
-        String(p.hsn_code || '').toLowerCase().includes(q) ||
-        String(p.article_number || '').toLowerCase().includes(q) ||
-        String(p.product_code || '').toLowerCase().includes(q),
-      );
+      // `a:` article, `b:` barcode, `n:` name, `h:` HSN. Bare text still
+      // matches every field.
+      const parsed = parseSearch(search);
+      rows = rows.filter((p) => matchesSearch(p, parsed));
     }
     return rows;
   }, [products, filter, search]);
@@ -358,7 +366,7 @@ export default function Stock() {
         <div className="st-search">
           <input
             ref={searchRef}
-            placeholder="Search product name, SKU, HSN, article…"
+            placeholder="Search, or a: article  b: barcode"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             autoCorrect="off"

@@ -223,7 +223,7 @@ export default function SidePanel({ open, onClose }) {
               <div className="sp-user-name">{userName}</div>
               <div className="sp-user-meta">
                 <span className="sp-role-pill">{userRole}</span>
-                {userEmail}
+                {userEmail || null}
               </div>
             </div>
             <button className="sp-close-btn" onClick={animateClose} aria-label="Close panel">
