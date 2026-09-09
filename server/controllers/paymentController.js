@@ -92,15 +92,17 @@ exports.getNextNumber = async (req, res) => {
       },
       order: [['transaction_id', 'DESC']],
     });
-    // Only take the trailing segment if it parses as an integer — avoids
-    // a numeric suffix like "1776..." sneaking in from imports that happen
-    // to have the same prefix.
-    let lastNum = 0;
-    if (last) {
-      const tail = last.transaction_number.split('-').pop();
-      const parsed = parseInt(tail, 10);
-      if (Number.isFinite(parsed) && String(parsed) === tail) lastNum = parsed;
-    }
+    // Use the shared helper — the same one create() allocates with, so the
+    // preview and the real number can never disagree.
+    //
+    // The inline version that used to live here required
+    // `String(parseInt(tail)) === tail`, which rejects the zero-padded tails
+    // this module itself generates ("000001" → 1 → "1" ≠ "000001"). lastNum
+    // stayed 0 forever, so the form's header showed REC-000001 no matter how
+    // many receipts existed. Only the preview was wrong — create() has always
+    // gone through safeTrailingNumber under an advisory lock — but the operator
+    // was reading a number that was never going to be theirs.
+    const lastNum = safeTrailingNumber(last && last.transaction_number);
     res.json({ next: generateTransactionNumber(prefix, lastNum) });
   } catch (error) {
     console.error('Get next transaction number error:', error);

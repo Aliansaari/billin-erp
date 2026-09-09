@@ -720,7 +720,7 @@ export default function TrialBalance() {
         <ActionStrip
           actions={[
             { id: 'back', key: 'Esc', label: 'Back',
-              onAction: () => nav('/reports') },
+              onAction: () => navigate('/reports') },
             { id: 'period', key: 'F2', label: 'Period',
               onAction: () => openDate({
                 mode: 'range',

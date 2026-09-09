@@ -1,5 +1,4 @@
 /* ─────────────────────────────────────────────────────────────────────
-import { success as hapticSuccess, warn as hapticWarn, tap as hapticTap } from '../utils/haptics';
  * BillForm — shared mobile form for /sale/new and /purchase/new
  *
  * Per the editorial mockup: customer/supplier at top, scan-first item
@@ -18,6 +17,7 @@ import ItemSheet from '../components/ItemSheet';
 import MoreSheet from '../components/MoreSheet';
 import ScanSheet from '../components/ScanSheet';
 import './BillForm.css';
+import { success as hapticSuccess, warn as hapticWarn, tap as hapticTap } from '../utils/haptics';
 
 const BackIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -59,6 +59,16 @@ function fmtShortDate(iso) {
   return `${d.getDate()} ${months[d.getMonth()]}`;
 }
 
+/* One key per bill attempt. It is deliberately NOT derived from the bill's
+ * contents: two genuinely identical bills (same customer, same item, same
+ * minute — normal at a counter) must both be saved, while one bill sent twice
+ * because the phone lost the response must not. */
+function newIdempotencyKey() {
+  return (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function BillForm({ type }) {
   const navigate = useNavigate();
   const isPurchase = type === 'purchase';
@@ -81,6 +91,9 @@ export default function BillForm({ type }) {
   const [moreOpen, setMoreOpen]     = useState(false);
   const [editingIdx, setEditingIdx] = useState(-1);
   const [saving, setSaving]         = useState(false);
+  // Confirmation of the bill just saved: { id, number }. Drives the banner
+  // that proves the save happened, and gives a way into the bill itself.
+  const [justSaved, setJustSaved]   = useState(null);
 
   /* Idempotency key, minted once per form and sent with every create attempt.
    *
@@ -93,11 +106,13 @@ export default function BillForm({ type }) {
    * The key deliberately survives a failed attempt, so a retry after a
    * dropped response lands on the same bill instead of making a second one.
    * It is regenerated only after a save that actually succeeded. */
-  const idempotencyKeyRef = useRef(
-    (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+  useEffect(() => {
+    if (!justSaved) return undefined;
+    const t = setTimeout(() => setJustSaved(null), 6000);
+    return () => clearTimeout(t);
+  }, [justSaved]);
+
+  const idempotencyKeyRef = useRef(newIdempotencyKey());
   const billDate = todayISO();
 
   // Fetch a default godown — we use the first one we can find. Users
@@ -394,44 +409,65 @@ export default function BillForm({ type }) {
       idempotency_key: idempotencyKeyRef.current,
     };
 
+    /* Save, in three separate blocks, deliberately.
+     *
+     * The whole point of this shape is that NOTHING between "the server said
+     * yes" and "the button is usable again" can leave the button stuck. It
+     * got stuck in the field once already: a helper called on the success
+     * path threw, the catch block called another helper that threw too, and
+     * handleSave rejected without ever clearing `saving`. The bill was on the
+     * server, the button said "Saving…" forever, and the operator pressed it
+     * again — which is how one sale became five.
+     *
+     * So: the network call is awaited on its own; the post-save UI work is
+     * wrapped in its own guard; and `finally` — not either branch — is what
+     * releases the button. Double submits are prevented by the idempotency
+     * key (in flight) and by the now-empty item list (after), not by leaving
+     * the button disabled and hoping the next line runs. */
     setSaving(true);
     try {
       const res = isPurchase
         ? await purchaseAPI.create(body)
         : await salesAPI.create(body);
+
       // The create endpoint returns the bill itself, so read the id from any
       // of the shapes it can arrive in (a plain bill, or one wrapped in
-      // `data`). Getting this wrong is what left the user staring at the same
-      // form after a successful save.
-      const b = res.data?.data || res.data || {};
+      // `data`).
+      const b = res?.data?.data || res?.data || {};
       const savedId = b.sales_bill_id || b.purchase_bill_id || b.bill_id || b.id;
 
       // Mint a new key: this bill is committed, so the NEXT one must not
       // collapse onto it.
-      idempotencyKeyRef.current = (typeof crypto !== 'undefined' && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      idempotencyKeyRef.current = newIdempotencyKey();
 
-      hapticSuccess();
-      Toast.show({ icon: 'success', content: `${isPurchase ? 'Purchase' : 'Bill'} saved` });
+      /* Reset to a fresh bill instead of navigating away. A shop enters bills
+       * back to back, so the useful next state is an empty form, not a
+       * read-only view of what was just entered. The banner is the proof it
+       * worked, and it carries a way into the bill for anyone who wants it.
+       *
+       * `party` is deliberately kept: consecutive bills are usually for the
+       * same customer, and re-picking them is the slowest part of counter
+       * billing. */
+      setItems([]);
+      setPaidAmount('');
+      setEditingIdx(-1);
+      setMoreOpts((prev) => ({ ...prev, due_date: '', remarks: '' }));
+      setJustSaved({ id: savedId || null, number: b.bill_number || '' });
 
-      if (savedId) {
-        navigate(`/vouchers/${isPurchase ? 'purchase' : 'sales'}/${savedId}`, { replace: true });
-      } else {
-        // No id came back, but the bill IS saved. Leaving the form open is
-        // what made people press Save again; go somewhere that proves it
-        // worked instead.
-        navigate('/vouchers', { replace: true });
-      }
-      return;   // saved — leave the button locked while we navigate away
+      // Decoration only — never allowed to affect the outcome above.
+      try {
+        hapticSuccess();
+        Toast.show({ icon: 'success', content: `${isPurchase ? 'Purchase' : 'Bill'} saved` });
+      } catch { /* a toast that failed is still a saved bill */ }
     } catch (e) {
+      // The idempotency key is deliberately NOT regenerated here, so retrying
+      // a request that actually committed collapses onto the same bill.
       const msg = e?.response?.data?.error || e?.message || 'Save failed';
-      hapticWarn(); Toast.show({ icon: 'fail', content: msg });
-      // Re-enable ONLY on failure. A `finally` would also run after the
-      // success path, unlocking the button during the moment before the
-      // screen changes — the exact window in which people were tapping again.
-      // The idempotency key is deliberately NOT regenerated here, so a retry
-      // of a request that actually committed collapses onto the same bill.
+      try {
+        hapticWarn();
+        Toast.show({ icon: 'fail', content: msg });
+      } catch { /* see above */ }
+    } finally {
       setSaving(false);
     }
   };
@@ -453,6 +489,56 @@ export default function BillForm({ type }) {
           <MoreIcon />
         </button>
       </div>
+
+      {/* Proof the bill saved. The form clears itself, so without this the
+          screen would look identical to an unsaved one — which is precisely
+          how people ended up pressing Save repeatedly.
+
+          It sits BELOW the header on purpose. The header is what carries
+          `env(safe-area-inset-top)`; anything rendered above it lands under
+          the notch / Dynamic Island, where the strip collided with the clock
+          and the battery. Here it needs no safe-area maths of its own, and
+          the space it takes is the empty-item area the save just cleared —
+          so nothing visible moves. */}
+      {justSaved && (
+        <div className="bf-saved" role="status">
+          <span className="bf-saved-tick" aria-hidden>
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none">
+              <path d="M3.2 8.4l3.1 3.1 6.5-6.9" stroke="currentColor" strokeWidth="2.1"
+                    strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="bf-saved-text">
+            <span className="bf-saved-label">{isPurchase ? 'Purchase saved' : 'Bill saved'}</span>
+            {/* Same shape the voucher list and activity feed use, so the
+                operator can find this bill by the number they just read. */}
+            {justSaved.number && (
+              <span className="bf-saved-num">
+                {isPurchase ? '#' : 'INV-'}{justSaved.number}
+              </span>
+            )}
+          </span>
+          {justSaved.id && (
+            <button
+              type="button"
+              className="bf-saved-view"
+              onClick={() => navigate(`/vouchers/${isPurchase ? 'purchase' : 'sales'}/${justSaved.id}`)}
+            >
+              View
+            </button>
+          )}
+          <button
+            type="button"
+            className="bf-saved-x"
+            onClick={() => setJustSaved(null)}
+            aria-label="Dismiss"
+          >
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       <div className="bf-content">
         {/* Party card */}

@@ -32,6 +32,7 @@
 
   --c-success:      #2D5A3D;
   --c-success-soft: #DCE9DF;
+  --c-success-line: rgba(45, 90, 61, 0.26);
   --c-success-bright: #7FBE94;
   --c-warning:      #B5811A;
   --c-warning-soft: #F5EBD2;
@@ -114,6 +115,7 @@
      dark ground. */
   --c-success:      #6FBF8A;
   --c-success-soft: rgba(111, 191, 138, 0.13);
+  --c-success-line: rgba(111, 191, 138, 0.26);
   --c-success-bright: #7FD09B;
   --c-warning:      #E0AE55;
   --c-warning-soft: rgba(224, 174, 85, 0.13);
@@ -184,6 +186,7 @@
 
   --c-success:      #2D8856;
   --c-success-soft: rgba(45, 136, 86, 0.12);
+  --c-success-line: rgba(45, 136, 86, 0.26);
   --c-success-bright: #4FB082;
   --c-warning:      #C28534;
   --c-warning-soft: rgba(194, 133, 52, 0.13);
@@ -230,6 +233,7 @@
 
   --c-success:      #4FB082;
   --c-success-soft: rgba(45, 136, 86, 0.18);
+  --c-success-line: rgba(79, 176, 130, 0.26);
   --c-success-bright: #4FB082;
   --c-warning:      #E0A45A;
   --c-warning-soft: rgba(194, 133, 52, 0.18);

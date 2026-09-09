@@ -1,5 +1,4 @@
 /* ─────────────────────────────────────────────────────────────────────
-import { success as hapticSuccess, warn as hapticWarn } from '../utils/haptics';
  * VoucherForm — shared mobile form for /receipt/new and /payment/new
  *
  * Per the editorial mockup: party pill, big Fraunces hero amount with
@@ -8,7 +7,7 @@ import { success as hapticSuccess, warn as hapticWarn } from '../utils/haptics';
  * direction (Receipt vs Payment), accent color, party kind, bill kind,
  * and create endpoint label.
  * ─────────────────────────────────────────────────────────────────── */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { Capacitor } from '@capacitor/core';
@@ -16,6 +15,7 @@ import { paymentAPI, bankAPI } from '../../api';
 import { formatINR } from '../utils/format';
 import PartySheet from '../components/PartySheet';
 import './VoucherForm.css';
+import { success as hapticSuccess, warn as hapticWarn } from '../utils/haptics';
 
 const BackIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
@@ -78,14 +78,32 @@ export default function VoucherForm({ type }) {
   const [chequeDate, setChequeDate] = useState('');
   const [partyOpen, setPartyOpen] = useState(false);
   const [saving, setSaving]       = useState(false);
+  // Set the instant the server accepts the voucher. Survives a failed
+  // navigation, a failed toast, and a re-render — a second tap can never
+  // post a second receipt.
+  const committedRef = useRef(false);
   const [voucherNo, setVoucherNo] = useState('');
+  // { id, number } for the voucher that was just committed. Drives the
+  // confirmation strip; cleared on a timer or by the ×.
+  const [justSaved, setJustSaved] = useState(null);
 
-  // Voucher number (Rec / Pay)
   useEffect(() => {
+    if (!justSaved) return undefined;
+    const t = setTimeout(() => setJustSaved(null), 6000);
+    return () => clearTimeout(t);
+  }, [justSaved]);
+
+  // Voucher number (Rec / Pay). Also called again after a save, so the form
+  // shows the number the NEXT voucher will get rather than the one just used.
+  const loadNextNumber = useCallback(() => {
     paymentAPI.nextNumber(type)
-      .then((r) => setVoucherNo(r.data?.next_number || r.data?.number || ''))
+      // Server returns { next: 'REC-000001' }; the other two keys are kept
+      // as fallbacks in case an older build is on the other end of the tunnel.
+      .then((r) => setVoucherNo(r.data?.next || r.data?.next_number || r.data?.number || ''))
       .catch(() => {});
   }, [type]);
+
+  useEffect(() => { loadNextNumber(); }, [loadNextNumber]);
 
   // Load banks once — used when mode is non-cash.
   useEffect(() => {
@@ -215,7 +233,7 @@ export default function VoucherForm({ type }) {
   };
 
   const handleSave = async () => {
-    if (saving) return;
+    if (saving || committedRef.current) return;
     if (!party) {
       hapticWarn(); Toast.show({ icon: 'fail', content: `Pick a ${partyKind}` });
       return;
@@ -263,26 +281,67 @@ export default function VoucherForm({ type }) {
       ...(bill_allocations.length ? { bill_allocations } : {}),
     };
 
+    /* Everything after the server's "yes" is arranged so it cannot strand the
+     * button: the toast and haptic are decoration and are caught separately,
+     * and `finally` — not either branch — is what re-enables it. What stops a
+     * second tap from posting a second receipt is the emptied form plus
+     * `committedRef`, a fact rather than a disabled attribute that some later
+     * line has to reach. (Payments carry no server-side idempotency key,
+     * unlike sales and purchases, so this is the only guard in the way.) */
     setSaving(true);
     try {
       const res = await paymentAPI.create(body);
-      hapticSuccess(); Toast.show({ icon: 'success', content: 'Saved' });
-      const d = res.data?.data || res.data || {};
-      const savedId = d.payment_receipt_id || d.receipt_id || d.id;
-      if (savedId) {
-        navigate(`/vouchers/${isReceipt ? 'receipt' : 'payment'}/${savedId}`, { replace: true });
-      } else {
-        navigate('/vouchers', { replace: true });
-      }
-      return;   // saved — keep the button locked while we navigate away
+      committedRef.current = true;
+      // The create endpoint returns the PaymentReceipt row itself — the keys
+      // are `transaction_id` / `transaction_number`. The older guesses here
+      // matched nothing, so "View" never had an id and the number was blank.
+      const d = res?.data?.data || res?.data || {};
+      const savedId = d.transaction_id || d.payment_receipt_id || d.receipt_id || d.id || null;
+      const savedNo = d.transaction_number || voucherNo || '';
+
+      /* Stay on the form and clear it, exactly like the bill form.
+       *
+       * Navigating to the saved voucher used to be the only signal that the
+       * save worked, so anything that stopped the navigation — or stopped the
+       * code that ran before it — left the operator looking at a full form
+       * with a dead button, and they tapped again. Now the proof is a strip
+       * that cannot fail to render, and the next voucher is one tap away.
+       *
+       * The party IS cleared here (unlike the bill form, which keeps it):
+       * receipts are collected party by party, and the outstanding bills held
+       * in state are stale the moment this one is allocated. */
+      setParty(null);
+      setBills([]);
+      setAllocs({});
+      setSelected(new Set());
+      setAmount('');
+      setChequeNo('');
+      setChequeDate('');
+      setJustSaved({ id: savedId || null, number: savedNo });
+      loadNextNumber();
+      // The form is empty again, so the amount check is what blocks a stray
+      // second tap from here on. Release the commit latch for the next one.
+      committedRef.current = false;
+
+      // Decoration only — never allowed to affect the outcome above.
+      try {
+        hapticSuccess();
+        Toast.show({ icon: 'success', content: isReceipt ? 'Receipt saved' : 'Payment saved' });
+      } catch { /* a toast that failed is still a saved voucher */ }
     } catch (e) {
-      const msg = e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Save failed';
-      hapticWarn(); Toast.show({ icon: 'fail', content: msg });
-      // Re-enable ONLY on failure. A `finally` also runs after success, which
-      // unlocks the button for the moment before the screen changes — exactly
-      // the window in which a second tap posts a second voucher. Payments have
-      // no server-side idempotency key (unlike sales/purchase), so this guard
-      // is the only thing standing between a double tap and a double receipt.
+      if (committedRef.current) {
+        // The voucher is on the server and only the reset failed. Never
+        // present that as a failure — it invites a duplicate.
+        try { Toast.show({ icon: 'success', content: 'Saved' }); } catch {}
+        navigate('/vouchers', { replace: true });
+      } else {
+        const msg = e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Save failed';
+        try {
+          hapticWarn();
+          Toast.show({ icon: 'fail', content: msg });
+        } catch { /* see above */ }
+      }
+    } finally {
       setSaving(false);
     }
   };
@@ -351,6 +410,43 @@ export default function VoucherForm({ type }) {
           <MoreIcon />
         </button>
       </div>
+
+      {/* Proof the voucher saved. Sits BELOW the header, which is what carries
+          `env(safe-area-inset-top)` — above it the strip lands under the
+          notch and overlaps the clock. */}
+      {justSaved && (
+        <div className="vf-saved" role="status">
+          <span className="vf-saved-tick" aria-hidden>
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none">
+              <path d="M3.2 8.4l3.1 3.1 6.5-6.9" stroke="currentColor" strokeWidth="2.1"
+                    strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="vf-saved-text">
+            <span className="vf-saved-label">{isReceipt ? 'Receipt saved' : 'Payment saved'}</span>
+            {justSaved.number && <span className="vf-saved-num">{justSaved.number}</span>}
+          </span>
+          {justSaved.id && (
+            <button
+              type="button"
+              className="vf-saved-view"
+              onClick={() => navigate(`/vouchers/${isReceipt ? 'receipt' : 'payment'}/${justSaved.id}`)}
+            >
+              View
+            </button>
+          )}
+          <button
+            type="button"
+            className="vf-saved-x"
+            onClick={() => setJustSaved(null)}
+            aria-label="Dismiss"
+          >
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       <div className="vf-content">
         {/* Party pill */}

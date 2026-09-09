@@ -1731,6 +1731,9 @@ export default function SalesBillForm() {
     // both POSTs would create a bill. The key is reset after a
     // successful save so the next bill (new form open) mints its own.
     const idempotencyKey = idempotencyKeyRef.current;
+    // Declared out here so the fiscal-lock branch of the catch can stash it
+    // as `retryBody`. See the assignment site below.
+    let body;
     try{
       const vals=await form.validateFields();
       // Mode-specific validation
@@ -1886,8 +1889,15 @@ export default function SalesBillForm() {
           reason: 'Return at counter (paired with sale)',
         } : undefined,
       };
-      // Mode-specific body shape
-      const body = billMode === 'amount' ? {
+      // Mode-specific body shape.
+      //
+      // Assigned to the outer `body` (declared above the try) rather than
+      // declared here: the fiscal-lock handler in the catch block stashes it
+      // as `retryBody` so the override modal can re-send the exact payload.
+      // While it was a `const` inside the try it was out of scope there, and
+      // the catch threw ReferenceError instead of opening the modal — a
+      // locked-period save looked like a silent failure.
+      body = billMode === 'amount' ? {
         ...commonBody,
         amount:      parseFloat(amountVal),
         gst_rate:    parseFloat(amountGstRate) || 0,

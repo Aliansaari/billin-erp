@@ -1,5 +1,4 @@
 /* ─────────────────────────────────────────────────────────────────────
-import { success as hapticSuccess, warn as hapticWarn } from '../utils/haptics';
  * PartyForm — shared mobile form for /customer/new and /supplier/new
  *
  * Per the mockup: four collapsible sections (Identity, Address,
@@ -17,6 +16,7 @@ import { Toast } from 'antd-mobile';
 import { Capacitor } from '@capacitor/core';
 import { partyAPI } from '../../api';
 import './PartyForm.css';
+import { success as hapticSuccess, warn as hapticWarn } from '../utils/haptics';
 
 const CloseIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
