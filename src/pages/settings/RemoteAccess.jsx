@@ -47,6 +47,7 @@ export default function RemoteAccess() {
   const [qr, setQr] = useState('');
   const [accounts, setAccounts] = useState([]);
   const [users, setUsers] = useState([]);
+  const [usersErr, setUsersErr] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [pwFor, setPwFor] = useState(null);
   const [form] = Form.useForm();
@@ -66,25 +67,47 @@ export default function RemoteAccess() {
     }
   }, []);
 
+  // These two loads are deliberately INDEPENDENT of each other.
+  //
+  // `/accounts` is proxied to the ZEHEN account service over the internet and
+  // legitimately fails with 409 (no licence yet), 502 (shop offline) or a
+  // pass-through non-2xx when the site isn't provisioned. `/linkable-users`
+  // is a purely LOCAL database read that has nothing to do with any of that.
+  //
+  // They used to share one `Promise.all` and one silent `catch`, so any
+  // failure of the remote half threw away the perfectly good local user list
+  // and the "Signs in as" dropdown rendered a bare "No data" with no reason
+  // given. Settle them separately, and remember WHY the list is empty so the
+  // dropdown can say so instead of looking broken.
+  const loadUsers = useCallback(async () => {
+    try {
+      const { data } = await api.get('/remote-access/linkable-users');
+      const list = data?.users || [];
+      setUsers(list);
+      setUsersErr(list.length ? '' : 'No active ZEHEN users found — add one in Settings → Users.');
+    } catch (e) {
+      setUsers([]);
+      setUsersErr(e?.response?.data?.error || 'Could not load the ZEHEN user list.');
+    }
+  }, []);
+
   const loadAccounts = useCallback(async () => {
     try {
-      const [a, u] = await Promise.all([
-        api.post('/remote-access/accounts', { action: 'list' }),
-        api.get('/remote-access/linkable-users'),
-      ]);
-      setAccounts(a.data?.accounts || []);
-      setUsers(u.data?.users || []);
+      const { data } = await api.post('/remote-access/accounts', { action: 'list' });
+      setAccounts(data?.accounts || []);
     } catch {
       // Needs a licence and internet; the card explains itself when empty.
+      setAccounts([]);
     }
   }, []);
 
   useEffect(() => {
     load();
     loadAccounts();
+    loadUsers();
     pollRef.current = setInterval(load, POLL_MS);
     return () => clearInterval(pollRef.current);
-  }, [load, loadAccounts]);
+  }, [load, loadAccounts, loadUsers]);
 
   async function manage(payload, okMsg) {
     try {
@@ -226,7 +249,7 @@ export default function RemoteAccess() {
         className="ra-card"
         title="App accounts"
         extra={
-          <Button icon={<UserAddOutlined />} onClick={() => { form.resetFields(); setAddOpen(true); }}>
+          <Button icon={<UserAddOutlined />} onClick={() => { form.resetFields(); loadUsers(); setAddOpen(true); }}>
             Add account
           </Button>
         }
@@ -296,6 +319,8 @@ export default function RemoteAccess() {
                      extra="Permissions come from this user, exactly as on the desktop.">
             <Select
               placeholder="Choose a ZEHEN user"
+              loading={!users.length && !usersErr}
+              notFoundContent={usersErr || 'No users found'}
               options={users.map((u) => ({
                 value: u.username,
                 label: `${u.username}${u.full_name ? ` — ${u.full_name}` : ''}${u.role ? ` (${u.role})` : ''}`,

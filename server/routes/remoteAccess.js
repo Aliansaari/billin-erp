@@ -124,6 +124,9 @@ router.get('/linkable-users', requirePermission('settings.manage_company'), asyn
       })),
     });
   } catch (e) {
+    // Log the real reason — an empty "Signs in as" dropdown in the UI is
+    // otherwise indistinguishable from "this shop genuinely has no users".
+    console.error('[remote-access] linkable-users failed:', (e && e.message) || e);
     res.status(500).json({ error: 'Could not list users.' });
   }
 });
