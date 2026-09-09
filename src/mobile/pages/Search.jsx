@@ -241,8 +241,10 @@ export default function Search() {
         wantParties  ? partyAPI.getAll({ search: term, limit: 12 })                   : Promise.resolve(null),
         wantProducts ? productAPI.search(productTerm, parsedProduct.scope
           // Scope on the SERVER so the match cannot be lost past the row cap.
-          ? { limit: 12, search_field: parsedProduct.scope }
-          : { limit: 12 }) : Promise.resolve(null),
+          // Fetch wider when further words will narrow the set here, or the
+          // one row the user wanted can fall outside a 12-row page.
+          ? { limit: parsedProduct.extra.length ? 80 : 12, search_field: parsedProduct.scope }
+          : { limit: parsedProduct.extra.length ? 80 : 12 }) : Promise.resolve(null),
         wantVouchers ? api.get('/sales',     { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
         wantVouchers ? api.get('/purchases', { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
         wantVouchers ? api.get('/payments',  { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
@@ -254,7 +256,15 @@ export default function Search() {
           return Array.isArray(d) ? d : [];
         };
         setParties(wantParties  ? pick(p).slice(0, 12)  : []);
-        setProducts(wantProducts ? pick(pr).slice(0, 12) : []);
+        // The server matched the scoped term; apply the remaining words here
+        // so "a: 668 plazo" ends up as article-668 AND plazo.
+        const prodRows = wantProducts ? pick(pr) : [];
+        setProducts(
+          (parsedProduct.extra.length
+            ? prodRows.filter((row) => matchesSearch(row, parsedProduct))
+            : prodRows
+          ).slice(0, 12),
+        );
         setVouchers(wantVouchers ? [
           ...pick(s)  .map((v) => ({ ...v, _vt: 'sale' })),
           ...pick(pu) .map((v) => ({ ...v, _vt: 'purchase' })),
@@ -328,11 +338,19 @@ export default function Search() {
         <span className="search-row-icon">{icon}</span>
         <span className="search-row-main">
           <div className="search-row-title">{item.label || item._title}</div>
-          {(item.sub || item._sub) && (
-            <div className="search-row-sub">{item.sub || item._sub}</div>
+          {(item.sub || item._sub || opts.article) && (
+            <div className="search-row-sub">
+              {opts.article && <span className="search-row-article">{opts.article}</span>}
+              <span className="search-row-subtext">{item.sub || item._sub}</span>
+            </div>
           )}
         </span>
-        {amount != null && <span className="search-row-amount">{amount}</span>}
+        {(amount != null || opts.meta) && (
+          <span className="search-row-figures">
+            {amount != null && <span className="search-row-amount">{amount}</span>}
+            {opts.meta && <span className="search-row-meta">{opts.meta}</span>}
+          </span>
+        )}
         <button
           type="button"
           className={`search-pin ${pinned ? 'is-pinned' : ''}`}
@@ -387,6 +405,25 @@ export default function Search() {
           min-width: 0;
         }
         .search-input-wrap input::placeholder { color: var(--c-text-mute); font-weight: 400; }
+        /* Product rows carry the same identifiers the Stock tab shows: the
+           article number as a chip (it is what a shopkeeper calls the item by),
+           then barcode / HSN / category, with rate and stock on the right. */
+        .search-row-sub { display: flex; align-items: center; gap: 6px; min-width: 0; }
+        .search-row-subtext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .search-row-article {
+          flex: none;
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-size: 10.5px; font-weight: 600;
+          color: var(--c-primary);
+          background: var(--c-primary-soft);
+          border: 1px solid var(--c-primary-line);
+          border-radius: 6px; padding: 1px 6px;
+          max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .search-row-figures {
+          flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+        }
+        .search-row-meta { font-size: 11px; color: var(--c-text-mute); white-space: nowrap; }
         .search-spin {
           width: 14px; height: 14px;
           border: 1.5px solid var(--c-border);
@@ -676,11 +713,26 @@ export default function Search() {
             <div className="search-card">
               {products.map((p) => {
                 const pid = p.product_id || p.id;
-                const sub = [p.sku || p.barcode, p.hsn_code ? `HSN ${p.hsn_code}` : null, p.category_name].filter(Boolean).join(' · ') || '—';
-                const amount = p.sale_price != null ? `₹${formatINR(p.sale_price)}` : null;
+                // Show what the Stock tab shows. This row used to carry only a
+                // barcode, and read `sale_price` — a field the API does not
+                // return (it is `sale_rate`), so the price was always blank.
+                const qty = Number(p.current_stock ?? p.stock_quantity ?? 0);
+                const unit = p.unit_of_measurement || p.unit || '';
+                const rate = Number(p.sale_rate ?? p.sale_price ?? 0);
+                const sub = [
+                  p.barcode || p.sku,
+                  p.hsn_code ? `HSN ${p.hsn_code}` : null,
+                  p.category_name,
+                ].filter(Boolean).join(' · ') || '—';
+                const amount = rate > 0 ? `₹${formatINR(rate)}` : null;
                 return renderRow({
-                  id: `prod-${pid}`, kind: 'product', label: p.product_name, sub, route: `/stock/${pid}`, group: 'Products',
-                }, choose, { icon: <Pkg />, amount });
+                  id: `prod-${pid}`, kind: 'product', label: p.product_name, sub,
+                  route: `/stock/${pid}`, group: 'Products',
+                }, choose, {
+                  icon: <Pkg />, amount,
+                  article: p.article_number || '',
+                  meta: Number.isFinite(qty) ? `${qty} ${unit}`.trim() : '',
+                });
               })}
             </div>
           </div>

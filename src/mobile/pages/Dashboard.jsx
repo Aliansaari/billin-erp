@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { Toast, PullToRefresh } from 'antd-mobile';
-import { reportAPI } from '../../api';
+import { reportAPI, isOfflineSession } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
 import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
 import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import { activeCompanyName } from '../utils/identity';
 import { getCached, setCached } from '../utils/screenCache';
-import { tap as hapticTap } from '../utils/haptics';
+import { tap as hapticTap, warn as hapticWarn } from '../utils/haptics';
 import useAuthStore from '../../store/authStore';
 import ActivityRow from '../components/ActivityRow';
 import {
@@ -90,6 +90,19 @@ export default function Dashboard() {
   /* One loader for both first mount and pull-to-refresh, so the two can never
      drift apart in how they handle the offline fallback. Returns a promise:
      PullToRefresh keeps its spinner up until it settles. */
+  // Entry tiles: confirm the tap in the hand, and refuse writes while offline
+  // the same way the command centre does rather than opening a form that
+  // cannot be saved.
+  const goCreate = (route) => {
+    if (isOfflineSession()) {
+      hapticWarn();
+      Toast.show({ content: 'Shop computer is offline — you can view saved figures, but not create.' });
+      return;
+    }
+    hapticTap();
+    navigate(route);
+  };
+
   const loadDashboard = useCallback((cancelledRef = { current: false }) => {
     const cancelled = () => cancelledRef.current;
     const todayIso = isoDate();
@@ -226,6 +239,41 @@ export default function Dashboard() {
     return items;
   }, [overdueRow, gstr1, lowStock]);
   const [notifOpen, setNotifOpen] = useState(false);
+
+  /* Scroll-aware header.
+   *
+   * iOS headers are a translucent MATERIAL: flat and invisible at rest, and
+   * as soon as content slides under them they blur what is behind and grow a
+   * hairline. A header that never changes is one of the strongest tells that
+   * you are looking at a web page — nothing acknowledges the scroll.
+   *
+   * 4px rather than 0 so a one-pixel rubber-band does not flicker it on. */
+  const [headerScrolled, setHeaderScrolled] = useState(false);
+
+  /* Callback ref, not useRef + useEffect([]).
+   *
+   * The scroller mounts AFTER the first render (it sits behind the loading
+   * state and inside PullToRefresh), so an effect with an empty dependency
+   * list ran while the node was still null and silently never attached —
+   * the header simply never reacted. A callback ref fires exactly when the
+   * node appears and again if it is ever replaced. */
+  const detachScroll = useRef(null);
+  const scrollRef = useCallback((el) => {
+    if (detachScroll.current) { detachScroll.current(); detachScroll.current = null; }
+    if (!el) return;
+    // No rAF throttle: React bails out of a re-render when the state value is
+    // unchanged, so this is already one render per threshold CROSSING rather
+    // than one per scroll event. rAF would also tie this to the compositor,
+    // which is exactly the kind of dependency that makes behaviour differ
+    // between a foreground app and a backgrounded one.
+    const onScroll = () => {
+      const next = el.scrollTop > 4;
+      setHeaderScrolled((prev) => (prev === next ? prev : next));
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();                              // reflect the position it mounts at
+    detachScroll.current = () => { el.removeEventListener('scroll', onScroll); };
+  }, []);
   const notifRef = useRef(null);
 
   useEffect(() => {
@@ -240,7 +288,7 @@ export default function Dashboard() {
   return (
     <div className="dash-root">
       {/* Header — sticky, sits outside the scroll container */}
-      <div className="dash-header">
+      <div className={`dash-header${headerScrolled ? ' is-scrolled' : ''}`}>
         <button className="dash-avatar" onClick={() => setPanelOpen(true)} aria-label="profile menu">
           {initial}
         </button>
@@ -293,7 +341,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-    <div className="dash">
+    <div className="dash" ref={scrollRef}>
       {/* Pull down to refresh. The figures here move through the trading day,
           and when the shop computer is unreachable this is also the obvious
           way to retry — previously the only way to refresh was to leave the
@@ -346,19 +394,19 @@ export default function Dashboard() {
       {/* Quick actions — 4 core entry points. Everything else is in
           the Command Centre (centre tab-bar button). */}
       <div className="qa-grid">
-        <button className="qa-btn primary" onClick={() => navigate('/sale/new')}>
+        <button className="qa-btn primary" onClick={() => goCreate('/sale/new')}>
           <span className="qa-icon">{I.invoice}</span>
           <span className="qa-label">New Invoice</span>
         </button>
-        <button className="qa-btn" onClick={() => navigate('/receipt/new')}>
+        <button className="qa-btn" onClick={() => goCreate('/receipt/new')}>
           <span className="qa-icon">{I.receive}</span>
           <span className="qa-label">Receipt</span>
         </button>
-        <button className="qa-btn" onClick={() => navigate('/purchase/new')}>
+        <button className="qa-btn" onClick={() => goCreate('/purchase/new')}>
           <span className="qa-icon">{I.cart}</span>
           <span className="qa-label">New Purchase</span>
         </button>
-        <button className="qa-btn" onClick={() => navigate('/payment/new')}>
+        <button className="qa-btn" onClick={() => goCreate('/payment/new')}>
           <span className="qa-icon">{I.send}</span>
           <span className="qa-label">Payment</span>
         </button>

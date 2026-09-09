@@ -227,7 +227,7 @@ export default function CommandCentre() {
 
   return (
     <>
-      <button className="cc-tab-btn" onClick={() => setOpen(true)} aria-label="Command centre">
+      <button className="cc-tab-btn" onClick={() => { hapticTap(); setOpen(true); }} aria-label="Command centre">
         <div className="cc-tab-pill">
           {/* Apps / grid glyph — signals an action hub, not a single "add" */}
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
