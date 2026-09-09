@@ -168,6 +168,67 @@ Electron clients: re-run `npm run build && npm run electron` on each client, or 
 
 ---
 
+## 6. Keeping the server always reachable (packaged ZEHEN.exe installs)
+
+If you installed ZEHEN from the packaged installer (`ZEHEN-Setup-x.y.z.exe`) rather than running `npm run server`, the picture is simpler than sections 1–5 above:
+
+* The **server PC** runs the normal `ZEHEN.exe`. That single app **contains its own PostgreSQL database and the API server** — you do *not* install Postgres separately, and you do *not* run `npm run server`.
+* Every other PC runs the **client build** (`ZEHEN-Client-Setup.exe`), which is a thin window that only talks to the server PC over the LAN.
+
+Two things must stay true for the shop to keep working. Both are one-time setups.
+
+### 6.1 The server PC's IP address must never change
+
+Each client remembers the server as a fixed address like `http://192.168.1.50:3001`, saved in `C:\Users\<name>\.zehen\client-config.json`. If the router later hands the server PC a **different** IP, every client shows *"Couldn't reach the shop PC"* and you'd have to re-type the new address on each one.
+
+The fix is a **DHCP reservation** on your router — it permanently ties the server PC to one IP. Do this once and clients never drop because of an address change.
+
+**Step-by-step (works on almost any home/shop router — TP-Link, D-Link, Netgear, Jio/Airtel fibre box, etc.):**
+
+1. **Find the server PC's current IP and MAC address.** On the server PC, open Command Prompt and run:
+   ```
+   ipconfig /all
+   ```
+   Under your active adapter (Wi-Fi or Ethernet), note:
+   * **IPv4 Address** — e.g. `192.168.1.50`
+   * **Physical Address** — e.g. `A4-B1-C2-D3-E4-F5` (this is the MAC; it never changes for that PC).
+
+2. **Log into the router.** Open a browser on any PC and go to the router's address — usually `192.168.1.1` or `192.168.0.1` (it's the "Default Gateway" line from `ipconfig`). Enter the router admin password (often printed on a sticker under the router).
+
+3. **Find the DHCP reservation screen.** It's under a menu named one of: *DHCP → Address Reservation*, *LAN → DHCP Server → Static Leases*, *Advanced → IP Reservation*, or *Connected Devices → (pick device) → Reserve IP*. Terminology varies by brand but the idea is identical.
+
+4. **Add a reservation:** pick the server PC (often listed by its computer name), or paste its **MAC address**, and assign it the IP it already has (`192.168.1.50`). Save / Apply. The router may reboot briefly.
+
+5. **Verify.** Restart the server PC, run `ipconfig` again, and confirm it still shows `192.168.1.50`. From then on that IP is locked to the server PC.
+
+> **Alternative — static IP on the PC itself.** If your router has no reservation option, set a fixed IP directly in Windows (Settings → Network → your adapter → IP assignment → Manual). Only do this if you're comfortable choosing an address *outside* the router's DHCP pool to avoid clashes — the DHCP reservation above is safer and preferred.
+
+Once the IP is locked, point each client at it once (client's setup screen → type `http://192.168.1.50:3001` → Connect) and they'll stay connected across reboots.
+
+### 6.2 The server ZEHEN app must be running
+
+On the server PC, clients only work **while `ZEHEN.exe` is open**. Closing that window takes the whole shop offline (it stops the API). So:
+
+* **Don't close ZEHEN on the server PC during business hours.** Minimise it instead.
+* **Disable sleep** on the server PC: Settings → System → Power → *Screen and sleep* → set **"When plugged in, put my device to sleep after"** to **Never**. A sleeping server PC drops every client.
+
+**Auto-start ZEHEN when the server PC boots** (so nobody has to remember to open it):
+
+1. Press `Win + R`, type `shell:startup`, press Enter. This opens the Startup folder.
+2. Right-click your desktop **ZEHEN** shortcut → **Copy**, then **Paste** it into that Startup folder.
+3. ZEHEN will now launch automatically every time that PC reaches the Windows desktop.
+
+For a truly hands-off server PC, also enable **automatic login** so it reaches the desktop without someone typing the Windows password after a power cut:
+
+1. Press `Win + R`, type `netplwiz`, press Enter.
+2. Select the user account, untick **"Users must enter a user name and password to use this computer"**, click Apply, and enter the password when prompted.
+
+> Only enable auto-login on the dedicated server PC in a physically secure spot (e.g. behind the counter) — it removes the Windows password prompt on that machine.
+
+With 6.1 + 6.2 done, the server PC boots → logs in → launches ZEHEN → serves clients, all on its own, at an address that never changes.
+
+---
+
 ## Troubleshooting
 
 **"Couldn't reach the server" in Server Setup**

@@ -3153,11 +3153,10 @@ export default function SalesBillForm() {
                   <span className="sbf-cell-add-text">ADD</span>
                 </button>
               </div>
-              {entry.available_stock>0 && (
-                <span className={`sbf-stock-chip ${entry.quantity>entry.available_stock?'low':'ok'}`}>
-                  Stock: {entry.available_stock}
-                </span>
-              )}
+              {/* The entry-row "Stock: N" chip was removed — stock is already
+                  surfaced on the product dropdown option and in the items
+                  table's Stock column, so the extra chip was redundant and
+                  its appear/clear nudged the layout. */}
             </div>
             )}
 

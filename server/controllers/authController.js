@@ -53,7 +53,15 @@ exports.login = async (req, res) => {
 
     // Run the credential check inside the company's ALS context so the
     // User / Role lookups land on the right database.
-    return companyContext.run(
+    //
+    // NOTE the `await`: without it, a rejection thrown inside the async
+    // callback below (a failed User lookup, a null Role, a missing JWT
+    // secret, …) would escape THIS function's try/catch entirely and
+    // surface as an opaque unhandled rejection — the request would hang or
+    // Express would emit a generic 500, and crucially the `console.error`
+    // in the catch would never fire, leaving the real cause invisible in
+    // the logs. Awaiting funnels every failure through the catch below.
+    return await companyContext.run(
       { sequelize: connection.sequelize, models: connection.models, companyId },
       async () => {
         const user = await User.findOne({
@@ -78,6 +86,35 @@ exports.login = async (req, res) => {
         if (!validPassword) {
           recordFailure(req);
           return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        // Defensive: everything below dereferences `user.Role`
+        // (role_name, permissions_json, the can_* capability flags). If the
+        // role association didn't resolve — a user row whose role_id points
+        // at a role that never seeded, or a half-initialised DB — those
+        // reads would throw a TypeError deep inside token/response assembly
+        // and the operator would see only "Server error during login".
+        // Fail with a clear, logged message instead so the cause is obvious.
+        if (!user.Role) {
+          console.error(
+            `Login error: user "${username}" (id ${user.user_id}) has no resolvable Role ` +
+            `(role_id=${user.role_id}). The roles table may not have seeded on this database.`,
+          );
+          return res.status(500).json({
+            error: 'Your account has no role assigned. Please contact your administrator.',
+          });
+        }
+
+        // Defensive: a missing signing key makes jwt.sign throw the cryptic
+        // "secretOrPrivateKey must have a value", which again reads as a bare
+        // "Server error during login". applyConfigToEnv() guarantees this at
+        // boot, but we re-check here so a misconfigured install fails with an
+        // actionable message rather than an opaque one.
+        if (!process.env.JWT_SECRET) {
+          console.error('Login error: JWT_SECRET is not configured — cannot issue a session token.');
+          return res.status(500).json({
+            error: 'The server is not fully configured (missing signing key). Restart the app; if this persists, contact support.',
+          });
         }
 
         // Success — clear any prior failure streak.
@@ -133,7 +170,12 @@ exports.login = async (req, res) => {
       }
     );
   } catch (error) {
-    console.error('Login error:', error);
+    // Log the FULL error (message + stack) so a recurrence is diagnosable
+    // from the server log — the client only ever sees the generic message
+    // below. Because the companyContext.run call above is now awaited, this
+    // catch covers the entire login flow; no failure can slip past it as an
+    // unhandled rejection.
+    console.error('Login error:', (error && error.stack) ? error.stack : error);
     res.status(500).json({ error: 'Server error during login' });
   }
 };
@@ -230,7 +272,10 @@ exports.switchCompany = async (req, res) => {
     // Validate credentials inside the destination's ALS context so the
     // User / Role lookups land on the right database.
     const username = req.user.username;
-    return companyContext.run(
+    // `await` so a rejection inside the callback is caught by the try/catch
+    // below instead of escaping as an unhandled rejection (see the fuller
+    // note in exports.login).
+    return await companyContext.run(
       { sequelize: destination.sequelize, models: destination.models, companyId: targetId },
       async () => {
         const user = await User.findOne({
@@ -249,6 +294,24 @@ exports.switchCompany = async (req, res) => {
         if (!validPassword) {
           recordFailure(req);
           return res.status(401).json({ error: 'Invalid password for the selected company' });
+        }
+
+        // Same defensive guards as exports.login — a null Role or missing
+        // signing key must fail with a clear message, not a cryptic 500.
+        if (!user.Role) {
+          console.error(
+            `Switch company error: user "${username}" (id ${user.user_id}) has no resolvable Role ` +
+            `(role_id=${user.role_id}) in company ${targetId}.`,
+          );
+          return res.status(500).json({
+            error: 'Your account has no role assigned in the selected company. Please contact your administrator.',
+          });
+        }
+        if (!process.env.JWT_SECRET) {
+          console.error('Switch company error: JWT_SECRET is not configured — cannot issue a session token.');
+          return res.status(500).json({
+            error: 'The server is not fully configured (missing signing key). Restart the app; if this persists, contact support.',
+          });
         }
 
         recordSuccess(req);
@@ -309,7 +372,7 @@ exports.switchCompany = async (req, res) => {
       }
     );
   } catch (error) {
-    console.error('Switch company error:', error);
+    console.error('Switch company error:', (error && error.stack) ? error.stack : error);
     res.status(500).json({ error: 'Server error during company switch' });
   }
 };

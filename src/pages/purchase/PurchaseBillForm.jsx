@@ -2599,15 +2599,19 @@ export default function PurchaseBillForm() {
             </div>
             )}
 
-            {/* Lookup status chip — sits under the entry row */}
-            {billMode === 'item' && (lookupLoading || entry.product_name) && (
-              <div style={{marginTop:6,display:'flex',justifyContent:'flex-end'}}>
+            {/* Lookup status hint — a reserved-height line under the barcode
+                box. Always rendered in item mode so the text appearing /
+                clearing never nudges the entry row or the items list; it's
+                subtle inline text (not a chip) that fills the empty band
+                below the barcode number. */}
+            {billMode === 'item' && (
+              <div className="pbf-entry-hint">
                 {lookupLoading && entry.product_name &&
-                  <span className="pbf-entry-chip info">⏳ Checking variant…</span>}
+                  <span className="pbf-entry-hint-txt info">Checking variant…</span>}
                 {!lookupLoading && entry.product_id &&
-                  <span className="pbf-entry-chip ok">✓ Existing product</span>}
+                  <span className="pbf-entry-hint-txt ok">Existing product</span>}
                 {!lookupLoading && !entry.product_id && entry.product_name &&
-                  <span className="pbf-entry-chip warn">＋ New barcode will be created</span>}
+                  <span className="pbf-entry-hint-txt warn">New barcode will be created</span>}
               </div>
             )}
 

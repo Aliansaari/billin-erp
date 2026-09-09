@@ -526,24 +526,24 @@
 }
 
 /* Status chip near ADD — Checking / Existing / New Barcode */
-.pbf-entry-chip {
-  align-self: flex-end;
-  font-size: 10.5px; font-weight: 600;
-  padding: 3px 9px; border-radius: 10px;
+/* Reserved-height hint line under the barcode box. Fixed height so the
+   text appearing/clearing never shifts the entry row or items list; the
+   text sits under the barcode column (40px add-product button + 12px cell
+   padding ≈ 52px inset) as subtle inline text rather than a chip. */
+.pbf-entry-hint {
+  min-height: 18px;
+  padding: 2px 0 0 52px;
+  display: flex;
+  align-items: center;
+}
+.pbf-entry-hint-txt {
+  font-size: 11px; font-weight: 600;
+  letter-spacing: .01em;
   white-space: nowrap;
 }
-.pbf-entry-chip.info {
-  color: var(--accent); background: var(--accent-bg);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
-}
-.pbf-entry-chip.ok {
-  color: var(--success); background: var(--success-bg);
-  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
-}
-.pbf-entry-chip.warn {
-  color: var(--warning); background: var(--warning-bg);
-  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
-}
+.pbf-entry-hint-txt.info { color: var(--fg-tertiary); }
+.pbf-entry-hint-txt.ok   { color: var(--success); }
+.pbf-entry-hint-txt.warn { color: var(--warning); }
 
 /* ── (2) MIDDLE — edge to edge items card ───────────────────────────── */
 .pbf-mid {

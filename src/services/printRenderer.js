@@ -1001,14 +1001,20 @@ function renderSimpleBreakdown(bill, profile, fmtInt) {
   const sub      = Number(bill.sub_total || 0);
   const disc     = Number(bill.discount_amount || 0);
   const gst      = Number(bill.cgst_amount||0) + Number(bill.sgst_amount||0) + Number(bill.igst_amount||0);
+  const other    = Number(bill.other_charges || 0);
+  const freight  = Number(bill.freight_charges || 0);
   const round    = Number(bill.round_off || 0);
-  // Only bill-level math goes here (Sub Total, Discount, GST, Round Off).
-  // Previous Bal is an account concept and sits in renderSimpleTail after TOTAL.
+  // Bill-level math (Sub Total, Discount, GST, Other/Freight charges, Round
+  // Off). Other + Freight MUST appear when non-zero — they're folded into the
+  // grand total, so omitting them made the printed lines fail to add up to
+  // TOTAL. Previous Bal is an account concept and sits in renderSimpleTail.
   const rows = [];
-  const hasBreakdown = (showDisc && disc) || (showGst && gst) || round;
+  const hasBreakdown = (showDisc && disc) || (showGst && gst) || other || freight || round;
   if (hasBreakdown)             rows.push(['Sub Total',    fmtInt(sub)]);
   if (showDisc && disc)         rows.push(['Discount', '-' + fmtInt(disc)]);
   if (showGst  && gst)          rows.push(['GST',          fmtInt(gst)]);
+  if (other)                    rows.push(['Other',        fmtInt(other)]);
+  if (freight)                  rows.push(['Freight',      fmtInt(freight)]);
   if (round)                    rows.push(['Round Off',    fmtInt(round)]);
   if (!rows.length) return '';
   return rows.map(([l, v]) =>
@@ -1116,6 +1122,8 @@ function renderThermal(bill, profile, company) {
       ${showDisc && Number(bill.discount_amount||0) ? line('Disc', '-' + fmtMoney(bill.discount_amount, profile)) : ''}
       ${showGst && (Number(bill.cgst_amount||0) + Number(bill.sgst_amount||0) + Number(bill.igst_amount||0)) ?
         line('GST', fmtMoney(Number(bill.cgst_amount||0) + Number(bill.sgst_amount||0) + Number(bill.igst_amount||0), profile)) : ''}
+      ${Number(bill.other_charges||0) ? line('Other', fmtMoney(bill.other_charges, profile)) : ''}
+      ${Number(bill.freight_charges||0) ? line('Freight', fmtMoney(bill.freight_charges, profile)) : ''}
       ${Number(bill.round_off||0) ? line('Round Off', fmtMoney(bill.round_off, profile)) : ''}
       <div class="t-grand"><span>TOTAL</span><span>${fmtMoney(bill.total_amount, profile)}</span></div>
       ${showReturn && Number(bill.return_amount||0) > 0

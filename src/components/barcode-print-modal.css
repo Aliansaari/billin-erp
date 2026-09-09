@@ -166,3 +166,141 @@
   padding: 60px 20px; text-align: center; color: var(--fg-tertiary);
   font-size: 14px;
 }
+
+/* ===========================================================================
+ * Reprint mode — Products screen → "print a fresh label for an item already
+ * on the shelf". Adds: search-and-add, per-item label presets, a live label
+ * preview rail, and a friendlier empty state.
+ * ========================================================================= */
+
+.bpm-head { flex-wrap: wrap; }
+.bpm-head__sub {
+  flex-basis: 100%;
+  font-size: 12px; font-weight: 500; color: var(--fg-tertiary);
+  margin-top: 2px; padding-left: 43px;   /* clears the 32px icon + 11px gap */
+}
+
+/* ── Toolbar (reprint) ───────────────────────────────────────────────────── */
+.bpm-modal--reprint .bpm-toolbar {
+  align-items: flex-end; gap: 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+}
+.bpm-field--add   { flex: 2 1 320px; min-width: 260px; }
+.bpm-field--brand { flex: 1 1 200px; min-width: 180px; }
+.bpm-field--bulk  { flex: 0 0 auto; min-width: 0; }
+.bpm-toolbar__all { flex: 0 0 auto; }
+
+.bpm-bulk { display: flex; align-items: center; gap: 6px; }
+.bpm-bulk__num { width: 68px; }
+.bpm-preset {
+  min-width: 30px; height: 28px; padding: 0 8px;
+  background: var(--bg-panel); color: var(--fg-secondary);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  cursor: pointer; transition: background .12s, border-color .12s, color .12s;
+}
+.bpm-preset:hover {
+  background: var(--accent-bg); border-color: var(--accent-border);
+  color: var(--accent-text);
+}
+.bpm-hint { color: var(--fg-tertiary); font-size: 12.5px; padding: 4px 2px; }
+
+/* Search-and-add dropdown rows */
+.bpm-opt { display: flex; align-items: center; gap: 10px; }
+.bpm-opt__main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.bpm-opt__name {
+  font-weight: 600; color: var(--fg-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bpm-opt__meta { font-size: 11.5px; color: var(--fg-tertiary); white-space: nowrap; }
+.bpm-opt__bc {
+  font-size: 11.5px; font-weight: 700; color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.bpm-opt__bc--none { color: var(--fg-tertiary); font-weight: 500; font-style: italic; }
+
+/* ── Body split: table + preview rail ───────────────────────────────────── */
+.bpm-body { display: flex; align-items: stretch; gap: 0; }
+.bpm-body__main { flex: 1; min-width: 0; }
+.bpm-modal--reprint .bpm-table-wrap { margin: 18px 0 18px 22px; max-height: 52vh; }
+
+.bpm-preview {
+  flex: 0 0 268px; width: 268px;
+  display: flex; flex-direction: column;
+  padding: 18px 22px;
+  border-left: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+}
+.bpm-preview__hd {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--fg-tertiary);
+}
+.bpm-preview__size {
+  margin-left: auto; letter-spacing: 0; text-transform: none;
+  font-weight: 600; color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.bpm-preview__stage {
+  margin-top: 12px; padding: 14px;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 132px;
+  border: 1px dashed var(--border); border-radius: var(--radius-md);
+  /* A neutral checker so a white label reads as a physical sticker on both
+     light and dark themes without hardcoding a page colour. */
+  background:
+    linear-gradient(45deg, var(--bg-muted) 25%, transparent 25%) 0 0/14px 14px,
+    linear-gradient(-45deg, var(--bg-muted) 25%, transparent 25%) 0 7px/14px 14px,
+    linear-gradient(45deg, transparent 75%, var(--bg-muted) 75%) 7px -7px/14px 14px,
+    linear-gradient(-45deg, transparent 75%, var(--bg-muted) 75%) -7px 0/14px 14px,
+    var(--bg-panel);
+}
+.bpm-preview__label {
+  width: 100%; background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .22);
+}
+.bpm-preview__label svg { width: 100%; height: 100%; display: block; }
+.bpm-preview__none {
+  text-align: center; font-size: 12.5px; line-height: 1.5;
+  color: var(--fg-tertiary); padding: 8px 4px;
+}
+.bpm-preview__note {
+  margin: 12px 0 0; font-size: 11.5px; line-height: 1.55;
+  color: var(--fg-tertiary);
+}
+.bpm-preview__note b { color: var(--fg-secondary); font-weight: 700; }
+
+/* ── Missing-barcode rows ───────────────────────────────────────────────── */
+.bpm-bc--none {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-weight: 600; color: var(--warning-text, #b8923c);
+  cursor: help;
+}
+
+/* Remove-from-run button */
+.bpm-rm {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  background: transparent; border: 0; border-radius: var(--radius-sm);
+  color: var(--fg-tertiary); font-size: 13px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.bpm-rm:hover { background: var(--danger-bg, rgba(220, 60, 60, .12)); color: var(--danger-text, #c0392b); }
+
+/* ── Footer warning ─────────────────────────────────────────────────────── */
+.bpm-foot__warn { color: var(--warning-text, #b8923c); font-weight: 600; }
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+.bpm-empty__icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; margin: 0 auto 14px;
+  border-radius: 50%; font-size: 19px;
+  background: var(--accent-bg); color: var(--accent-text);
+}
+.bpm-empty__title { font-size: 15px; font-weight: 700; color: var(--fg-secondary); }
+.bpm-empty__hint {
+  max-width: 420px; margin: 8px auto 0;
+  font-size: 12.5px; line-height: 1.6; color: var(--fg-tertiary);
+}

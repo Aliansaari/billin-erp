@@ -258,24 +258,28 @@ async function provision({ host, port, user, password, masterDbName }) {
  * the very top — BEFORE any module reads DB env vars.
  */
 function applyConfigToEnv() {
-  const cfg = loadConfig();
-  if (!cfg || !cfg.db) return false;
-  // env vars take precedence over config file (so a deploy with custom
-  // creds via env still wins).
-  if (!process.env.DB_HOST)            process.env.DB_HOST         = cfg.db.host;
-  if (!process.env.DB_PORT)            process.env.DB_PORT         = String(cfg.db.port);
-  if (!process.env.DB_USER)            process.env.DB_USER         = cfg.db.user;
-  if (!process.env.DB_PASSWORD)        process.env.DB_PASSWORD     = cfg.db.password;
-  if (!process.env.MASTER_DB_NAME)     process.env.MASTER_DB_NAME  = cfg.db.master_db_name;
+  const loaded = loadConfig();
+  const hadConfig = !!loaded;
+  const cfg = loaded || {};
 
-  // JWT secret. Treat a missing OR placeholder value as "unset" so a
-  // stray .env containing the shipped default (audit B1) does not pin a
-  // publicly-known signing key. The literal placeholder strings to
-  // refuse are intentionally narrow — a customer who happens to pick
-  // "your-super-secret-real-secret" is left alone — but any value
-  // matching the historically-shipped templates is rotated to a
-  // process-local random 32-byte hex string and persisted to the
-  // user's per-machine config so the secret is stable across restarts.
+  // JWT secret — guaranteed FIRST, BEFORE the `db` early-return below.
+  //
+  // Previously this lived after `if (!cfg || !cfg.db) return false;`, so a
+  // config that existed but lacked a `db` block (or any boot where the db
+  // section hadn't been written yet) would return early and leave
+  // JWT_SECRET unset. jwt.sign then throws "secretOrPrivateKey must have a
+  // value" on the first login — which surfaces to the operator as an opaque
+  // "Server error during login". Guaranteeing the key up here closes that
+  // hole: after applyConfigToEnv() runs, a signing key ALWAYS exists.
+  //
+  // Treat a missing OR placeholder value as "unset" so a stray .env
+  // containing the shipped default (audit B1) does not pin a publicly-known
+  // signing key. The literal placeholder strings to refuse are intentionally
+  // narrow — a customer who happens to pick "your-super-secret-real-secret"
+  // is left alone — but any value matching the historically-shipped
+  // templates is rotated to a process-local random 32-byte hex string and
+  // persisted to the user's per-machine config so the secret is stable
+  // across restarts.
   const isPlaceholder = (s) => {
     if (!s) return true;
     return /your-super-secret-jwt-key-change-in-production|change-me-to-a-long-random-string|change-me|dev-secret-change-me/i.test(s);
@@ -286,15 +290,33 @@ function applyConfigToEnv() {
     } else {
       const fresh = require('crypto').randomBytes(32).toString('hex');
       process.env.JWT_SECRET = fresh;
-      try {
-        cfg.jwt_secret = fresh;
-        saveConfig(cfg);
-      } catch { /* read-only filesystem etc. — env var still set for this run */ }
+      // Persist the fresh secret only when a config file already exists —
+      // don't write a stray config.json during genuine first-run setup mode
+      // (that could confuse the provisioning wizard). The env var is set for
+      // this run either way, so login works even before persistence.
+      if (hadConfig) {
+        try {
+          cfg.jwt_secret = fresh;
+          saveConfig(cfg);
+        } catch { /* read-only filesystem etc. — env var still set for this run */ }
+      }
       // One-line console warning so an operator running `node server/index.js`
       // sees that a fresh secret was minted (helpful when chasing 401s).
       console.warn('[setup] JWT_SECRET was missing or placeholder — generated a fresh per-install secret. All existing JWTs are now invalid; users will need to re-login.');
     }
   }
+
+  // DB creds — only when a db block exists. Without it we've still
+  // guaranteed the JWT secret above, so return false to signal "no db
+  // config applied" without having skipped the key.
+  if (!cfg.db) return false;
+  // env vars take precedence over config file (so a deploy with custom
+  // creds via env still wins).
+  if (!process.env.DB_HOST)            process.env.DB_HOST         = cfg.db.host;
+  if (!process.env.DB_PORT)            process.env.DB_PORT         = String(cfg.db.port);
+  if (!process.env.DB_USER)            process.env.DB_USER         = cfg.db.user;
+  if (!process.env.DB_PASSWORD)        process.env.DB_PASSWORD     = cfg.db.password;
+  if (!process.env.MASTER_DB_NAME)     process.env.MASTER_DB_NAME  = cfg.db.master_db_name;
 
   return true;
 }

@@ -3435,6 +3435,40 @@ async function startServer() {
       console.error('[membership] could not schedule points expiry sweep:', e.message);
     }
 
+    // ── Login-prerequisite self-check ───────────────────────────────────
+    // Runs on EVERY boot (independent of the migration-skip gate), right
+    // before we open the port. It re-creates exactly what authController
+    // .login needs — a primary company, an admin user, that user's Role,
+    // and a JWT signing key — and logs LOUDLY if any is missing. The point
+    // is future-proofing: if a fresh install ever lands in a state where
+    // login would 500, the operator/support sees the precise reason in the
+    // server log at startup, instead of discovering it only when the first
+    // customer tries to sign in. Purely diagnostic — never blocks boot.
+    try {
+      const CompanyModel = require('./models/Company');
+      const { User: UserModel, Role: RoleModel } = require('./models');
+      const primary = await CompanyModel.findOne({ where: { is_primary: true } });
+      if (!primary) {
+        console.error('[boot-check] ⚠ No primary company is configured — login will fail with "No primary company configured".');
+      } else {
+        const admin = await UserModel.findOne({ where: { username: 'admin' }, include: [{ model: RoleModel }] });
+        if (!admin) {
+          console.error('[boot-check] ⚠ No "admin" user found on the primary DB — default seed did not run. Login will reject valid credentials.');
+        } else if (!admin.Role) {
+          console.error(`[boot-check] ⚠ admin user (id ${admin.user_id}) has no resolvable Role (role_id=${admin.role_id}) — login would 500. Roles table may not have seeded.`);
+        } else {
+          console.log(`[boot-check] ✓ login prerequisites OK (primary company #${primary.company_id}, admin → role "${admin.Role.role_name}").`);
+        }
+      }
+      if (!process.env.JWT_SECRET) {
+        console.error('[boot-check] ⚠ JWT_SECRET is not set — every login would throw on token signing. Check ~/.zehen/config.json and applyConfigToEnv().');
+      }
+    } catch (e) {
+      // A throw here (e.g. a missing companies/users table) is itself the
+      // signal a fresh install is half-initialised — surface it, don't crash.
+      console.error('[boot-check] login-prerequisite check could not complete:', (e && e.message) || e);
+    }
+
     console.log(`[perf] server total startup: ${Date.now() - serverBootStart}ms`);
     const httpServer = app.listen(PORT, '0.0.0.0', () => {
       const lan = getLanAddresses();

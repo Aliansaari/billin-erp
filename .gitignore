@@ -31,3 +31,6 @@ backup_*.json
 uploads/
 Wire_Imports_Prompt.md
 .DS_Store
+
+# Build artefacts from experimental packaging runs — never check these in.
+dist-electron-*/

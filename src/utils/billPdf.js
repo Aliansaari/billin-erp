@@ -707,6 +707,7 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
   const sgst = Number(bill.sgst_amount || 0);
   const igst = Number(bill.igst_amount || 0);
   const cess = Number(bill.cess_amount || 0);
+  const other = Number(bill.other_charges || 0);
   const freight = Number(bill.freight_charges || 0);
   const sd      = Number(bill.special_discount || 0);
   const ro      = Number(bill.round_off || 0);
@@ -728,6 +729,10 @@ export async function buildBillPdf({ docType, bill, profile, company, fileName }
   if (showGst && sgst)          totals.push(['SGST',      fmt(sgst)]);
   if (showGst && igst)          totals.push(['IGST',      fmt(igst)]);
   if (cess)                     totals.push(['Cess',      fmt(cess)]);
+  // 'Other' (extra) charges — mirrors printRenderer.js, which lists it just
+  // before Freight. Previously omitted here, so any amount entered in the
+  // bill's "Other" field silently vanished from the PDF invoice.
+  if (other)                    totals.push(['Other',     fmt(other)]);
   if (freight)                  totals.push(['Freight',   fmt(freight)]);
   if (sd)                       totals.push(['Special Disc', '-' + fmt(sd)]);
   if (ro)                       totals.push(['Round Off', (ro >= 0 ? '+' : '') + fmt(Math.abs(ro))]);

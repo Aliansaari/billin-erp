@@ -14,6 +14,7 @@ import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import ProductColorsPanel from '../../components/ProductColorsPanel';
 import EntityFormModal from '../../components/EntityFormModal';
+import BarcodePrintModal, { productToItem } from '../../components/BarcodePrintModal';
 import { useSingleColorEnabled, useMultiColorEnabled } from '../../hooks/useSystemSettings';
 
 dayjs.extend(relativeTime);
@@ -173,6 +174,37 @@ export default function ProductList() {
     try { localStorage.setItem(LS_COLS, JSON.stringify(cols)); } catch {}
   }, [cols]);
   const visibleColCount = COL_DEFS.filter(c => cols[c.key] || c.fixed).length;
+
+  /* ── Reprint barcode labels ──
+     Labels wear out, peel off or get torn long after the goods were
+     received, so the Products screen owns the "print me another one"
+     flow. It never touches the product record — it only re-renders the
+     barcode this SKU already has, through the layout saved in
+     Settings → Barcode.
+
+     Items are held in state (not derived inline) so the modal's own
+     add / remove edits survive re-renders of this page. */
+  const [barcodeOpen, setBarcodeOpen] = useState(false);
+  const [barcodeItems, setBarcodeItems] = useState([]);
+  const [companyName, setCompanyName] = useState('');
+  useEffect(() => {
+    settingsAPI.getSystem()
+      .then(({ data }) => setCompanyName(data?.data?.company_name || ''))
+      .catch(() => {});
+  }, []);
+
+  const openBarcodeModal = () => {
+    // Re-entry guard: F7 is still live on the strip while the modal is up,
+    // and re-seeding from the selection would wipe whatever the operator
+    // has added or typed inside it.
+    if (barcodeOpen) return;
+    // Whatever is selected seeds the run (cursor row when it's a single
+    // select). Opening with nothing selected is fine — the modal's search
+    // box is the intended entry point for "one label for that one item".
+    const picked = (sel.selectedRows || []).filter(r => r && r.product_id);
+    setBarcodeItems(picked.map(productToItem));
+    setBarcodeOpen(true);
+  };
 
   /* ── form modal ── */
   const [formVisible, setFormVisible] = useState(false);
@@ -592,6 +624,12 @@ export default function ProductList() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12H3M10 5l-7 7 7 7M14 19l7-7-7-7"/></svg>
             Stock Movement
           </button>
+          <Tooltip title="Reprint barcode labels for items already in stock — pick rows first, or search inside (F7)">
+            <button className="ed-cta ghost" onClick={openBarcodeModal}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 5v14M7 5v14M11 5v14M14.5 5v14M18 5v14M21 5v14"/></svg>
+              Print Barcode
+            </button>
+          </Tooltip>
           <button className="ed-cta" onClick={() => openForm()}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
             New Item
@@ -725,6 +763,13 @@ export default function ProductList() {
             onAction: () => refresh?.(),
           },
           {
+            id: 'barcode', key: 'F7', label: 'Print Barcode',
+            onAction: () => openBarcodeModal(),
+            title: isMulti
+              ? `Reprint barcode labels for the ${selectionCount} selected items`
+              : 'Reprint a barcode label for this item',
+          },
+          {
             id: 'export', key: 'F10', label: 'Export',
             onAction: () => handleExport(),
           },
@@ -734,6 +779,15 @@ export default function ProductList() {
             onAction: () => single && navigate(`/stock-movement/${single.product_id}`),
           },
         ]}
+      />
+
+      {/* ── Reprint barcode labels for existing stock ── */}
+      <BarcodePrintModal
+        mode="reprint"
+        visible={barcodeOpen}
+        onClose={() => setBarcodeOpen(false)}
+        items={barcodeItems}
+        initialCompany={companyName}
       />
 
       {/* ── Add / Edit Product — uses the shared EntityFormModal shell.
