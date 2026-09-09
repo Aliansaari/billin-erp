@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { Capacitor } from '@capacitor/core';
 import { productAPI } from '../../api';
+import OfflineBanner from '../components/OfflineBanner';
+import { fetchSnapshot, sectionOf, sectionWasTrimmed, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
 import { formatINR } from '../utils/format';
 import { shareViaNative } from '../utils/sharePdf';
 import './Stock.css';
@@ -76,6 +78,7 @@ export default function Stock() {
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [loading, setLoading]   = useState(true);
+  const [offline, setOffline]   = useState(null);
   const [filter, setFilter]     = useState('all');
   const [searchOn, setSearchOn] = useState(false);
   const [search, setSearch]     = useState('');
@@ -98,8 +101,26 @@ export default function Stock() {
         const raw = Array.isArray(res.data) ? res.data : (res.data?.data || []);
         setProducts(raw);
       })
-      .catch((e) => {
+      .catch(async (e) => {
         if (cancelled) return;
+        if (isUnreachable(e)) {
+          const snap = await fetchSnapshot().catch(() => null);
+          const section = sectionOf(snap, 'stock');
+          if (!cancelled && section) {
+            const raw = Array.isArray(section) ? section : (section?.data || []);
+            setProducts(raw);
+            setOffline({ age: snapshotAge(snap) });
+            return;
+          }
+          // The item list is the first thing dropped when a snapshot would
+          // exceed its size cap, so say that plainly instead of showing an
+          // empty shelf as if the shop had no stock.
+          if (!cancelled && sectionWasTrimmed(snap, 'stock')) {
+            setOffline({ age: snapshotAge(snap), trimmed: true });
+            setProducts([]);
+            return;
+          }
+        }
         const msg = e?.response?.data?.error || e?.message || 'Failed to load stock';
         Toast.show({ icon: 'fail', content: msg });
         setProducts([]);
@@ -265,6 +286,16 @@ export default function Stock() {
 
   return (
     <div className="st-screen">
+      {offline && (
+        <div style={{ padding: '10px 16px 0' }}>
+          <OfflineBanner
+            age={offline.trimmed
+              ? `${offline.age} — the item list was too large to save offline`
+              : offline.age}
+            onRetry={() => window.location.reload()}
+          />
+        </div>
+      )}
       <div className="st-top">
         <h1 className="st-title">Stock</h1>
         <div className="st-top-actions">

@@ -7,6 +7,7 @@ import useAuthStore from '../../store/authStore';
 import { ZehenMark } from '../../components/ZehenLogo';
 import ServerDialog from '../components/ServerDialog';
 import { controlPlaneUrl } from '../utils/controlPlane';
+import { fetchSnapshot, snapshotAge } from '../utils/offlineSnapshot';
 import useKeyboardInset from '../hooks/useKeyboardInset';
 import './Login.css';
 
@@ -67,6 +68,21 @@ const ArrowIcon = () => (
   </svg>
 );
 
+/**
+ * Did this failure mean "the shop computer is not reachable"?
+ *
+ * Only transport-level failures and gateway errors count. A 401/403 means the
+ * server answered and rejected us — dropping into offline mode there would
+ * hide a real problem behind stale figures.
+ */
+function isShopUnreachable(err) {
+  const status = err?.response?.status;
+  if (status && ![502, 503, 504, 520, 521, 522, 523, 524, 530].includes(status)) return false;
+  if (status) return true;
+  const msg = String(err?.message || '').toLowerCase();
+  return /network|timeout|failed to fetch|load failed|econn|abort/.test(msg);
+}
+
 /** Turn a server error into something a shopkeeper can act on. */
 function humanize(err, fallback) {
   const code = err?.response?.data?.code;
@@ -84,6 +100,7 @@ function humanize(err, fallback) {
 export default function Login() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
+  const loginOffline = useAuthStore((s) => s.loginOffline);
   const kbd = useKeyboardInset();
 
   const [identifier, setIdentifier] = useState('');
@@ -151,12 +168,45 @@ export default function Login() {
       setServerUrl(`https://${acct.site.hostname}`);
 
       // 3 — trade the assertion for a normal ZEHEN session on the shop server.
-      const { data: session } = await axios.post(
-        `https://${acct.site.hostname}/api/auth/sso`,
-        { assertion: acct.assertion },
-        { headers: { 'X-Zehen-Device': acct.device_token }, timeout: 25000 },
-      );
-      if (!session?.token || !session?.user) throw new Error('Sign-in failed on the shop server.');
+      let session;
+      try {
+        const res = await axios.post(
+          `https://${acct.site.hostname}/api/auth/sso`,
+          { assertion: acct.assertion },
+          { headers: { 'X-Zehen-Device': acct.device_token }, timeout: 25000 },
+        );
+        session = res.data;
+        if (!session?.token || !session?.user) throw new Error('Sign-in failed on the shop server.');
+      } catch (shopErr) {
+        // The shop computer is off, or its tunnel is down. Cloudflare answers
+        // 530/502 for an origin it cannot reach, which used to surface as a
+        // raw gateway error and made the app look Wi-Fi-only.
+        //
+        // The person has already proved who they are, so let them in
+        // read-only against the last snapshot the desktop uploaded rather
+        // than refusing entry outright.
+        if (!isShopUnreachable(shopErr)) throw shopErr;
+
+        const snap = await fetchSnapshot(acct.site.site_id).catch(() => null);
+        if (!snap?.snapshot) {
+          throw new Error('Your shop computer is offline, and there is no saved data on this phone yet.');
+        }
+
+        // Reuse the identity from the last successful online sign-in on this
+        // phone so permissions and name stay correct; fall back to what the
+        // account service told us if this is a first-ever sign-in.
+        let cached = null;
+        try { cached = JSON.parse(localStorage.getItem('user') || 'null'); } catch { /* ignore */ }
+        loginOffline(cached || {
+          username: acct.account?.identifier || identifier.trim(),
+          full_name: acct.account?.label || 'Offline user',
+          role: 'Offline',
+          permissions: {},
+        });
+        Toast.show({ content: `Shop computer is offline — showing saved figures from ${snapshotAge(snap)}` });
+        navigate('/', { replace: true });
+        return;
+      }
 
       try {
         localStorage.setItem('zehen_active_site', acct.site.site_id || '');

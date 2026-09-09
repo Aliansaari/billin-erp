@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
+import OfflineBanner from '../components/OfflineBanner';
+import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
 import { formatINR } from '../utils/format';
 import { useBack } from '../utils/useBack';
 import { shareViaNative } from '../utils/sharePdf';
@@ -48,6 +50,7 @@ export default function Outstanding() {
   const mode = urlParams.get('type') === 'Supplier' ? 'Supplier' : 'Customer';
   const [rows,     setRows]    = useState([]);
   const [loading,  setLoading] = useState(true);
+  const [offline,  setOffline] = useState(null);
   const [searchOn, setSearchOn] = useState(false);
   const [search,   setSearch]  = useState('');
   const [pdfBusy,  setPdfBusy] = useState(false);
@@ -69,9 +72,25 @@ export default function Outstanding() {
       .then((res) => {
         if (cancelled) return;
         setRows(res.data?.data || []);
+        setOffline(null);
       })
-      .catch(() => {
+      .catch(async (err) => {
         if (cancelled) return;
+        // Shop computer unreachable → show the last uploaded figures rather
+        // than an empty list, which would read as "nothing is outstanding".
+        // A 4xx means the server answered and refused: that is a real problem
+        // and must not be hidden behind stale numbers.
+        if (isUnreachable(err)) {
+          const snap = await fetchSnapshot().catch(() => null);
+          const section = sectionOf(snap, 'outstanding');
+          if (!cancelled && section) {
+            const all = section?.data || [];
+            // The snapshot holds both parties; filter to the tab being viewed.
+            setRows(all.filter((r) => !r.party_type || r.party_type === mode));
+            setOffline({ age: snapshotAge(snap) });
+            return;
+          }
+        }
         Toast.show({ icon: 'fail', content: 'Failed to load outstanding' });
         setRows([]);
       })
@@ -160,6 +179,12 @@ export default function Outstanding() {
 
   return (
     <div className="rl-screen drill-in">
+
+      {offline && (
+        <div style={{ padding: '10px 16px 0' }}>
+          <OfflineBanner age={offline.age} onRetry={() => window.location.reload()} />
+        </div>
+      )}
 
       {/* ── Topbar ── */}
       <div className="rl-top">

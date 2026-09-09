@@ -3510,6 +3510,19 @@ async function startServer() {
       // is already listening, and deliberately fire-and-forget. A shop with
       // no internet must boot exactly as fast and work exactly as well as
       // one with it, so this can never delay or fail the boot sequence.
+      // Reconcile secondary company databases against the primary.
+      //
+      // The migration block above runs against ONE connection, so a company
+      // created after a release never receives those migrations and drifts
+      // until it can no longer be opened at all ("column ... does not exist").
+      // This adds only what is missing, never drops or retypes, and skips a
+      // company it cannot reach. Runs after the listener is up so it can
+      // never delay boot.
+      setTimeout(() => {
+        require('./services/companySchemaRepair').repairAll()
+          .catch((e) => console.error('[schema-repair] failed:', e.message));
+      }, 3_000).unref?.();
+
       try {
         require('./services/remoteAccess').boot();
         // Offline snapshot uploads. Only does anything once remote access is
