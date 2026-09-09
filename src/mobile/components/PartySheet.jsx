@@ -71,6 +71,22 @@ function PartySheetInner({ type, onClose, onPick }) {
           <button className="sheet-close" onClick={onClose}>Close</button>
         </div>
 
+        {/* Search at the top — consistent with the reports / statement
+            party picker. The whole sheet lifts above the keyboard (see
+            kbdH below) so results stay visible while typing. */}
+        <div className="sheet-search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input
+            ref={searchRef}
+            placeholder="Search name, mobile, GSTIN…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoCorrect="off"
+            autoCapitalize="words"
+            spellCheck="false"
+          />
+        </div>
+
         <div className="sheet-body">
           {/* Walk-in / cash quick pick — only for customer side */}
           {type !== 'supplier' && (
@@ -78,7 +94,6 @@ function PartySheetInner({ type, onClose, onPick }) {
               className="sheet-row sheet-row--walkin"
               onClick={() => onPick(null)}
             >
-              <div className="sheet-row-avatar walkin">W</div>
               <div className="sheet-row-info">
                 <div className="sheet-row-name">Walk-in / cash</div>
                 <div className="sheet-row-meta">No party · no balance tracking</div>
@@ -103,9 +118,6 @@ function PartySheetInner({ type, onClose, onPick }) {
                 className="sheet-row"
                 onClick={() => onPick(p)}
               >
-                <div className={`sheet-row-avatar ${type === 'supplier' ? 'supplier' : 'customer'}`}>
-                  {(p.party_name || '?').charAt(0).toUpperCase()}
-                </div>
                 <div className="sheet-row-info">
                   <div className="sheet-row-name">{p.party_name}</div>
                   <div className="sheet-row-meta">
@@ -127,21 +139,6 @@ function PartySheetInner({ type, onClose, onPick }) {
               </button>
             );
           })}
-        </div>
-
-        {/* Search field pinned at the bottom so when the keyboard rises
-            the results list (above) stays fully visible and tappable. */}
-        <div className="sheet-search sheet-search--bottom">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input
-            ref={searchRef}
-            placeholder="Search name, mobile, GSTIN…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoCorrect="off"
-            autoCapitalize="words"
-            spellCheck="false"
-          />
         </div>
       </div>
     </div>

@@ -1,0 +1,240 @@
+/* ────────────────────────────────────────────────────────────────────
+ * CommandCentre — floating centre tab button + action sheet.
+ * Styles live here (not inline) so they parse once, not on every render.
+ * ──────────────────────────────────────────────────────────────────── */
+
+/* ── Floating tab pill ──────────────────────────────────────────────── */
+.cc-tab-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+  transform: translateY(-12px);
+}
+.cc-tab-pill {
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  background: linear-gradient(155deg, var(--c-primary-hi) 0%, var(--c-primary-lo) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFF4EA;
+  box-shadow:
+    0 6px 20px -4px color-mix(in srgb, var(--c-primary) 60%, transparent),
+    0 2px 6px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition: transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 140ms;
+}
+.cc-tab-btn:active .cc-tab-pill {
+  transform: scale(0.92);
+  box-shadow:
+    0 3px 10px -2px color-mix(in srgb, var(--c-primary) 50%, transparent),
+    0 1px 4px rgba(0, 0, 0, 0.14);
+}
+
+/* ── Backdrop + sheet ───────────────────────────────────────────────── */
+.cc-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 4, 0.5);
+  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(7px);
+  z-index: 2000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: ccFadeIn 200ms ease-out;
+}
+@keyframes ccFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.cc-sheet {
+  background: var(--c-bg-surface);
+  border-radius: 26px 26px 0 0;
+  box-shadow: 0 -1px 0 rgba(0,0,0,0.05), 0 -20px 56px rgba(0,0,0,0.16);
+  width: 100%;
+  max-width: 520px;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: ccRise 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+  touch-action: none;
+}
+@keyframes ccRise {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* Drag handle zone — touch target for swipe-to-dismiss */
+.cc-grab-area {
+  padding: 11px 0 5px;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.cc-grab {
+  width: 38px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-border);
+}
+
+/* Header */
+.cc-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 6px 20px 14px;
+  flex-shrink: 0;
+}
+.cc-head-title {
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  color: var(--c-text);
+  line-height: 1.1;
+}
+.cc-head-title em { font-style: italic; font-weight: 300; }
+.cc-head-sub {
+  font-size: 12px;
+  color: var(--c-text-mute);
+  margin-top: 3px;
+  letter-spacing: -0.01em;
+}
+.cc-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--c-bg-page);
+  border: 1px solid var(--c-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-mute);
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.cc-close:active { background: var(--c-bg-app); }
+
+/* Scroll body */
+.cc-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 28px);
+  scrollbar-width: none;
+}
+.cc-body::-webkit-scrollbar { display: none; }
+
+.cc-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-text-mute);
+  padding: 0 2px 10px;
+}
+.cc-section-label--browse { padding-top: 18px; }
+
+/* ── CREATE: compact 3-column tinted grid ───────────────────────────── */
+.cc-create-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+}
+.cc-create-item {
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 17px;
+  padding: 15px 6px 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease-out, background 120ms;
+}
+.cc-create-item:active {
+  transform: scale(0.94);
+  background: var(--c-bg-page);
+}
+.cc-ci-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.cc-ci-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text);
+  text-align: center;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  white-space: pre-line;
+}
+
+/* ── BROWSE: full-width list rows ───────────────────────────────────── */
+.cc-browse-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.cc-browse-item {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 12px 14px;
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 15px;
+  cursor: pointer;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease-out, background 120ms;
+  text-align: left;
+}
+.cc-browse-item:active { transform: scale(0.985); background: var(--c-bg-page); }
+.cc-bi-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.cc-bi-text { flex: 1; min-width: 0; }
+.cc-bi-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.cc-bi-sub {
+  font-size: 11.5px;
+  color: var(--c-text-mute);
+  margin-top: 1px;
+  letter-spacing: -0.01em;
+}
+.cc-bi-chev {
+  color: var(--c-border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}

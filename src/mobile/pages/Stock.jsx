@@ -82,6 +82,10 @@ export default function Stock() {
   const [notFoundCode, setNotFoundCode] = useState(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfUrl,  setPdfUrl]  = useState(null);
+  // Render window: the full product set can be thousands of rows, but only
+  // this many are mounted at once. Grows as the user scrolls. Filtering /
+  // totals / PDF still run over the entire dataset — only the DOM is capped.
+  const [visibleCount, setVisibleCount] = useState(80);
   const searchRef = useRef(null);
   const pdfUrlRef = useRef(null);
 
@@ -236,6 +240,17 @@ export default function Stock() {
     return rows;
   }, [products, filter, search]);
 
+  // New filter or search term → reset the render window to the top slice.
+  useEffect(() => { setVisibleCount(80); }, [filter, search]);
+
+  // Grow the window as the list nears its end (infinite-scroll style).
+  const onListScroll = (e) => {
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 600) {
+      setVisibleCount((n) => (n < filtered.length ? n + 80 : n));
+    }
+  };
+
   const counts = useMemo(() => {
     const c = { all: products.length, in: 0, low: 0, out: 0 };
     for (const p of products) c[stockStatus(p)]++;
@@ -313,14 +328,14 @@ export default function Stock() {
         ))}
       </div>
 
-      <div className="st-list-wrap">
+      <div className="st-list-wrap" onScroll={onListScroll}>
         {loading && <div className="st-empty">Loading…</div>}
         {!loading && filtered.length === 0 && (
           <div className="st-empty">
             {search.trim() ? `No matches for "${search.trim()}"` : 'No products found'}
           </div>
         )}
-        {!loading && filtered.map((p) => {
+        {!loading && filtered.slice(0, visibleCount).map((p) => {
           const name = p.product_name || p.name || 'Unnamed';
           const qty = Number(p.current_stock ?? p.stock_quantity ?? 0);
           const unit = p.unit_of_measurement || p.unit || 'pcs';

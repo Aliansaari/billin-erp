@@ -1,45 +1,53 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider } from 'antd-mobile';
 import enUS from 'antd-mobile/es/locales/en-US';
 import useAuthStore from '../store/authStore';
 import useThemeStore from '../store/themeStore';
+import AppShell from './components/AppShell';
+
+// Eager — needed for first paint after launch / login. Keeping these in the
+// main bundle means the landing screen renders without a chunk round-trip.
 import Login from './pages/Login';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
-import VouchersList from './pages/VouchersList';
-import BillDetail from './pages/BillDetail';
-import DayBook from './pages/DayBook';
-import Search from './pages/Search';
-import Stock from './pages/Stock';
-import StockMovement from './pages/StockMovement';
-import StockMovementPicker from './pages/StockMovementPicker';
-import SimpleScreen from './pages/SimpleScreen';
-import Outstanding from './pages/Outstanding';
-import Reports from './pages/Reports';
-import BillForm from './pages/BillForm';
-import VoucherForm from './pages/VoucherForm';
-import PartyForm from './pages/PartyForm';
-import SalesReport from './pages/SalesReport';
-import PurchaseReport from './pages/PurchaseReport';
-import MonthlySummary from './pages/MonthlySummary';
-import LedgerPage from './pages/LedgerPage';
-import PartyStatement from './pages/PartyStatement';
-import TrialBalanceMobile from './pages/TrialBalanceMobile';
-import ProfitLossMobile from './pages/ProfitLossMobile';
-import BalanceSheetMobile from './pages/BalanceSheetMobile';
-import GstSummary from './pages/GstSummary';
-import Gstr1Mobile from './pages/Gstr1Mobile';
-import Gstr3bMobile from './pages/Gstr3bMobile';
-import CashFlowMobile from './pages/CashFlowMobile';
-import BillsOutstanding from './pages/BillsOutstanding';
-import SalesReturn from './pages/SalesReturn';
-import PurchaseReturn from './pages/PurchaseReturn';
-import SalesByItem from './pages/SalesByItem';
-import PurchaseByItem from './pages/PurchaseByItem';
-import FastSlowMovers from './pages/FastSlowMovers';
-import ReorderAlert from './pages/ReorderAlert';
-import AppShell from './components/AppShell';
+
+// Lazy — every other screen is code-split into its own chunk, loaded on
+// first visit. This keeps the boot bundle small (the heavy PDF/report pages
+// that pull in jspdf + html2canvas no longer load at startup), which is the
+// single biggest win for cold-start time and main-thread smoothness.
+const VouchersList       = lazy(() => import('./pages/VouchersList'));
+const BillDetail         = lazy(() => import('./pages/BillDetail'));
+const DayBook            = lazy(() => import('./pages/DayBook'));
+const Search             = lazy(() => import('./pages/Search'));
+const Stock              = lazy(() => import('./pages/Stock'));
+const StockMovement      = lazy(() => import('./pages/StockMovement'));
+const StockMovementPicker = lazy(() => import('./pages/StockMovementPicker'));
+const SimpleScreen       = lazy(() => import('./pages/SimpleScreen'));
+const Outstanding        = lazy(() => import('./pages/Outstanding'));
+const Reports            = lazy(() => import('./pages/Reports'));
+const BillForm           = lazy(() => import('./pages/BillForm'));
+const VoucherForm        = lazy(() => import('./pages/VoucherForm'));
+const PartyForm          = lazy(() => import('./pages/PartyForm'));
+const SalesReport        = lazy(() => import('./pages/SalesReport'));
+const PurchaseReport     = lazy(() => import('./pages/PurchaseReport'));
+const MonthlySummary     = lazy(() => import('./pages/MonthlySummary'));
+const LedgerPage         = lazy(() => import('./pages/LedgerPage'));
+const PartyStatement     = lazy(() => import('./pages/PartyStatement'));
+const TrialBalanceMobile = lazy(() => import('./pages/TrialBalanceMobile'));
+const ProfitLossMobile   = lazy(() => import('./pages/ProfitLossMobile'));
+const BalanceSheetMobile = lazy(() => import('./pages/BalanceSheetMobile'));
+const GstSummary         = lazy(() => import('./pages/GstSummary'));
+const Gstr1Mobile        = lazy(() => import('./pages/Gstr1Mobile'));
+const Gstr3bMobile       = lazy(() => import('./pages/Gstr3bMobile'));
+const CashFlowMobile     = lazy(() => import('./pages/CashFlowMobile'));
+const BillsOutstanding   = lazy(() => import('./pages/BillsOutstanding'));
+const SalesReturn        = lazy(() => import('./pages/SalesReturn'));
+const PurchaseReturn     = lazy(() => import('./pages/PurchaseReturn'));
+const SalesByItem        = lazy(() => import('./pages/SalesByItem'));
+const PurchaseByItem     = lazy(() => import('./pages/PurchaseByItem'));
+const FastSlowMovers     = lazy(() => import('./pages/FastSlowMovers'));
+const ReorderAlert       = lazy(() => import('./pages/ReorderAlert'));
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);

@@ -1,7 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import TabBar from './TabBar';
 import SidePanel from './SidePanel';
+
+// Lightweight fallback shown while a lazily-loaded route chunk arrives.
+// Keeps the tab bar visible and just fills the body with a quiet spinner.
+function RouteFallback() {
+  return (
+    <div className="route-fallback" aria-busy="true" aria-label="Loading">
+      <span className="route-fallback-spin" />
+    </div>
+  );
+}
 
 export default function AppShell() {
   const [panelOpen, setPanelOpen] = useState(false);
@@ -31,8 +41,11 @@ export default function AppShell() {
     const onEnd = (e) => {
       const dx = e.changedTouches[0].clientX - touchStart.current.x;
       const dy = Math.abs(e.changedTouches[0].clientY - touchStart.current.y);
-      // Must start within 80px of left edge, travel 50px+ right, stay horizontal
-      if (touchStart.current.x > 80 || dx < 50 || dy > 80) return;
+      // Start within 80px of the left edge, travel 50px+ to the right, and
+      // stay mostly horizontal (vertical drift must be under the horizontal
+      // distance). The proportional check lets slightly-diagonal swipes
+      // through, which is why the gesture used to feel flaky.
+      if (touchStart.current.x > 80 || dx < 50 || dy > dx) return;
       if (isHomeRef.current) {
         setPanelRef.current(true);
       } else {
@@ -51,7 +64,9 @@ export default function AppShell() {
     <>
       <div className="app-shell">
         <div className="app-shell-body">
-          <Outlet context={{ setPanelOpen }} />
+          <Suspense fallback={<RouteFallback />}>
+            <Outlet context={{ setPanelOpen }} />
+          </Suspense>
         </div>
         <TabBar />
       </div>

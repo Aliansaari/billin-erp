@@ -312,8 +312,11 @@ export default function VoucherForm({ type }) {
     return pills;
   }, [partyOutstanding]);
 
-  const heroVerb = isReceipt ? 'Receiving' : 'Paying';
-  const heroDir  = isReceipt ? 'from' : 'to';
+  // Label for the big amount field. "Receiving from" / "Paying to" left a
+  // dangling preposition (the party is already named in the pill above), so
+  // this now reads as a complete, correct label for the amount being entered.
+  const heroVerb = 'Amount';
+  const heroDir  = isReceipt ? 'received' : 'paid';
   const balanceLabel = isReceipt ? 'outstanding' : 'payable';
 
   return (
@@ -324,14 +327,18 @@ export default function VoucherForm({ type }) {
           <BackIcon />
         </button>
         <div className="vf-header-meta">
-          <span>{isReceipt ? 'REC' : 'PAY'} <span className="strong">{voucherNo || '—'}</span></span>
-          <input
-            type="date"
-            className="vf-date-input"
-            value={txDate}
-            onChange={(e) => setTxDate(e.target.value || todayISO())}
-            aria-label="Transaction date"
-          />
+          <span className="vf-voucher-no">{isReceipt ? 'RECEIPT' : 'PAYMENT'} <span className="strong">{voucherNo || '—'}</span></span>
+          <label className="vf-date">
+            <svg className="vf-date-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span className="vf-date-text">{fmtDate(txDate)}</span>
+            <input
+              type="date"
+              className="vf-date-native"
+              value={txDate}
+              onChange={(e) => setTxDate(e.target.value || todayISO())}
+              aria-label="Transaction date"
+            />
+          </label>
         </div>
         <button className="vf-icon-btn" aria-label="More">
           <MoreIcon />

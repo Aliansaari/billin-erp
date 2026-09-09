@@ -58,44 +58,6 @@ export default function TabBar() {
 
   return (
     <>
-      <style>{`
-        .cc-tab-btn {
-          flex: 0 0 auto;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: none;
-          border: none;
-          padding: 0 8px;
-          cursor: pointer;
-          -webkit-tap-highlight-color: transparent;
-          font-family: inherit;
-          /* Push the button up so the pill floats above the bar */
-          transform: translateY(-8px);
-        }
-        .cc-tab-pill {
-          width: 52px;
-          height: 52px;
-          border-radius: 18px;
-          background: linear-gradient(155deg, var(--c-primary-hi) 0%, var(--c-primary-lo) 100%);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #FFF4EA;
-          box-shadow:
-            0 6px 20px -4px color-mix(in srgb, var(--c-primary) 60%, transparent),
-            0 2px 6px rgba(0, 0, 0, 0.18),
-            inset 0 1px 0 rgba(255, 255, 255, 0.22);
-          transition: transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 140ms;
-        }
-        .cc-tab-btn:active .cc-tab-pill {
-          transform: scale(0.92);
-          box-shadow:
-            0 3px 10px -2px color-mix(in srgb, var(--c-primary) 50%, transparent),
-            0 1px 4px rgba(0, 0, 0, 0.14);
-        }
-      `}</style>
-
       <nav className="tabbar" role="tablist">
         {left.map((t) => (
           <button

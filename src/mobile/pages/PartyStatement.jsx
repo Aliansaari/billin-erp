@@ -6,6 +6,7 @@ import { formatINR, isoDate, defaultFY } from '../utils/format';
 import { useBack } from '../utils/useBack';
 import { buildStatementPdf } from '../../utils/ledgerPdf';
 import { shareViaNative } from '../utils/sharePdf';
+import useKeyboardInset from '../hooks/useKeyboardInset';
 import './ReportList.css';
 
 // ── Icons ──────────────────────────────────────────────────────────────
@@ -137,6 +138,7 @@ export default function PartyStatement({ partyType = 'Customer' }) {
   const searchRef      = useRef(null);
   const sheetSearchRef = useRef(null);
   const pdfUrlRef      = useRef(null);
+  const kbdInset       = useKeyboardInset();
 
   useEffect(() => {
     const p = { from: fromDate, to: toDate };
@@ -532,7 +534,11 @@ export default function PartyStatement({ partyType = 'Customer' }) {
       {sheetOpen && (
         <>
           <div className="rl-sheet-scrim" onClick={() => setSheetOpen(false)} />
-          <div className="rl-sheet" role="dialog">
+          <div
+            className="rl-sheet"
+            role="dialog"
+            style={kbdInset > 0 ? { bottom: kbdInset, maxHeight: `calc(100vh - ${kbdInset + 28}px)` } : undefined}
+          >
             <div className="rl-sheet-handle" />
             <div className="rl-sheet-head">
               <h2 className="rl-sheet-title">

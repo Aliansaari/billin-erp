@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
+import OfflineBanner from '../components/OfflineBanner';
+import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
 import useAuthStore from '../../store/authStore';
 import ActivityRow from '../components/ActivityRow';
 import {
@@ -78,6 +80,8 @@ export default function Dashboard() {
   const [insights, setInsights] = useState(null);
   const [today, setToday]       = useState([]);
   const [loading, setLoading]   = useState(true);
+  // Non-null only while we are rendering saved figures instead of live ones.
+  const [offline, setOffline]   = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,8 +91,30 @@ export default function Dashboard() {
       reportAPI.getDashboardInsights(),
       reportAPI.dayBook({ from_date: todayIso, to_date: todayIso }),
     ])
-      .then(([s, ins, db]) => {
+      .then(async ([s, ins, db]) => {
         if (cancelled) return;
+
+        // Every call failing on the transport means the shop server is
+        // unreachable — the PC is off, or the tunnel is down. Fall back to
+        // the snapshot the desktop uploaded, clearly labelled with its age.
+        // A 4xx is NOT unreachable: that is a real auth/permission problem
+        // and must not be papered over with yesterday's numbers.
+        const allFailed = [s, ins, db].every((r) => r.status === 'rejected');
+        if (allFailed && isUnreachable(s.reason)) {
+          const snap = await fetchSnapshot();
+          if (!cancelled && snap) {
+            setStats(sectionOf(snap, 'dashboard'));
+            setInsights(sectionOf(snap, 'insights'));
+            const raw = sectionOf(snap, 'dayBook')?.data || [];
+            setToday([...raw]
+              .sort((a, b) => Number(b.entry_number || 0) - Number(a.entry_number || 0))
+              .slice(0, 6));
+            setOffline({ age: snapshotAge(snap) });
+            return;
+          }
+        }
+
+        setOffline(null);
         if (s.status === 'fulfilled')   setStats(s.value.data);
         if (ins.status === 'fulfilled') setInsights(ins.value.data);
         if (db.status === 'fulfilled') {
@@ -247,6 +273,10 @@ export default function Dashboard() {
       </div>
 
     <div className="dash">
+      {/* Stays visible for as long as the stale figures do — see
+          components/OfflineBanner.jsx for why it cannot be dismissed. */}
+      {offline && <OfflineBanner age={offline.age} onRetry={() => window.location.reload()} />}
+
       {/* Hero card */}
       <div className="hero-card">
         <div className="hero-top" onClick={() => navigate(`/day-book?date=${isoDate()}`)}>
