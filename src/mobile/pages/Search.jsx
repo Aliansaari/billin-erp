@@ -239,7 +239,10 @@ export default function Search() {
       const productTerm = parsedProduct.term || term;
       Promise.allSettled([
         wantParties  ? partyAPI.getAll({ search: term, limit: 12 })                   : Promise.resolve(null),
-        wantProducts ? productAPI.search(productTerm, { limit: parsedProduct.scope ? 60 : 12 }) : Promise.resolve(null),
+        wantProducts ? productAPI.search(productTerm, parsedProduct.scope
+          // Scope on the SERVER so the match cannot be lost past the row cap.
+          ? { limit: 12, search_field: parsedProduct.scope }
+          : { limit: 12 }) : Promise.resolve(null),
         wantVouchers ? api.get('/sales',     { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
         wantVouchers ? api.get('/purchases', { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
         wantVouchers ? api.get('/payments',  { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
@@ -251,12 +254,7 @@ export default function Search() {
           return Array.isArray(d) ? d : [];
         };
         setParties(wantParties  ? pick(p).slice(0, 12)  : []);
-        const productRows = wantProducts
-          ? (parsedProduct.scope
-              ? pick(pr).filter((row) => matchesSearch(row, parsedProduct))
-              : pick(pr))
-          : [];
-        setProducts(productRows.slice(0, 12));
+        setProducts(wantProducts ? pick(pr).slice(0, 12) : []);
         setVouchers(wantVouchers ? [
           ...pick(s)  .map((v) => ({ ...v, _vt: 'sale' })),
           ...pick(pu) .map((v) => ({ ...v, _vt: 'purchase' })),

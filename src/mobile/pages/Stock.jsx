@@ -6,6 +6,7 @@ import { productAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
 import { fetchSnapshot, sectionOf, sectionWasTrimmed, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
 import { parseSearch, matchesSearch } from '../utils/searchPrefix';
+import { getCached, setCached } from '../utils/screenCache';
 import { formatINR } from '../utils/format';
 import { shareViaNative } from '../utils/sharePdf';
 import './Stock.css';
@@ -106,6 +107,10 @@ export default function Stock() {
     //
     // So: render page one the moment it lands, then fill the rest in behind
     // it. The screen is usable immediately and the list grows under the user.
+    // Show the previous visit's catalogue instantly; refresh behind it.
+    const cachedStock = getCached('stock');
+    if (cachedStock) { setProducts(cachedStock); setLoading(false); }
+
     const loadStock = async () => {
       const PAGE = 500;
       const first = await productAPI.getAll({ limit: PAGE, page: 1 });
@@ -118,7 +123,7 @@ export default function Stock() {
 
       const total = Number(first.data?.total ?? firstRows.length);
       const pages = Math.ceil(total / PAGE);
-      if (pages <= 1) return;
+      if (pages <= 1) { setCached('stock', firstRows); return; }
 
       // Remaining pages in parallel, then ONE state update so React renders
       // once rather than once per page.
@@ -130,7 +135,9 @@ export default function Stock() {
       );
       if (cancelled) return;
       const more = rest.flat();
-      if (more.length) setProducts((prev) => [...prev, ...more]);
+      const all = [...firstRows, ...more];
+      if (more.length) setProducts(all);
+      setCached('stock', all);
     };
 
     loadStock()
@@ -416,11 +423,26 @@ export default function Stock() {
               <div className="st-content">
                 <div className="st-name">{name}</div>
                 {(() => {
+                  const article = p.article_number || '';
                   const barcode = p.barcode || '';
                   const hsn = p.hsn_code || '';
                   const size = p.size_value || '';
+                  // Article number leads, as a chip.
+                  //
+                  // It was not shown at all, yet it is the code a shopkeeper
+                  // actually calls a garment by — the barcode is for scanners
+                  // and the HSN is for the tax return. Given as a chip rather
+                  // than another dot-separated fragment so the eye lands on it
+                  // without reading the whole line, and so it survives when the
+                  // rest of the meta is truncated on a narrow screen.
                   const meta = [barcode, hsn && `HSN ${hsn}`, size && `Size ${size}`].filter(Boolean);
-                  return meta.length > 0 && <div className="st-meta">{meta.join(' · ')}</div>;
+                  if (!article && !meta.length) return null;
+                  return (
+                    <div className="st-meta">
+                      {article && <span className="st-article" title={`Article ${article}`}>{article}</span>}
+                      {meta.length > 0 && <span className="st-meta-text">{meta.join(' · ')}</span>}
+                    </div>
+                  );
                 })()}
                 <div className="st-rates">
                   {purRate > 0 && <span className="st-rate">Pur ₹{formatINR(purRate)}</span>}

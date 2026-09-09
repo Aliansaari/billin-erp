@@ -147,6 +147,28 @@ export default function PartyStatement({ partyType = 'Customer' }) {
     setUrlParams(p, { replace: true });
   }, [fromDate, toDate, partyId, partyName, setUrlParams]);
 
+  /* Adopt a party chosen elsewhere while this screen is already mounted.
+   *
+   * partyId/partyName are seeded from the URL by useState initialisers, and
+   * those run ONCE. Arriving here fresh worked, but picking a second party
+   * from global search while a statement was already open re-used the mounted
+   * component — the URL changed, the state did not, and the screen either sat
+   * on the previous party or, on first mount from a route with no party, sat
+   * empty. Sync explicitly, and only when the value genuinely differs so this
+   * cannot fight the effect above that writes the URL. */
+  const urlPartyId = urlParams.get('party_id');
+  const urlPartyName = urlParams.get('party_name');
+  useEffect(() => {
+    const next = urlPartyId ? Number(urlPartyId) : null;
+    if (next !== null && next !== partyId) {
+      setPartyId(next);
+      setPartyName(urlPartyName || '');
+    }
+    // partyId intentionally omitted: including it would re-run this on our own
+    // update and could bounce the value back.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlPartyId, urlPartyName]);
+
   useEffect(() => {
     if (toDate < fromDate) setToDate(fromDate);
   }, [fromDate, toDate]);

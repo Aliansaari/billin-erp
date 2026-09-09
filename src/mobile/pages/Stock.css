@@ -178,8 +178,35 @@
 .st-meta {
   font-size: 11px;
   color: var(--c-text-mute);
-  margin-top: 2px;
+  margin-top: 3px;
   letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;          /* let the text half shrink, not the chip */
+}
+
+/* Article number — the identifier a shopkeeper actually uses. Given its own
+   chip so it reads first and survives when the rest of the line truncates. */
+.st-article {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--c-primary);
+  background: var(--c-primary-soft);
+  border: 1px solid var(--c-primary-line);
+  border-radius: 6px;
+  padding: 1px 6px;
+  max-width: 42vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.st-meta-text {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

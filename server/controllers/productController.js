@@ -79,7 +79,7 @@ function validateCostingMethod(data) {
 
 exports.getAll = async (req, res) => {
   try {
-    const { search, category_id, stock_status, name_only, name_exact } = req.query;
+    const { search, category_id, stock_status, name_only, name_exact, search_field } = req.query;
     // Clamp page/limit (see helpers.sanitizePagination).
     const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
     const where = { is_active: true };
@@ -95,6 +95,33 @@ exports.getAll = async (req, res) => {
       } else if (name_only === 'true') {
         // Sales/purchase form: search only by product name — no article/barcode noise
         where.product_name = { [Op.iLike]: `%${s}%` };
+      } else if (search_field) {
+        // Field-scoped search, used by the mobile app's `a:` / `b:` / `n:` /
+        // `h:` prefixes.
+        //
+        // Doing this on the server rather than filtering the response matters
+        // for correctness, not just speed: an unscoped query returns only the
+        // first `limit` rows matching ANY field, so narrowing afterwards can
+        // silently drop the very row the user asked for when a common term
+        // matches hundreds of product names first.
+        const FIELDS = {
+          article: ['article_number'],
+          barcode: ['barcode'],
+          name:    ['product_name'],
+          hsn:     ['hsn_code'],
+        };
+        const cols = FIELDS[String(search_field).toLowerCase()];
+        if (cols) {
+          where[Op.or] = cols.map((c) => ({ [c]: { [Op.iLike]: `%${s}%` } }));
+        } else {
+          // Unknown scope — fall back to the full search rather than
+          // returning nothing, which would look like "no such product".
+          where[Op.or] = [
+            { product_name:   { [Op.iLike]: `%${s}%` } },
+            { barcode:        { [Op.iLike]: `%${s}%` } },
+            { article_number: { [Op.iLike]: `%${s}%` } },
+          ];
+        }
       } else {
         // Product management page: full search across name, barcode, article
         where[Op.or] = [

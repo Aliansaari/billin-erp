@@ -6,6 +6,7 @@ import OfflineBanner from '../components/OfflineBanner';
 import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
 import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import { activeCompanyName } from '../utils/identity';
+import { getCached, setCached } from '../utils/screenCache';
 import useAuthStore from '../../store/authStore';
 import ActivityRow from '../components/ActivityRow';
 import {
@@ -120,6 +121,15 @@ export default function Dashboard() {
         setOffline(null);
         if (s.status === 'fulfilled')   setStats(s.value.data);
         if (ins.status === 'fulfilled') setInsights(ins.value.data);
+        if (s.status === 'fulfilled' || ins.status === 'fulfilled') {
+          setCached('dashboard', {
+            stats: s.status === 'fulfilled' ? s.value.data : null,
+            insights: ins.status === 'fulfilled' ? ins.value.data : null,
+            today: db.status === 'fulfilled'
+              ? sortVouchersNewestFirst(db.value.data?.data || []).slice(0, 6)
+              : [],
+          });
+        }
         if (db.status === 'fulfilled') {
           const raw = db.value.data?.data || [];
           setToday(sortVouchersNewestFirst(raw).slice(0, 6));
@@ -133,6 +143,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     const ref = { current: false };
+    // Paint the previous visit's figures instantly, then refresh behind them.
+    // Without this every tab switch showed a spinner for data we already had.
+    const cached = getCached('dashboard');
+    if (cached) {
+      setStats(cached.stats);
+      setInsights(cached.insights);
+      setToday(cached.today);
+      setLoading(false);
+    }
     loadDashboard(ref);
     return () => { ref.current = true; };
   }, [loadDashboard]);
