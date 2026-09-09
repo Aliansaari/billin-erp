@@ -723,11 +723,41 @@ async function handleAccountLogin(env, body) {
     'UPDATE accounts SET failed_count = 0, locked_until = NULL, last_login = ? WHERE account_id = ?',
   ).bind(now, acct.account_id).run();
 
-  // Reuse this account's device token so signing in on the same phone twice
-  // does not consume another device slot.
+  // One device row per (account, INSTALL) — not per account.
+  //
+  // Keying on the account alone meant a second phone signing in with the same
+  // email silently replaced the first one's token, and that phone simply
+  // stopped working a few minutes later with no explanation. An owner could
+  // not use a phone and a tablet, and it bought no security: a leaked
+  // password would just make the two sides kick each other off in a loop.
+  //
+  // The install id is generated once by the app and kept in its storage, so
+  // re-signing-in on the SAME device reuses its slot rather than consuming
+  // another. Devices are still capped by the licence's max_devices, which is
+  // where the limit belongs.
+  const install = String(body.install_id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  const deviceLabel = install
+    ? `account:${acct.account_id}:${install}`
+    : `account:${acct.account_id}`;   // older app builds send no install id
+
   let device = await env.DB.prepare(
     'SELECT * FROM devices WHERE org_id = ? AND label = ? AND revoked = 0',
-  ).bind(acct.org_id, `account:${acct.account_id}`).first();
+  ).bind(acct.org_id, deviceLabel).first();
+
+  // Upgrade path: a phone that previously signed in from a build with no
+  // install id owns a row under the bare `account:<id>` label. Claim that row
+  // rather than opening a second one — otherwise simply updating the app
+  // would burn an extra device slot and strand the old row forever.
+  if (!device && install) {
+    const legacy = await env.DB.prepare(
+      'SELECT * FROM devices WHERE org_id = ? AND label = ? AND revoked = 0',
+    ).bind(acct.org_id, `account:${acct.account_id}`).first();
+    if (legacy) {
+      await env.DB.prepare('UPDATE devices SET label = ? WHERE device_id = ?')
+        .bind(deviceLabel, legacy.device_id).run();
+      device = { ...legacy, label: deviceLabel };
+    }
+  }
 
   let deviceToken = null;
   if (!device) {
@@ -742,7 +772,7 @@ async function handleAccountLogin(env, body) {
       `INSERT INTO devices (device_id, org_id, home_site, token_hash, label, platform, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).bind(`dev_${randHex(8)}`, acct.org_id, acct.site_id,
-           await sha256Hex(deviceToken), `account:${acct.account_id}`,
+           await sha256Hex(deviceToken), deviceLabel,
            body.platform || 'unknown', now).run();
   } else {
     // The stored hash cannot be reversed, so a returning phone that lost its
@@ -835,8 +865,12 @@ async function handleAccountManage(env, body) {
   if (action === 'delete') {
     // Retire the paired device too, so removing someone's access actually
     // ends their session instead of leaving a working tunnel credential.
-    await env.DB.prepare('UPDATE devices SET revoked = 1 WHERE org_id = ? AND label = ?')
-      .bind(org.org_id, `account:${String(body.account_id)}`).run();
+    // LIKE so every install belonging to this account is revoked, not only a
+    // legacy row that happens to carry the bare label.
+    await env.DB.prepare(
+      "UPDATE devices SET revoked = 1 WHERE org_id = ? AND (label = ? OR label LIKE ?)",
+    ).bind(org.org_id, `account:${String(body.account_id)}`,
+           `account:${String(body.account_id)}:%`).run();
     await env.DB.prepare('DELETE FROM accounts WHERE account_id = ? AND org_id = ?')
       .bind(String(body.account_id), org.org_id).run();
     return json({ ok: true });

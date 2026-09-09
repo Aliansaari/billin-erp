@@ -25,3 +25,28 @@ export function controlPlaneUrl() {
   } catch { /* private mode */ }
   return String(BUILD_DEFAULT).replace(/\/+$/, '');
 }
+
+/**
+ * A stable id for THIS installation of the app.
+ *
+ * Device slots are keyed on (account, install), so re-signing-in on the same
+ * phone reuses its slot instead of consuming another — and, more importantly,
+ * signing in on a second device no longer silently evicts the first.
+ *
+ * Generated once and kept in local storage. Losing it (reinstall, cleared
+ * data) simply looks like a new device, which is the honest interpretation.
+ */
+export function installId() {
+  const KEY = 'zehen_install_id';
+  try {
+    let id = localStorage.getItem(KEY);
+    if (!id) {
+      id = (crypto?.randomUUID?.() || `i${Date.now()}${Math.random().toString(16).slice(2)}`)
+        .replace(/[^A-Za-z0-9_-]/g, '');
+      localStorage.setItem(KEY, id);
+    }
+    return id;
+  } catch {
+    return '';   // private mode — server falls back to per-account behaviour
+  }
+}

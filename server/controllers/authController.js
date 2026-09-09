@@ -699,9 +699,26 @@ exports.ssoExchange = async (req, res) => {
         }
         await user.update({ last_login: new Date() });
 
-        // This phone's device token was minted seconds ago by the control
-        // plane; our allow-list refreshes only every few minutes. Pull it
-        // forward so the very next request is not rejected by mobileGate.
+        // Pull the device allow-list forward BEFORE answering.
+        //
+        // The control plane minted this phone's device token moments ago, but
+        // mobileGate only permits tokens this server has synced. Doing that
+        // refresh fire-and-forget meant the app received a working session and
+        // immediately fetched its dashboard — which mobileGate rejected with
+        // DEVICE_NOT_PAIRED for the ~3s until the sync landed. The landing
+        // screen came up empty and only filled in once the user navigated away
+        // and back. Awaiting it here closes the window entirely.
+        //
+        // Bounded, because sign-in must not hang on a slow control plane: if
+        // the refresh does not finish in time we answer anyway and the
+        // scheduled nudge catches up, which is the old behaviour rather than a
+        // new failure.
+        try {
+          await Promise.race([
+            remoteAccess.refreshDeviceAllowList(),
+            new Promise((resolve) => setTimeout(resolve, 6000)),
+          ]);
+        } catch { /* non-fatal */ }
         try { remoteAccess.nudgeDeviceSync(); } catch { /* non-fatal */ }
 
         res.json({

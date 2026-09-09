@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
-import { Toast } from 'antd-mobile';
+import { Toast, PullToRefresh } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
 import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
@@ -83,16 +83,19 @@ export default function Dashboard() {
   // Non-null only while we are rendering saved figures instead of live ones.
   const [offline, setOffline]   = useState(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  /* One loader for both first mount and pull-to-refresh, so the two can never
+     drift apart in how they handle the offline fallback. Returns a promise:
+     PullToRefresh keeps its spinner up until it settles. */
+  const loadDashboard = useCallback((cancelledRef = { current: false }) => {
+    const cancelled = () => cancelledRef.current;
     const todayIso = isoDate();
-    Promise.allSettled([
+    return Promise.allSettled([
       reportAPI.getDashboard(),
       reportAPI.getDashboardInsights(),
       reportAPI.dayBook({ from_date: todayIso, to_date: todayIso }),
     ])
       .then(async ([s, ins, db]) => {
-        if (cancelled) return;
+        if (cancelled()) return;
 
         // Every call failing on the transport means the shop server is
         // unreachable — the PC is off, or the tunnel is down. Fall back to
@@ -102,7 +105,7 @@ export default function Dashboard() {
         const allFailed = [s, ins, db].every((r) => r.status === 'rejected');
         if (allFailed && isUnreachable(s.reason)) {
           const snap = await fetchSnapshot();
-          if (!cancelled && snap) {
+          if (!cancelled() && snap) {
             setStats(sectionOf(snap, 'dashboard'));
             setInsights(sectionOf(snap, 'insights'));
             const raw = sectionOf(snap, 'dayBook')?.data || [];
@@ -128,11 +131,16 @@ export default function Dashboard() {
         }
       })
       .catch(() => {
-        if (!cancelled) Toast.show({ icon: 'fail', content: 'Failed to load dashboard' });
+        if (!cancelled()) Toast.show({ icon: 'fail', content: 'Failed to load dashboard' });
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => { if (!cancelled()) setLoading(false); });
   }, []);
+
+  useEffect(() => {
+    const ref = { current: false };
+    loadDashboard(ref);
+    return () => { ref.current = true; };
+  }, [loadDashboard]);
 
   // ── Header context ────────────────────────────────────────────────
   // The greeting name + avatar reflect the active COMPANY (not the user)
@@ -273,6 +281,17 @@ export default function Dashboard() {
       </div>
 
     <div className="dash">
+      {/* Pull down to refresh. The figures here move through the trading day,
+          and when the shop computer is unreachable this is also the obvious
+          way to retry — previously the only way to refresh was to leave the
+          tab and come back. */}
+      <PullToRefresh
+        onRefresh={async () => { await loadDashboard(); }}
+        pullingText="Pull to refresh"
+        canReleaseText="Release to refresh"
+        refreshingText="Refreshing…"
+        completeText="Updated"
+      >
       {/* Stays visible for as long as the stale figures do — see
           components/OfflineBanner.jsx for why it cannot be dismissed. */}
       {offline && <OfflineBanner age={offline.age} onRetry={() => window.location.reload()} />}
@@ -360,6 +379,7 @@ export default function Dashboard() {
         ))}
       </div>
 
+          </PullToRefresh>
     </div>
     </div>
   );

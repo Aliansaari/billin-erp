@@ -6,7 +6,7 @@ import { setServerUrl, setDeviceToken, getServerUrl } from '../../api';
 import useAuthStore from '../../store/authStore';
 import { ZehenMark } from '../../components/ZehenLogo';
 import ServerDialog from '../components/ServerDialog';
-import { controlPlaneUrl } from '../utils/controlPlane';
+import { controlPlaneUrl, installId } from '../utils/controlPlane';
 import { fetchSnapshot, snapshotAge } from '../utils/offlineSnapshot';
 import useKeyboardInset from '../hooks/useKeyboardInset';
 import './Login.css';
@@ -157,6 +157,9 @@ export default function Login() {
         identifier: identifier.trim(),
         password,
         platform: 'ios',
+        // Lets the account service give this phone its own device slot rather
+        // than evicting whatever device signed in last.
+        install_id: installId(),
       }, { timeout: 25000 });
 
       if (!acct?.site?.hostname) {
