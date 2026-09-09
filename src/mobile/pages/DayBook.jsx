@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
+import OfflineBanner from '../components/OfflineBanner';
+import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
 import ActivityRow from '../components/ActivityRow';
 import { formatINR, isoDate } from '../utils/format';
 import { shareViaNative } from '../utils/sharePdf';
@@ -77,6 +79,7 @@ export default function DayBook() {
   const [data,     setData]     = useState([]);
   const [summary,  setSummary]  = useState(null);
   const [loading,  setLoading]  = useState(true);
+  const [offline,  setOffline]  = useState(null);
   const [filter,   setFilter]   = useState('all'); // 'all' | primary key | specific voucher_type
   const [searchOn, setSearchOn] = useState(false);
   const [search,   setSearch]   = useState('');
@@ -122,8 +125,22 @@ export default function DayBook() {
         setData(res.data?.data || []);
         setSummary(res.data?.summary || null);
       })
-      .catch((e) => {
+      .catch(async (e) => {
         if (cancelled) return;
+        if (isUnreachable(e)) {
+          const snap = await fetchSnapshot().catch(() => null);
+          const section = sectionOf(snap, 'dayBook');
+          if (!cancelled && section) {
+            // The snapshot holds TODAY only — that is what the desktop renders
+            // when it uploads. Presenting it for any other requested range
+            // would be a quietly wrong answer, so the banner says which day
+            // this actually is.
+            setData(section?.data || []);
+            setSummary(section?.summary || null);
+            setOffline({ age: snapshotAge(snap), todayOnly: true });
+            return;
+          }
+        }
         const msg = e?.response?.data?.error || e?.message || 'Failed to load day book';
         Toast.show({ icon: 'fail', content: msg });
         setData([]);
@@ -260,6 +277,14 @@ export default function DayBook() {
 
   return (
     <div className="db-screen drill-in">
+      {offline && (
+        <div style={{ padding: '10px 16px 0' }}>
+          <OfflineBanner
+            age={offline.todayOnly ? `${offline.age} — today only` : offline.age}
+            onRetry={() => window.location.reload()}
+          />
+        </div>
+      )}
       {/* Topbar */}
       <div className="db-top">
         <button className="db-icon-btn framed" onClick={() => navigate(-1)} aria-label="Back">

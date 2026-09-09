@@ -83,6 +83,65 @@ function typeSql(col) {
 }
 
 /**
+ * Read a table's CREATE statement (columns, defaults, NOT NULL, primary key)
+ * plus its indexes, straight from the reference database's catalogs.
+ *
+ * Catalog-driven rather than pg_dump: shelling out would need a client binary
+ * whose major version matches the server, which is exactly the mismatch that
+ * bit us on this machine.
+ */
+async function tableDdl(sequelize, table) {
+  const [cols] = await sequelize.query(
+    `SELECT column_name, data_type, character_maximum_length, numeric_precision,
+            numeric_scale, is_nullable, column_default, udt_name
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = :t
+      ORDER BY ordinal_position`,
+    { replacements: { t: table } },
+  );
+  if (!cols.length) return null;
+
+  const defs = cols.map((c) => {
+    // An auto-increment column's default is nextval('<table>_<col>_seq'), and
+    // that sequence does not exist in the target database — copying the
+    // default verbatim fails with `relation ... does not exist`. SERIAL says
+    // the same thing while creating the sequence as a side effect.
+    const isSerial = c.column_default && /^nextval\(/i.test(c.column_default);
+    if (isSerial) {
+      const serial = c.data_type === 'bigint' ? 'BIGSERIAL'
+        : c.data_type === 'smallint' ? 'SMALLSERIAL' : 'SERIAL';
+      return `"${c.column_name}" ${serial}`;
+    }
+    let d = `"${c.column_name}" ${typeSql(c)}`;
+    if (c.column_default) d += ` DEFAULT ${c.column_default}`;
+    if (c.is_nullable === 'NO') d += ' NOT NULL';
+    return d;
+  });
+
+  const [pk] = await sequelize.query(
+    `SELECT a.attname FROM pg_index i
+       JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE i.indrelid = :t::regclass AND i.indisprimary`,
+    { replacements: { t: `public.${table}` } },
+  );
+  if (pk.length) defs.push(`PRIMARY KEY (${pk.map((r) => `"${r.attname}"`).join(', ')})`);
+
+  const [idx] = await sequelize.query(
+    `SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename = :t`,
+    { replacements: { t: table } },
+  );
+
+  return {
+    create: `CREATE TABLE IF NOT EXISTS "${table}" (${defs.join(', ')})`,
+    // Skip the primary-key index: CREATE TABLE already made it.
+    indexes: idx
+      .map((r) => r.indexdef)
+      .filter((d) => !/_pkey\b/.test(d))
+      .map((d) => d.replace(/^CREATE (UNIQUE )?INDEX /, 'CREATE $1INDEX IF NOT EXISTS ')),
+  };
+}
+
+/**
  * Bring `targetDb` up to the column set of `referenceDb`.
  *
  * The primary company is the reference because boot migrations do reach it —
@@ -96,6 +155,7 @@ function typeSql(col) {
 async function repairCompany(companyId, name, targetDb, referenceDb) {
   const result = { companyId, name, tablesCreated: [], columnsAdded: [], skipped: [] };
   if (targetDb === referenceDb) return result;   // the reference itself
+  const missingTables = [];
 
   const ref = rawConnection(referenceDb);
   const tgt = rawConnection(targetDb);
@@ -105,11 +165,7 @@ async function repairCompany(companyId, name, targetDb, referenceDb) {
 
     for (const [table, cols] of Object.entries(refSchema)) {
       if (!tgtSchema[table]) {
-        // Missing table. Recreating one faithfully (indexes, constraints,
-        // defaults) is beyond safe raw-SQL diffing, so record it for the
-        // model sync to create on the next healthy boot rather than
-        // improvising a half-correct table here.
-        result.skipped.push(`table ${table} absent (will be created by model sync)`);
+        missingTables.push(table);
         continue;
       }
       for (const [colName, col] of Object.entries(cols)) {
@@ -130,31 +186,36 @@ async function repairCompany(companyId, name, targetDb, referenceDb) {
     await tgt.close().catch(() => {});
   }
 
-  // ── Phase 2: create absent tables via the model layer ──
+  // ── Phase 2: create absent tables from the reference database's DDL ──
   //
-  // Only reachable now that phase 1 has added the missing COLUMNS: building
-  // the model layer queries them, so this would have thrown before. sync()
-  // creates absent tables and leaves existing ones untouched — it is not
-  // called with `alter`, so nothing already in the database is rewritten.
-  if (result.skipped.some((m) => m.startsWith('table '))) {
+  // Deliberately NOT via getCompanyConnection()/sync(). Building the model
+  // layer runs the app's default-data SEEDER, which inserts rows — during an
+  // earlier run that silently added two system ledger accounts to a company
+  // that was only supposed to receive a schema fix. A repair must never write
+  // business data, so this reads DDL out of the reference database's catalogs
+  // and replays it. No models, no seeding, no side effects.
+  if (missingTables.length) {
+    const ref2 = rawConnection(referenceDb);
+    const tgt2 = rawConnection(targetDb);
     try {
-      const { getCompanyConnection } = require('./companyConnections');
-      const conn = await getCompanyConnection(companyId);
-      await conn.sequelize.sync();
-      const [rows] = await conn.sequelize.query(
-        `SELECT table_name FROM information_schema.tables
-          WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
-      );
-      const now = new Set(rows.map((r) => String(r.table_name).toLowerCase()));
-      result.skipped = result.skipped.filter((m) => {
-        const match = /^table ([a-z_]+) absent/.exec(m);
-        if (match && now.has(match[1])) { result.tablesCreated.push(match[1]); return false; }
-        return true;
-      });
-    } catch (e) {
-      result.skipped.push(`model sync: ${e.message}`);
+      for (const table of missingTables) {
+        try {
+          const ddl = await tableDdl(ref2, table);
+          if (!ddl) { result.skipped.push(`table ${table}: could not read its definition`); continue; }
+          await tgt2.query(ddl.create);
+          for (const idx of ddl.indexes) await tgt2.query(idx).catch(() => {});
+          result.tablesCreated.push(table);
+          result.skipped = result.skipped.filter((m) => !m.startsWith(`table ${table} `));
+        } catch (e) {
+          result.skipped.push(`table ${table}: ${e.message}`);
+        }
+      }
+    } finally {
+      await ref2.close().catch(() => {});
+      await tgt2.close().catch(() => {});
     }
   }
+
   return result;
 }
 

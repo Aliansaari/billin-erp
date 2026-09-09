@@ -4,6 +4,8 @@
  * Tap the grid pill to open an action sheet: a compact Create grid plus
  * a Browse list. Swipe the sheet down (or tap the backdrop / ✕) to close.
  * ──────────────────────────────────────────────────────────────────── */
+import { isOfflineSession } from '../../api';
+import { Toast } from 'antd-mobile';
 import React, { useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -108,6 +110,16 @@ function CommandCentreSheet({ onClose }) {
   }, [onClose]);
 
   const go = (route) => {
+    // In an offline session there is no way to save anything, so stop at the
+    // door rather than letting someone fill in a whole bill and only discover
+    // it at the moment they press save. Read-only destinations still open.
+    if (isOfflineSession() && /\/(new|edit)(\/|$)/.test(route)) {
+      Toast.show({
+        content: 'Shop computer is offline — you can view saved figures, but not create or edit.',
+        duration: 2600,
+      });
+      return;
+    }
     onClose();
     setTimeout(() => navigate(route), 160);
   };

@@ -147,8 +147,25 @@ const api = axios.create({
   timeout: 30000,
 });
 
+/** Is this session the read-only offline one? (see store/authStore.js) */
+export function isOfflineSession() {
+  try { return localStorage.getItem('zehen_offline_mode') === '1'; } catch { return false; }
+}
+
 // Add auth token to requests
 api.interceptors.request.use((config) => {
+  // An offline session holds no token, so any write would 401 and — before
+  // this guard — the 401 handler would wipe the session and bounce the user
+  // to the login screen, where they would sign in and land right back in
+  // offline mode. Refuse writes up front with something a person can act on.
+  const method = String(config.method || 'get').toLowerCase();
+  if (isOfflineSession() && method !== 'get' && method !== 'head') {
+    const err = new Error('The shop computer is offline. You can view saved figures, but not save changes.');
+    err.code = 'OFFLINE_READONLY';
+    err.config = config;
+    return Promise.reject(err);
+  }
+
   const token = localStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   const device = getDeviceToken();
@@ -181,6 +198,11 @@ api.interceptors.response.use(
       try { sessionStorage.setItem('zehen_device_unpaired', '1'); } catch {}
       return Promise.reject(error);
     }
+
+    // While offline there is no session to invalidate, and redirecting to
+    // /login would trap the user in a loop: sign in, land offline, get
+    // bounced again.
+    if (status === 401 && isOfflineSession()) return Promise.reject(error);
 
     if (status === 401) {
       localStorage.removeItem('token');
