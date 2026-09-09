@@ -81,6 +81,23 @@ export default function BillForm({ type }) {
   const [moreOpen, setMoreOpen]     = useState(false);
   const [editingIdx, setEditingIdx] = useState(-1);
   const [saving, setSaving]         = useState(false);
+
+  /* Idempotency key, minted once per form and sent with every create attempt.
+   *
+   * Without it, tapping Save repeatedly created a SEPARATE BILL each time —
+   * duplicate stock movement, duplicate customer liability, duplicate GST.
+   * The server already collapses retries that carry the same key
+   * (salesController/purchaseController `idempotency_key`) and the desktop
+   * has always sent one; mobile simply never did.
+   *
+   * The key deliberately survives a failed attempt, so a retry after a
+   * dropped response lands on the same bill instead of making a second one.
+   * It is regenerated only after a save that actually succeeded. */
+  const idempotencyKeyRef = useRef(
+    (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   const billDate = todayISO();
 
   // Fetch a default godown — we use the first one we can find. Users
@@ -374,6 +391,7 @@ export default function BillForm({ type }) {
         lr_number: moreOpts.lr_number || '',
       }),
       items: items_payload,
+      idempotency_key: idempotencyKeyRef.current,
     };
 
     setSaving(true);
@@ -381,17 +399,39 @@ export default function BillForm({ type }) {
       const res = isPurchase
         ? await purchaseAPI.create(body)
         : await salesAPI.create(body);
-      const savedId = res.data?.bill_id || res.data?.id || res.data?.sales_bill_id || res.data?.purchase_bill_id;
-      hapticSuccess(); Toast.show({ icon: 'success', content: 'Saved' });
+      // The create endpoint returns the bill itself, so read the id from any
+      // of the shapes it can arrive in (a plain bill, or one wrapped in
+      // `data`). Getting this wrong is what left the user staring at the same
+      // form after a successful save.
+      const b = res.data?.data || res.data || {};
+      const savedId = b.sales_bill_id || b.purchase_bill_id || b.bill_id || b.id;
+
+      // Mint a new key: this bill is committed, so the NEXT one must not
+      // collapse onto it.
+      idempotencyKeyRef.current = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      hapticSuccess();
+      Toast.show({ icon: 'success', content: `${isPurchase ? 'Purchase' : 'Bill'} saved` });
+
       if (savedId) {
         navigate(`/vouchers/${isPurchase ? 'purchase' : 'sales'}/${savedId}`, { replace: true });
       } else {
+        // No id came back, but the bill IS saved. Leaving the form open is
+        // what made people press Save again; go somewhere that proves it
+        // worked instead.
         navigate('/vouchers', { replace: true });
       }
+      return;   // saved — leave the button locked while we navigate away
     } catch (e) {
       const msg = e?.response?.data?.error || e?.message || 'Save failed';
       hapticWarn(); Toast.show({ icon: 'fail', content: msg });
-    } finally {
+      // Re-enable ONLY on failure. A `finally` would also run after the
+      // success path, unlocking the button during the moment before the
+      // screen changes — the exact window in which people were tapping again.
+      // The idempotency key is deliberately NOT regenerated here, so a retry
+      // of a request that actually committed collapses onto the same bill.
       setSaving(false);
     }
   };

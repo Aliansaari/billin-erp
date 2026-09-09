@@ -76,13 +76,22 @@ export default function AppShell() {
     <>
       <div className="app-shell">
         <div className="app-shell-body">
-          {/* Keyed on location.key so each navigation restarts the animation.
-              Without a changing key React reuses the element and the keyframes
-              never replay, which is how this ended up applied to nothing at
-              all. The stage holds no transform at rest — see
-              page-transition.css for why that matters. */}
+          {/* Keyed on the PATH, never on location.key.
+              
+              location.key changes on every history entry — including a
+              `replace` that only rewrites the query string. Several screens
+              (VouchersList, PartyStatement) sync their filters into the URL
+              from an effect whose deps include setSearchParams, which React
+              Router does not keep referentially stable. Keying on location.key
+              therefore remounted the page on its own URL write, the effect ran
+              again, and the screen locked into an infinite remount loop —
+              blinking, never loading, taking the app down with it.
+
+              Keying on pathname is also simply correct: a transition belongs
+              to a NAVIGATION, not to a filter change on the screen you are
+              already looking at. */}
           <PageStage
-            key={location.key}
+            key={location.pathname}
             direction={navType === 'POP' ? 'back' : 'forward'}
           >
             <Suspense fallback={<RouteFallback />}>

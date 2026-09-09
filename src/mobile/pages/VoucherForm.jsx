@@ -267,16 +267,22 @@ export default function VoucherForm({ type }) {
     try {
       const res = await paymentAPI.create(body);
       hapticSuccess(); Toast.show({ icon: 'success', content: 'Saved' });
-      const savedId = res.data?.payment_receipt_id || res.data?.id;
+      const d = res.data?.data || res.data || {};
+      const savedId = d.payment_receipt_id || d.receipt_id || d.id;
       if (savedId) {
         navigate(`/vouchers/${isReceipt ? 'receipt' : 'payment'}/${savedId}`, { replace: true });
       } else {
-        navigate(-1);
+        navigate('/vouchers', { replace: true });
       }
+      return;   // saved — keep the button locked while we navigate away
     } catch (e) {
       const msg = e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Save failed';
       hapticWarn(); Toast.show({ icon: 'fail', content: msg });
-    } finally {
+      // Re-enable ONLY on failure. A `finally` also runs after success, which
+      // unlocks the button for the moment before the screen changes — exactly
+      // the window in which a second tap posts a second voucher. Payments have
+      // no server-side idempotency key (unlike sales/purchase), so this guard
+      // is the only thing standing between a double tap and a double receipt.
       setSaving(false);
     }
   };
