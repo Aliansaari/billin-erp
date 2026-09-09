@@ -649,3 +649,39 @@ body {
   border-color: var(--c-border);
 }
 
+/* ── Native feel ──────────────────────────────────────────────────────
+ *
+ * The clearest giveaway that a Capacitor app is "a web page in a shell" is
+ * long-pressing a label and getting a text selection with iOS's copy/lookup
+ * callout, or rubber-banding the whole view to reveal white behind it. Real
+ * apps do neither.
+ *
+ * Selection is disabled on chrome and re-enabled on the things people
+ * genuinely need to copy — inputs, and any element marked .selectable (bill
+ * numbers, GSTINs). Turning it off everywhere would be worse than leaving it
+ * on: a shopkeeper reading out an invoice number needs to select it.
+ * ─────────────────────────────────────────────────────────────────────── */
+html, body, #root {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  /* Stop the page itself bouncing; individual scrollers keep their momentum. */
+  overscroll-behavior: none;
+}
+
+input, textarea, [contenteditable="true"], .selectable {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Remove the grey flash iOS paints over any tapped element, and the 300ms
+   double-tap-zoom wait that makes every button feel a beat slow. */
+a, button, [role="button"], .tap {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Never let a horizontal overflow turn the whole app into a scrollable page —
+   wide content (tables, chip rows) scrolls inside its own container. */
+body { overflow-x: hidden; }

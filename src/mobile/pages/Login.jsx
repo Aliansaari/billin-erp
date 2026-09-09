@@ -7,6 +7,7 @@ import useAuthStore from '../../store/authStore';
 import { ZehenMark } from '../../components/ZehenLogo';
 import ServerDialog from '../components/ServerDialog';
 import { controlPlaneUrl, installId } from '../utils/controlPlane';
+import { refreshCompanyProfile } from '../utils/companyProfile';
 import { fetchSnapshot, snapshotAge } from '../utils/offlineSnapshot';
 import useKeyboardInset from '../hooks/useKeyboardInset';
 import './Login.css';
@@ -227,6 +228,9 @@ export default function Login() {
       } catch { /* private mode */ }
 
       login(session.user, session.token, false);
+      // Pull the business name the owner set in Settings → Company Profile so
+      // the first screen already shows it rather than a branch label.
+      refreshCompanyProfile().catch(() => {});
       navigate('/', { replace: true });
     } catch (err) {
       setError(humanize(err, 'Could not sign in. Please try again.'));

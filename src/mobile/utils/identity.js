@@ -1,3 +1,5 @@
+import { profileCompanyName } from './companyProfile';
+
 /**
  * Who am I, and whose books am I looking at?
  *
@@ -28,6 +30,12 @@ const SEEDED_PLACEHOLDERS = new Set(['my company', 'company', 'default company',
 const isPlaceholder = (n) => SEEDED_PLACEHOLDERS.has(String(n || '').trim().toLowerCase());
 
 export function activeCompanyName(currentCompany, user) {
+  // The business name from Settings → Company Profile wins over everything
+  // else: it is what the owner typed, what the desktop shows, and what goes
+  // on an invoice. The branch label ("SD") is only a switcher shorthand.
+  const fromProfile2 = profileCompanyName();
+  if (fromProfile2 && !isPlaceholder(fromProfile2)) return fromProfile2;
+
   // A company whose profile was never filled in still carries the seeder's
   // "My Company". Showing that is worse than showing the branch label the
   // owner actually chose, so treat the placeholder as absent.

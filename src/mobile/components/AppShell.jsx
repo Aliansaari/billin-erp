@@ -2,6 +2,7 @@ import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import TabBar from './TabBar';
 import SidePanel from './SidePanel';
+import { refreshCompanyProfile } from '../utils/companyProfile';
 
 // Lightweight fallback shown while a lazily-loaded route chunk arrives.
 // Keeps the tab bar visible and just fills the body with a quiet spinner.
@@ -13,7 +14,14 @@ function RouteFallback() {
   );
 }
 
+// Keep the displayed company name in step with Settings → Company Profile,
+// including after a company switch (which reloads the app).
+function useCompanyProfileSync() {
+  useEffect(() => { refreshCompanyProfile().catch(() => {}); }, []);
+}
+
 export default function AppShell() {
+  useCompanyProfileSync();
   const [panelOpen, setPanelOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();

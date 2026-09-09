@@ -46,6 +46,8 @@ const useAuthStore = create((set) => ({
     localStorage.setItem('user', JSON.stringify(user));
     localStorage.setItem('token', token);
     localStorage.removeItem('zehen_offline_mode');
+    // The cached company profile belongs to the session that just ended.
+    localStorage.removeItem('zehen_company_profile');
     if (mustChangePassword) localStorage.setItem('must_change_password', '1');
     else localStorage.removeItem('must_change_password');
     set({ user, token, isAuthenticated: true, offline: false, mustChangePassword: !!mustChangePassword });
@@ -77,6 +79,8 @@ const useAuthStore = create((set) => ({
     // company/FY, and we don't want their pickers showing the
     // previous user's FY values during the brief window before login.
     localStorage.removeItem('zehen_offline_mode');
+    // The cached company profile belongs to the session that just ended.
+    localStorage.removeItem('zehen_company_profile');
     try { localStorage.removeItem('fy_start_v1'); localStorage.removeItem('fy_end_v1'); } catch {}
     set({ user: null, token: null, isAuthenticated: false, offline: false, mustChangePassword: false });
   },

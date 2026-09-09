@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { activeCompanyName, userContactLine } from '../utils/identity';
+import { profileCompanyMeta } from '../utils/companyProfile';
 import BranchSheet from './BranchSheet';
 import CompanySwitchSheet from './CompanySwitchSheet';
 import { Toast } from 'antd-mobile';
@@ -186,8 +187,11 @@ export default function SidePanel({ open, onClose }) {
   const companyName = activeCompanyName(currentCompany, user) || 'Company';
 
   const companyInitial = (companyName || '?').trim().charAt(0).toUpperCase();
-  const gstin = currentCompany?.gstin || user?.gstin || '';
-  const city = currentCompany?.city || user?.company_city || '';
+  // Same source as the name: Settings → Company Profile is what the owner
+  // filled in, so the panel should echo it rather than the switcher's label.
+  const profileMeta = profileCompanyMeta();
+  const gstin = profileMeta.gstin || currentCompany?.gstin || user?.gstin || '';
+  const city = profileMeta.city || currentCompany?.city || user?.company_city || '';
   const firmMeta = [gstin, city].filter(Boolean).join(' · ') || '—';
   const userName = user?.full_name || user?.username || 'User';
   const userInitial = userName.trim().charAt(0).toUpperCase();
