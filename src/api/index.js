@@ -147,6 +147,32 @@ const api = axios.create({
   timeout: 30000,
 });
 
+/* ── Company switch in progress ─────────────────────────────────────────
+ *
+ * Switching company retires the old JWT server-side and issues a new one.
+ * Requests that were already in flight when that happened come back 401,
+ * and the handler below would treat that as "session expired" and sign the
+ * user out mid-switch — which looked like the switch itself was broken.
+ *
+ * The flag is set for the moment between "old token retired" and "page
+ * reloaded", and 401s are ignored while it is up.
+ */
+export const SWITCHING_KEY = 'zehen_switching';
+export const isSwitchingCompany = () => {
+  try {
+    const until = Number(sessionStorage.getItem(SWITCHING_KEY) || 0);
+    return until > Date.now();
+  } catch { return false; }
+};
+export const beginCompanySwitch = () => {
+  // Self-expiring: if a switch fails and never reloads, the flag must not
+  // linger and silently swallow real 401s for the rest of the session.
+  try { sessionStorage.setItem(SWITCHING_KEY, String(Date.now() + 20000)); } catch {}
+};
+export const endCompanySwitch = () => {
+  try { sessionStorage.removeItem(SWITCHING_KEY); } catch {}
+};
+
 /** Is this session the read-only offline one? (see store/authStore.js) */
 export function isOfflineSession() {
   try { return localStorage.getItem('zehen_offline_mode') === '1'; } catch { return false; }
@@ -203,6 +229,7 @@ api.interceptors.response.use(
     // /login would trap the user in a loop: sign in, land offline, get
     // bounced again.
     if (status === 401 && isOfflineSession()) return Promise.reject(error);
+    if (status === 401 && isSwitchingCompany()) return Promise.reject(error);
 
     if (status === 401) {
       localStorage.removeItem('token');

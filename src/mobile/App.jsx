@@ -1,7 +1,21 @@
 import React, { useEffect, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { ConfigProvider } from 'antd-mobile';
+import { ConfigProvider, setDefaultConfig } from 'antd-mobile';
 import enUS from 'antd-mobile/es/locales/en-US';
+
+// <ConfigProvider> only reaches components rendered inside the React tree.
+// The imperative APIs — Dialog.confirm, Dialog.alert, Toast — render into
+// their own root, never see that provider, and fall back to antd-mobile's
+// built-in locale, which is Chinese. That is why a "Switch company?" dialog
+// showed a 取消 button next to an English one. setDefaultConfig is the global
+// switch those imperative calls actually read.
+setDefaultConfig({ locale: enUS });
+
+// A company switch sets a flag that makes the API layer ignore 401s while the
+// old token is being retired. Reaching this line means the app has re-mounted,
+// so the switch is finished — clear it immediately rather than waiting for its
+// safety timeout, during which a genuine 401 would be swallowed.
+try { sessionStorage.removeItem('zehen_switching'); } catch { /* private mode */ }
 import useAuthStore from '../store/authStore';
 import useThemeStore from '../store/themeStore';
 import AppShell from './components/AppShell';

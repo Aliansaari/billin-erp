@@ -58,3 +58,25 @@
 }
 .cs-check { flex: none; color: var(--c-primary, #B5421C); }
 .cs-msg { padding: 16px; text-align: center; font-size: 13px; line-height: 1.5; color: var(--c-text-soft, #6B5F52); }
+
+/* Full-screen cover for the duration of a switch. The sheet used to stay
+   open and tappable while the request ran, so the whole thing read as a
+   frozen dialog rather than work in progress. */
+.cs-switching {
+  position: fixed; inset: 0; z-index: 3700;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  background: var(--c-bg-app, #F2EDE2);
+  animation: cs-fade 0.14s ease both;
+}
+.cs-switching-text {
+  font-size: 15px; font-weight: 500;
+  color: var(--c-text-2, #4A4239);
+}
+.cs-spinner {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2.5px solid var(--c-line, #E5DDCD);
+  border-top-color: var(--c-primary, #B5421C);
+  animation: cs-spin 0.7s linear infinite;
+}
+@keyframes cs-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cs-spinner { animation-duration: 2s; } }

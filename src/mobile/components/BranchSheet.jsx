@@ -47,6 +47,7 @@ export default function BranchSheet({ open, onClose }) {
       title: `Switch to ${site.name || site.hostname}?`,
       content: 'The app will reload and show that branch’s data. Anything you have not saved here will be lost.',
       confirmText: 'Switch',
+      cancelText: 'Cancel',
     });
     if (!ok) return;
     if (switchToSite(site)) {

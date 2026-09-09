@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { Toast, Dialog } from 'antd-mobile';
-import api from '../../api';
+import api, { beginCompanySwitch, endCompanySwitch } from '../../api';
 import useAuthStore from '../../store/authStore';
 import './CompanySwitchSheet.css';
 
@@ -35,7 +35,7 @@ function readCurrentId() {
 export default function CompanySwitchSheet({ open, onClose }) {
   const [companies, setCompanies] = useState(readCompanies());
   const [current, setCurrent] = useState(readCurrentId());
-  const [busy, setBusy] = useState(false);
+  const [switching, setSwitching] = useState(null);   // the company being opened
   const setAuth = useAuthStore((s) => s.login);
 
   useEffect(() => {
@@ -45,33 +45,54 @@ export default function CompanySwitchSheet({ open, onClose }) {
   }, [open]);
 
   async function pick(c) {
-    if (c.company_id === current || busy) { onClose?.(); return; }
+    if (c.company_id === current || switching) { onClose?.(); return; }
     const ok = await Dialog.confirm({
       title: `Switch to ${c.name}?`,
-      content: 'The app will reload with that company’s books. Anything unsaved here will be lost.',
+      content: 'The app will reopen on that company’s books. Anything unsaved here will be lost.',
       confirmText: 'Switch',
+      cancelText: 'Cancel',
     });
     if (!ok) return;
 
-    setBusy(true);
+    // Cover the screen for the whole switch. The sheet used to stay open and
+    // interactive while the request ran, which read as a frozen dialog.
+    setSwitching(c);
+    beginCompanySwitch();
     try {
       const { data } = await api.post('/auth/sso-switch', { company_id: c.company_id });
       if (!data?.token) throw new Error('Switch failed');
+
       localStorage.setItem('zehen_company_id', String(data.company_id));
       localStorage.setItem('zehen_last_company_name', c.name || '');
       setAuth(data.user, data.token, false);
-      Toast.show({ icon: 'success', content: `Switched to ${c.name}` });
-      setTimeout(() => window.location.reload(), 400);
+
+      // Hard navigation to the root, not reload(), and with no artificial
+      // delay. Two reasons: a reload would land back on the CURRENT route,
+      // which may be a bill that only exists in the company we just left; and
+      // every extra millisecond here is a window where an in-flight request
+      // carrying the retired token can come back 401.
+      window.location.replace('/');
     } catch (e) {
+      endCompanySwitch();
+      setSwitching(null);
       Toast.show({
         icon: 'fail',
-        content: e?.response?.data?.error || 'Could not switch company.',
+        content: e?.response?.data?.error || e?.message || 'Could not switch company.',
       });
-      setBusy(false);
     }
   }
 
   if (!open) return null;
+
+  if (switching) {
+    return ReactDOM.createPortal(
+      <div className="cs-switching" role="status" aria-live="polite">
+        <span className="cs-spinner" aria-hidden />
+        <div className="cs-switching-text">Opening {switching.name}…</div>
+      </div>,
+      document.body,
+    );
+  }
 
   return ReactDOM.createPortal(
     <div className="cs-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
@@ -88,7 +109,7 @@ export default function CompanySwitchSheet({ open, onClose }) {
             return (
               <button key={c.company_id}
                       className={`cs-row${active ? ' cs-row--active' : ''}`}
-                      disabled={busy}
+                      disabled={!!switching}
                       onClick={() => pick(c)}>
                 <span className="cs-avatar" style={c.accent_color ? { background: c.accent_color } : undefined}>
                   {(c.name || '?').trim().charAt(0).toUpperCase()}
