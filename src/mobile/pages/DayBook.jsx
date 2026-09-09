@@ -9,6 +9,7 @@ import ActivityRow from '../components/ActivityRow';
 import { formatINR, isoDate } from '../utils/format';
 import { shareViaNative } from '../utils/sharePdf';
 import './DayBook.css';
+import Overlay from '../components/Overlay';
 
 // ── Inline icons ──────────────────────────────────────────────────────
 const ChevL = () => (
@@ -431,6 +432,7 @@ export default function DayBook() {
 
       {/* PDF preview overlay */}
       {pdfUrl && (
+        <Overlay>
         <div className="db-pdf-overlay">
           <div className="db-pdf-toolbar">
             <button className="db-pdf-close" onClick={closePdfViewer} aria-label="Close"><CloseIcon /></button>
@@ -450,10 +452,12 @@ export default function DayBook() {
             />
           </div>
         </div>
+        </Overlay>
       )}
 
       {/* More-types bottom sheet */}
       {moreOpen && (
+        <Overlay>
         <>
           <div className="db-sheet-scrim" onClick={() => setMoreOpen(false)} />
           <div className="db-sheet" role="dialog" aria-label="More voucher types">
@@ -483,6 +487,7 @@ export default function DayBook() {
             </div>
           </div>
         </>
+        </Overlay>
       )}
     </div>
   );

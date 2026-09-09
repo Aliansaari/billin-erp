@@ -6,6 +6,7 @@ import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import ActivityRow from '../components/ActivityRow';
 import { formatINR, isoDate } from '../utils/format';
 import './VouchersList.css';
+import Overlay from '../components/Overlay';
 
 const SummaryIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
@@ -371,6 +372,7 @@ export default function VouchersList() {
 
       {/* More-types bottom sheet */}
       {moreOpen && (
+        <Overlay>
         <>
           <div className="vl-sheet-scrim" onClick={() => setMoreOpen(false)} />
           <div className="vl-sheet" role="dialog" aria-label="More voucher types">
@@ -400,6 +402,7 @@ export default function VouchersList() {
             </div>
           </div>
         </>
+        </Overlay>
       )}
     </div>
   );

@@ -1,19 +1,40 @@
-/* Page transitions — opacity-only crossfade.
+/* Page transitions — directional push / pop.
  *
- * We used to slide the page from translate3d(28%, 0, 0) → 0 on push
- * and -18% → 0 on pop. The slide felt nice on a clean run but
- * caused two real problems:
- *   1. A keyed remount can interrupt the animation mid-flight,
- *      occasionally leaving the page stuck at the start transform
- *      and shifting all the content left/right.
- *   2. will-change: transform creates a containing block for
- *      position: fixed descendants, which trapped bottom sheets
- *      inside the page area instead of letting them cover the
- *      whole viewport.
+ * ── History ──
+ * This started as a slide, was reverted to an opacity crossfade, and then
+ * stopped being applied at all (.pt-stage appeared in no JSX). Two real
+ * problems caused the original revert, and both are fixed here rather than
+ * avoided:
  *
- * Opacity-only fades are cheaper, can't strand content off-screen,
- * and don't make .pt-stage a containing block.
- * ─────────────────────────────────────────────────────────────────── */
+ * 1. "A keyed remount can interrupt the animation mid-flight, leaving the
+ *    page stuck at the start transform."
+ *
+ *    That is a fill-mode bug. The old rule used `both`, which makes an
+ *    element hold the FROM state before the animation starts and after it
+ *    ends — so anything that prevented the animation from running (a remount
+ *    at the wrong moment, reduced-motion, a paused compositor) left the page
+ *    parked 28% off-screen with no way back.
+ *
+ *    Here the natural, un-animated state IS the final state: no transform, no
+ *    opacity change. The keyframes only describe the way in, and fill-mode is
+ *    left at `none`. If the animation never runs, the page is simply already
+ *    where it belongs. It cannot get stuck, because "stuck" is the correct
+ *    position.
+ *
+ * 2. "will-change: transform creates a containing block for position: fixed
+ *    descendants, which trapped bottom sheets inside the page area."
+ *
+ *    True — and not only will-change: ANY non-none transform does it, so this
+ *    could never be solved from the animation side. It is fixed at the source
+ *    instead: every full-screen sheet, scrim and PDF viewer now renders
+ *    through components/Overlay.jsx, into a portal at the end of <body>,
+ *    outside the animated subtree. See that file for the reasoning.
+ *
+ *    will-change is deliberately NOT used here. It would hold a containing
+ *    block for the element's whole lifetime rather than only while animating,
+ *    which is exactly the trap being escaped — and the animation is a single
+ *    cheap transform that the compositor handles without the hint.
+ * ─────────────────────────────────────────────────────────────────────── */
 
 .pt-stage {
   height: 100%;
@@ -21,16 +42,30 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  /* Final state, always. The keyframes below only animate INTO this. */
 }
 
-.pt-stage--forward,
+/* Forward (push): the new screen comes from the right, as iOS does. The
+   distance is small — a full-width slide reads as sluggish on a phone, where
+   the eye only needs the direction, not the whole journey. */
+.pt-stage--forward {
+  animation: pt-push 280ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Back (pop): mirror image, slightly quicker. Going back should feel like
+   undoing rather than travelling. */
 .pt-stage--back {
-  animation: pt-fade 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: pt-pop 240ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-@keyframes pt-fade {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+@keyframes pt-push {
+  from { transform: translate3d(26px, 0, 0); opacity: 0; }
+  to   { transform: translate3d(0, 0, 0);    opacity: 1; }
+}
+
+@keyframes pt-pop {
+  from { transform: translate3d(-20px, 0, 0); opacity: 0; }
+  to   { transform: translate3d(0, 0, 0);     opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

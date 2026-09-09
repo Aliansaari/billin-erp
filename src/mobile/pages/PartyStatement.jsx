@@ -8,6 +8,7 @@ import { buildStatementPdf } from '../../utils/ledgerPdf';
 import { shareViaNative } from '../utils/sharePdf';
 import useKeyboardInset from '../hooks/useKeyboardInset';
 import './ReportList.css';
+import Overlay from '../components/Overlay';
 
 // ── Icons ──────────────────────────────────────────────────────────────
 const ChevL = () => (
@@ -530,6 +531,7 @@ export default function PartyStatement({ partyType = 'Customer' }) {
 
       {/* ── PDF viewer overlay ── */}
       {pdfUrl && (
+        <Overlay>
         <div className="bd-pdf-overlay">
           <div className="bd-pdf-toolbar">
             <button className="bd-pdf-close" onClick={closePdfViewer} aria-label="Close"><CloseIcon /></button>
@@ -550,10 +552,12 @@ export default function PartyStatement({ partyType = 'Customer' }) {
             />
           </div>
         </div>
+        </Overlay>
       )}
 
       {/* ── Party picker sheet ── */}
       {sheetOpen && (
+        <Overlay>
         <>
           <div className="rl-sheet-scrim" onClick={() => setSheetOpen(false)} />
           <div
@@ -591,6 +595,7 @@ export default function PartyStatement({ partyType = 'Customer' }) {
             </div>
           </div>
         </>
+        </Overlay>
       )}
     </div>
   );

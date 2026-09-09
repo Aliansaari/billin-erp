@@ -11,6 +11,7 @@ import { formatINR } from '../utils/format';
 import { shareViaNative } from '../utils/sharePdf';
 import './Stock.css';
 import './ReportList.css';
+import Overlay from '../components/Overlay';
 
 const SearchIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
@@ -472,6 +473,7 @@ export default function Stock() {
       )}
 
       {pdfUrl && (
+        <Overlay>
         <div className="rl-pdf-overlay" style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'var(--c-bg-app)', display: 'flex', flexDirection: 'column' }}>
           <div className="rl-pdf-toolbar">
             <button className="rl-pdf-close" onClick={closePdfViewer} aria-label="Close"><CloseIcon /></button>
@@ -490,6 +492,7 @@ export default function Stock() {
             />
           </div>
         </div>
+        </Overlay>
       )}
 
       {notFoundCode !== null && (

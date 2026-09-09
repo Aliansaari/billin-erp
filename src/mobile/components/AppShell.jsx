@@ -1,7 +1,8 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import TabBar from './TabBar';
 import SidePanel from './SidePanel';
+import PageStage from './PageStage';
 import { refreshCompanyProfile } from '../utils/companyProfile';
 
 // Lightweight fallback shown while a lazily-loaded route chunk arrives.
@@ -25,6 +26,9 @@ export default function AppShell() {
   const [panelOpen, setPanelOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  // PUSH / REPLACE go forward, POP comes back — the router already knows
+  // which, so the direction never has to be inferred from path depth.
+  const navType = useNavigationType();
 
   // Refs so the document listener (mounted once) always sees current values
   const isHomeRef   = useRef(location.pathname === '/');
@@ -72,9 +76,19 @@ export default function AppShell() {
     <>
       <div className="app-shell">
         <div className="app-shell-body">
-          <Suspense fallback={<RouteFallback />}>
-            <Outlet context={{ setPanelOpen }} />
-          </Suspense>
+          {/* Keyed on location.key so each navigation restarts the animation.
+              Without a changing key React reuses the element and the keyframes
+              never replay, which is how this ended up applied to nothing at
+              all. The stage holds no transform at rest — see
+              page-transition.css for why that matters. */}
+          <PageStage
+            key={location.key}
+            direction={navType === 'POP' ? 'back' : 'forward'}
+          >
+            <Suspense fallback={<RouteFallback />}>
+              <Outlet context={{ setPanelOpen }} />
+            </Suspense>
+          </PageStage>
         </div>
         <TabBar />
       </div>

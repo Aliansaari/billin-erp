@@ -5,6 +5,7 @@ import { salesAPI, purchaseAPI, paymentAPI, settingsAPI, printAPI } from '../../
 import { buildBillPdf } from '../../utils/billPdf';
 import { formatINR, formatINRWithSymbol, formatShortDate, formatTime } from '../utils/format';
 import './BillDetail.css';
+import Overlay from '../components/Overlay';
 
 const BackIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
@@ -548,6 +549,7 @@ export default function BillDetail() {
 
       {/* ── PDF Viewer overlay ────────────────────── */}
       {pdfUrl && (
+        <Overlay>
         <div className="bd-pdf-overlay">
           <div className="bd-pdf-toolbar">
             <button className="bd-pdf-close" onClick={closePdfViewer} aria-label="Close"><CloseIcon /></button>
@@ -568,6 +570,7 @@ export default function BillDetail() {
             />
           </div>
         </div>
+        </Overlay>
       )}
     </div>
   );
