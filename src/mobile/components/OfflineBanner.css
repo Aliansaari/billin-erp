@@ -1,0 +1,43 @@
+.ob {
+  display: flex; align-items: center; gap: 9px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #F5EBD2;
+  border: 1px solid rgba(181, 129, 26, 0.25);
+  font-size: 12.5px; line-height: 1.4;
+  color: #6B4E0F;
+}
+
+/* Dark theme needs its own values, not the light ones dimmed. The tokens
+   this used to borrow flip to dark surfaces in dark mode, which left dark
+   brown text sitting on a dark amber ground — technically "themed", and
+   unreadable. This banner has to stay legible: it is the only thing telling
+   the user the figures on screen are not current. */
+[data-mobile-theme="dark"] .ob {
+  background: rgba(181, 129, 26, 0.14);
+  border-color: rgba(212, 165, 60, 0.32);
+  color: #E8C77A;
+}
+[data-mobile-theme="dark"] .ob-dot { background: #E8C77A; }
+[data-mobile-theme="dark"] .ob-retry {
+  background: rgba(232, 199, 122, 0.16);
+  color: #E8C77A;
+}
+[data-mobile-theme="dark"] .ob-retry:active { background: rgba(232, 199, 122, 0.28); }
+.ob-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--c-warning, #B5811A);
+}
+.ob-text { flex: 1; min-width: 0; }
+.ob-text b { font-weight: 600; }
+.ob-retry {
+  flex: none;
+  border: 0; border-radius: 8px;
+  padding: 5px 10px;
+  background: rgba(181, 129, 26, 0.16);
+  color: #6B4E0F;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.ob-retry:active { background: rgba(181, 129, 26, 0.28); }

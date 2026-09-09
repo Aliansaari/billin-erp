@@ -7,7 +7,7 @@ import {
   AppstoreOutlined, CodeOutlined, KeyOutlined, BellOutlined,
   CalendarOutlined, TeamOutlined, InboxOutlined, ImportOutlined,
   IdcardOutlined, WifiOutlined, WhatsAppOutlined, RobotOutlined,
-  CreditCardOutlined,
+  CreditCardOutlined, GlobalOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -102,6 +102,7 @@ const SETTINGS_GROUPS = [
       // LAN access — share this PC's ZEHEN with other PCs / phones
       // on the same Wi-Fi. Admin-level (super admin / company manager).
       { path: 'network',       icon: <WifiOutlined />,        label: 'LAN & Network',     perm: 'settings.manage_company' },
+      { path: 'remote-access', icon: <GlobalOutlined />,      label: 'Remote Access',     perm: 'settings.manage_company' },
       // Send invoices / statements to customers on WhatsApp (Web link or official Cloud-API).
       { path: 'whatsapp',      icon: <WhatsAppOutlined />,    label: 'WhatsApp',          perm: 'settings.manage_company' },
       // Customer self-service bot — auto-replies to customers who message the number.

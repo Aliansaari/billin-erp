@@ -532,3 +532,262 @@ exports.verifyDeveloperPassword = async (req, res) => {
     respondWithError(res, error);
   }
 };
+
+/**
+ * POST /auth/sso  { assertion, company_id? }
+ *
+ * Mobile sign-in. The person typed one email/phone + password into the app;
+ * the control plane checked it and signed a 2-minute assertion naming which
+ * ZEHEN user they are. We verify that signature and issue our ordinary JWT.
+ *
+ * Why this exists: the old flow needed the shop's LAN IP typed into the phone
+ * and a separate shop password — unusable away from the shop, and two
+ * credentials for one person. This keeps ONE password, held by the control
+ * plane, while the shop server still issues its own session and remains the
+ * only thing that decides what that session may do.
+ *
+ * The assertion is not a permission grant: it only asserts identity. Role,
+ * permissions and company routing are resolved here from our own database,
+ * exactly as they are for a desktop login.
+ */
+/**
+ * Which companies can this app account open?
+ *
+ * A ZEHEN install can hold several companies, each in its own database with
+ * its own users. An app account is linked to a USERNAME, so it may open any
+ * company where that username exists and is active — that mapping is the shop
+ * owner's own decision, made when they created the account.
+ *
+ * Returns [] rather than throwing when a company's database is unreachable:
+ * one sick company must not stop someone signing in to the others.
+ */
+async function companiesForUsername(username) {
+  const out = [];
+  let rows = [];
+  try {
+    // NB: the column is `is_active`, not `active`. Getting this wrong made
+    // the query throw, the catch below swallowed it, and every sign-in was
+    // told "not an active user in any company" — so keep the two in step.
+    rows = await Company.findAll({
+      where: { is_active: true },
+      order: [['company_id', 'ASC']],
+    });
+  } catch (e) {
+    console.error('[auth/sso] could not list companies:', e.message);
+    return out;
+  }
+
+  for (const c of rows) {
+    try {
+      const conn = await getCompanyConnection(c.company_id);
+      const found = await companyContext.run(
+        { sequelize: conn.sequelize, models: conn.models, companyId: c.company_id },
+        async () => User.findOne({ where: { username, is_active: true } }),
+      );
+      if (found) {
+        out.push({
+          company_id: c.company_id,
+          name: c.name,
+          is_primary: !!c.is_primary,
+          accent_color: c.accent_color || null,
+        });
+      }
+    } catch (e) {
+      // Skip a company we cannot reach, but say so — swallowing this
+      // silently turns "one database is down" into "you have no companies",
+      // which is impossible to diagnose from the app.
+      console.error(`[auth/sso] company ${c.company_id} (${c.name}) unavailable:`, e.message);
+    }
+  }
+  return out;
+}
+
+/** Mint a session for `user` in `companyId`. Shared by sso login + switch. */
+function issueSsoSession(user, companyId) {
+  if (!user.Role) {
+    const err = new Error(`User "${user.username}" has no valid role assigned.`);
+    err.statusCode = 403;
+    throw err;
+  }
+  return jwt.sign(
+    {
+      jti: tokenBlacklist.generateJti(),
+      user_id: user.user_id,
+      username: user.username,
+      role: user.Role.role_name,
+      company_id: companyId,
+      must_change_password: false,
+      via: 'sso',
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '24h' },
+  );
+}
+
+function ssoUserPayload(user) {
+  // A user row whose role_id points at a deleted role leaves Role null, and
+  // every line below dereferences it. Fail with a clear message rather than a
+  // TypeError that reaches the phone as an unexplained 500.
+  if (!user.Role) {
+    const err = new Error(`User "${user.username}" has no valid role assigned.`);
+    err.statusCode = 403;
+    throw err;
+  }
+  return {
+    user_id: user.user_id,
+    username: user.username,
+    full_name: user.full_name,
+    email: user.email,
+    role: user.Role.role_name,
+    role_id: user.role_id,
+    permissions: user.custom_permissions || user.Role.permissions_json,
+    custom_permissions: user.custom_permissions,
+    can_view_reports: user.Role.can_view_reports,
+    can_delete_bills: user.Role.can_delete_bills,
+    can_edit_rates: user.Role.can_edit_rates,
+    can_access_accounts: user.Role.can_access_accounts,
+    can_manage_users: user.Role.can_manage_users,
+  };
+}
+
+/**
+ * POST /auth/sso  { assertion, company_id? }
+ *
+ * Mobile sign-in. The person typed one email/phone + password into the app;
+ * the control plane checked it and signed a 2-minute assertion naming which
+ * ZEHEN user they are. We verify that signature and issue our ordinary JWT.
+ *
+ * The assertion proves IDENTITY only. Role, permissions and which company the
+ * session is bound to are all resolved here, from this installation's own
+ * databases, exactly as they are for a desktop login.
+ */
+exports.ssoExchange = async (req, res) => {
+  try {
+    const remoteAccess = require('../services/remoteAccess');
+    const claims = remoteAccess.verifyAssertion(req.body?.assertion);
+    if (!claims) {
+      return res.status(401).json({ error: 'Sign-in link was invalid or expired. Try again.' });
+    }
+
+    const username = claims.sub;
+    const companies = await companiesForUsername(username);
+    if (!companies.length) {
+      return res.status(403).json({
+        error: `This app account is linked to "${username}", which is not an active user in any company. Ask your admin to re-link it.`,
+      });
+    }
+
+    // Honour an explicit choice; otherwise prefer the primary company so a
+    // single-company shop never sees a picker at all.
+    const requested = Number(req.body?.company_id);
+    const target = companies.find((c) => c.company_id === requested)
+      || companies.find((c) => c.is_primary)
+      || companies[0];
+
+    const conn = await getCompanyConnection(target.company_id);
+    // `await` matters: without it a rejection inside the callback escapes this
+    // function's try/catch and becomes an opaque 500 with nothing in the log.
+    return await companyContext.run(
+      { sequelize: conn.sequelize, models: conn.models, companyId: target.company_id },
+      async () => {
+        const user = await User.findOne({
+          where: { username, is_active: true },
+          include: [{ model: Role }],
+        });
+        if (!user) {
+          return res.status(403).json({ error: 'That user is not active in the selected company.' });
+        }
+        await user.update({ last_login: new Date() });
+
+        // This phone's device token was minted seconds ago by the control
+        // plane; our allow-list refreshes only every few minutes. Pull it
+        // forward so the very next request is not rejected by mobileGate.
+        try { remoteAccess.nudgeDeviceSync(); } catch { /* non-fatal */ }
+
+        res.json({
+          token: issueSsoSession(user, target.company_id),
+          must_change_password: false,
+          company_id: target.company_id,
+          company: target,
+          companies,
+          user: ssoUserPayload(user),
+        });
+      },
+    );
+  } catch (err) {
+    console.error('[auth/sso] exchange failed:', err.message);
+    respondWithError(res, err, 'Could not complete sign-in.');
+  }
+};
+
+/**
+ * POST /auth/sso-switch  { company_id }   (authenticated)
+ *
+ * Switch an app session to another company on the same installation.
+ *
+ * No password is asked for, unlike the desktop's switch-company. That is a
+ * deliberate difference, not an oversight: the desktop asks because each
+ * company database has its own separate password for the same username. Here
+ * the person was already authenticated centrally, and the shop owner decided
+ * which ZEHEN username this account acts as — so the set of companies they
+ * may open is exactly "those where that username is active", which is
+ * precisely what we re-check below on every switch.
+ *
+ * Only sessions minted by SSO may use this; a desktop token must still go
+ * through the password path.
+ */
+exports.ssoSwitchCompany = async (req, res) => {
+  try {
+    if (req.tokenDecoded?.via !== 'sso') {
+      return res.status(403).json({ error: 'This session cannot switch companies without a password.' });
+    }
+    const targetId = Number(req.body?.company_id);
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: 'company_id is required' });
+    }
+    if (targetId === Number(req.companyId)) {
+      return res.status(400).json({ error: 'Already signed in to this company' });
+    }
+
+    const username = req.user.username;
+    let conn;
+    try {
+      conn = await getCompanyConnection(targetId);
+    } catch (e) {
+      return res.status(404).json({ error: e.message });
+    }
+
+    return await companyContext.run(
+      { sequelize: conn.sequelize, models: conn.models, companyId: targetId },
+      async () => {
+        const user = await User.findOne({
+          where: { username, is_active: true },
+          include: [{ model: Role }],
+        });
+        if (!user) {
+          return res.status(403).json({
+            error: `No active account "${username}" in that company.`,
+          });
+        }
+
+        // Retire the old company's token so it cannot keep being used with
+        // the permissions the user just moved away from.
+        try {
+          if (req.tokenDecoded?.jti && req.tokenDecoded?.exp) {
+            tokenBlacklist.add(req.tokenDecoded.jti, req.tokenDecoded.exp);
+          }
+        } catch (e) { console.error('[auth/sso-switch] blacklist failed:', e.message); }
+
+        await user.update({ last_login: new Date() });
+        res.json({
+          token: issueSsoSession(user, targetId),
+          company_id: targetId,
+          user: ssoUserPayload(user),
+        });
+      },
+    );
+  } catch (err) {
+    console.error('[auth/sso-switch] failed:', err.message);
+    respondWithError(res, err, 'Could not switch company.');
+  }
+};

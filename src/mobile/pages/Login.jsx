@@ -1,22 +1,41 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
-import { authAPI, companyAPI, setServerUrl as saveServerUrl, getServerUrl } from '../../api';
+import axios from 'axios';
+import { setServerUrl, setDeviceToken, getServerUrl } from '../../api';
 import useAuthStore from '../../store/authStore';
-import CompanySheet from '../components/CompanySheet';
+import { ZehenMark } from '../../components/ZehenLogo';
 import ServerDialog from '../components/ServerDialog';
+import { controlPlaneUrl } from '../utils/controlPlane';
+import useKeyboardInset from '../hooks/useKeyboardInset';
 import './Login.css';
 
-const LAST_COMPANY_KEY      = 'zehen_last_company';
-const LAST_COMPANY_NAME_KEY = 'zehen_last_company_name';
+/**
+ * Sign in.
+ *
+ * One email-or-phone and one password, from anywhere. The app does not ask
+ * which shop, and it does not ask for a server address — the previous version
+ * required the user to type their shop PC's LAN IP, which only worked on the
+ * shop's own Wi-Fi and was the single most confusing step in setup.
+ *
+ * The flow:
+ *   1. Credentials go to the ZEHEN account service, which knows which shop
+ *      this person belongs to.
+ *   2. It returns that shop's address, a token for this device, and a
+ *      short-lived signed assertion.
+ *   3. We hand the assertion to the shop's own server, which issues the
+ *      normal ZEHEN session. The shop server still decides permissions.
+ *
+ * Advanced users can still pin a specific server by hand — that lives in
+ * Settings, not here, because it is a recovery tool and not part of signing
+ * in.
+ */
 
-// Inline icons keep the bundle small (no icon-lib import) and match the
-// editorial stroke weight (1.7) consistently across the form.
-const UserIcon = () => (
+const MailIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
        strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-    <circle cx="12" cy="7" r="4" />
+    <rect x="2" y="4" width="20" height="16" rx="2.5" />
+    <path d="M2.5 7l9.5 6 9.5-6" />
   </svg>
 );
 const LockIcon = () => (
@@ -30,8 +49,7 @@ const EyeIcon = ({ open }) => (
   open ? (
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
     </svg>
   ) : (
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -41,12 +59,6 @@ const EyeIcon = ({ open }) => (
     </svg>
   )
 );
-const ChevronIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9 6l6 6-6 6" />
-  </svg>
-);
 const ArrowIcon = () => (
   <svg className="login-signin-arrow" width="15" height="15" viewBox="0 0 24 24"
        fill="none" stroke="currentColor" strokeWidth="2.5"
@@ -54,236 +66,172 @@ const ArrowIcon = () => (
     <path d="M5 12h14M13 6l6 6-6 6" />
   </svg>
 );
-const SparkIcon = () => (
-  <svg className="login-hint-spark" width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M12 0L13.5 8.5 22 10 13.5 11.5 12 20 10.5 11.5 2 10 10.5 8.5z" />
-  </svg>
-);
 
-// Map server-side companyAPI.listPublic shape into what CompanySheet expects.
-// The endpoint wraps the list in { data: [...] } and ships minimal metadata
-// pre-login (company_id, name, accent_color, is_primary). We accept both
-// `name` and `company_name`, and treat missing fields as graceful defaults
-// rather than blanking the row.
-function normalizeCompanies(payload, lastUsedId) {
-  const rows = Array.isArray(payload) ? payload : (payload?.data || []);
-  return rows.map((c) => ({
-    company_id:    c.company_id,
-    company_name:  c.company_name || c.name || `Company ${c.company_id}`,
-    gstin:         c.gstin || '',
-    city:          c.city || '',
-    role:          c.is_primary ? 'Primary' : (c.role || ''),
-    accent_color:  c.accent_color || '',
-    is_last_used:  lastUsedId && c.company_id === lastUsedId,
-  }));
-}
-
-function pickInitialCompany(list, lastUsedId) {
-  return lastUsedId && list.find((c) => c.company_id === lastUsedId)
-    ? lastUsedId
-    : (list[0]?.company_id ?? null);
+/** Turn a server error into something a shopkeeper can act on. */
+function humanize(err, fallback) {
+  const code = err?.response?.data?.code;
+  if (code === 'bad_credentials')  return 'Wrong email/phone or password.';
+  if (code === 'locked')           return 'Too many attempts. Try again in a few minutes.';
+  if (code === 'mobile_disabled')  return 'App access is switched off for this account.';
+  if (code === 'device_limit')     return 'Your licence has no free device slots. Remove a device first.';
+  const msg = err?.response?.data?.error || err?.message || '';
+  if (/Network|timeout|Failed to fetch|Load failed/i.test(msg)) {
+    return 'No internet connection. Check your network and try again.';
+  }
+  return msg || fallback;
 }
 
 export default function Login() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
+  const kbd = useKeyboardInset();
 
-  const [username, setUsername] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [companies, setCompanies] = useState([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const idRef = useRef(null);
 
-  // Connection state drives the subtle status pill under the wordmark.
-  const [conn, setConn] = useState('checking'); // 'checking' | 'online' | 'offline'
-
-  // Hidden server config — revealed by tapping the wordmark 3×.
+  // Hidden recovery path: three taps on the logo opens manual server entry.
+  //
+  // Deliberately invisible. Typing an IP address is not part of signing in and
+  // must not clutter this screen — but a shop whose broadband is down cannot
+  // reach the account service, and without this its staff could not sign in at
+  // all even standing next to the server. The same setting lives in the app's
+  // Settings once signed in; this is only for the locked-out case.
   const [serverOpen, setServerOpen] = useState(false);
   const tapRef = useRef({ count: 0, timer: null });
-
-  // Pull the last-used company id (saved post-login) so we can pre-select
-  // it on next launch — saves a tap for the common single-firm case.
-  const lastUsedId = useMemo(() => {
-    try {
-      const raw = localStorage.getItem(LAST_COMPANY_KEY);
-      const n = raw ? Number(raw) : null;
-      return Number.isFinite(n) ? n : null;
-    } catch { return null; }
-  }, []);
-
-  // Fetch companies once on mount. listPublic doesn't require auth (the
-  // license gate exempts companies/list-public so a fresh install can render).
-  useEffect(() => {
-    let cancelled = false;
-    companyAPI.listPublic()
-      .then((res) => {
-        if (cancelled) return;
-        const list = normalizeCompanies(res.data, lastUsedId);
-        setCompanies(list);
-        setSelectedCompanyId(pickInitialCompany(list, lastUsedId));
-        setConn('online');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setConn('offline');
-        // Fresh install with no server yet → surface the (otherwise hidden)
-        // config dialog so the app isn't a dead end. Once a server has ever
-        // been saved, stay hidden and rely on the 3-tap gesture.
-        if (!getServerUrl()) setServerOpen(true);
-      });
-    return () => { cancelled = true; };
-  }, [lastUsedId]);
-
-  const selectedCompany = companies.find((c) => c.company_id === selectedCompanyId);
-
-  // Secret entry point: three taps on the wordmark (within 800ms of each
-  // other) open the server dialog. Counter lives in a ref so taps don't
-  // trigger re-renders.
-  function handleWordmarkTap() {
+  function onLogoTap() {
     const t = tapRef.current;
     if (t.timer) clearTimeout(t.timer);
     t.count += 1;
-    if (t.count >= 3) {
-      t.count = 0;
-      setServerOpen(true);
-      return;
-    }
+    if (t.count >= 3) { t.count = 0; setServerOpen(true); return; }
     t.timer = setTimeout(() => { t.count = 0; }, 800);
   }
 
-  // Owned by the parent: the dialog calls this with a normalized origin and
-  // we do the reachability check + persistence. Throws on failure so the
-  // dialog can show an inline error.
-  async function connectToServer(url) {
-    const res = await fetch(`${url}/api/companies/list-public`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
-    saveServerUrl(url);
-    const list = normalizeCompanies(json, lastUsedId);
-    setCompanies(list);
-    setSelectedCompanyId(pickInitialCompany(list, lastUsedId));
-    setConn('online');
-  }
+  useEffect(() => {
+    // Returning to the login screen means the previous session is gone; the
+    // device token stays, since it belongs to the phone rather than the
+    // session and re-pairing on every sign-in would be pointless friction.
+    setError('');
+  }, []);
+
+  // Centre the focused field above the iOS keyboard, which overlays the
+  // bottom ~45% without resizing the WebView.
+  const onFieldFocus = (e) => {
+    const el = e.target;
+    setTimeout(() => { try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {} }, 300);
+  };
 
   async function onSubmit(e) {
     e.preventDefault();
-    if (submitting) return;
-    if (!username.trim() || !password) {
-      Toast.show({ icon: 'fail', content: 'Username and password required' });
+    if (busy) return;
+    if (!identifier.trim() || !password) {
+      setError('Enter your email or phone and your password.');
       return;
     }
-    setSubmitting(true);
+
+    setBusy(true);
+    setError('');
     try {
-      const res = await authAPI.login({
-        username: username.trim(),
+      // 1 — who is this, and which shop do they belong to?
+      const { data: acct } = await axios.post(`${controlPlaneUrl()}/v1/account/login`, {
+        identifier: identifier.trim(),
         password,
-        company_id: selectedCompanyId || undefined,
-      });
-      const { user, token, must_change_password } = res.data || {};
-      if (!user || !token) throw new Error('Bad login response');
+        platform: 'ios',
+      }, { timeout: 25000 });
+
+      if (!acct?.site?.hostname) {
+        throw new Error('Your shop’s computer has not been set up for app access yet.');
+      }
+
+      // 2 — point at that shop and remember this device.
+      setDeviceToken(acct.device_token);
+      setServerUrl(`https://${acct.site.hostname}`);
+
+      // 3 — trade the assertion for a normal ZEHEN session on the shop server.
+      const { data: session } = await axios.post(
+        `https://${acct.site.hostname}/api/auth/sso`,
+        { assertion: acct.assertion },
+        { headers: { 'X-Zehen-Device': acct.device_token }, timeout: 25000 },
+      );
+      if (!session?.token || !session?.user) throw new Error('Sign-in failed on the shop server.');
+
       try {
-        if (selectedCompanyId) localStorage.setItem(LAST_COMPANY_KEY, String(selectedCompanyId));
-        // Save the picked company's display name so the dashboard greeting
-        // and avatar can render without an extra API round-trip on next launch.
-        const picked = companies.find((c) => c.company_id === selectedCompanyId);
-        if (picked?.company_name) localStorage.setItem(LAST_COMPANY_NAME_KEY, picked.company_name);
-      } catch {}
-      login(user, token, !!must_change_password);
+        localStorage.setItem('zehen_active_site', acct.site.site_id || '');
+        // Remember every company this person can open, and which one we
+        // landed in, so the switcher can be offered without another round
+        // trip — and so a two-company shop is not silently pinned to one.
+        if (Array.isArray(session.companies)) {
+          localStorage.setItem('zehen_companies', JSON.stringify(session.companies));
+        }
+        if (session.company_id != null) {
+          localStorage.setItem('zehen_company_id', String(session.company_id));
+        }
+        const name = session.company?.name || acct.site.name;
+        if (name) localStorage.setItem('zehen_last_company_name', name);
+      } catch { /* private mode */ }
+
+      login(session.user, session.token, false);
       navigate('/', { replace: true });
     } catch (err) {
-      const msg = err?.response?.data?.error || err?.message || 'Login failed';
-      Toast.show({ icon: 'fail', content: msg });
+      setError(humanize(err, 'Could not sign in. Please try again.'));
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   }
 
-  const connLabel = conn === 'online' ? 'Connected' : conn === 'offline' ? 'Offline' : 'Connecting…';
-  const hasFirms = companies.length > 0;
-
   return (
     <div className="login-screen">
-      <form className="login-content" onSubmit={onSubmit} noValidate>
-        {/* Brand — secret 3-tap trigger reveals the server dialog */}
-        <div className="login-brand" onClick={handleWordmarkTap} role="button" tabIndex={-1}>
-          <div className="login-brand-mark" aria-hidden />
-          <div className="login-brand-word">
-            ZEHEN
-          </div>
-          <span className={`login-status login-status--${conn}`}>
-            <span className="login-status-dot" />
-            {connLabel}
-          </span>
+      <form
+        className="login-content"
+        onSubmit={onSubmit}
+        noValidate
+        style={kbd > 0 ? { paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + 20px + ${kbd}px)` } : undefined}
+      >
+        <div className="login-brand" onClick={onLogoTap} role="presentation">
+          <div className="login-logo"><ZehenMark size={60} /></div>
+          <div className="login-brand-word">ZEHEN</div>
         </div>
 
-        {/* Hero */}
         <div className="login-hero">
-          <h1>Welcome <em>back.</em></h1>
-          <p>Sign in to continue to your firm.</p>
+          <h1>Sign in</h1>
+          <p>Use the email or phone number your shop registered.</p>
         </div>
 
-        {/* Editorial rule */}
-        <div className="editorial-rule" aria-hidden>
-          <div className="editorial-rule-line" />
-          <div className="editorial-rule-mark" />
-          <div className="editorial-rule-line" />
-        </div>
-
-        {/* Grouped form card */}
         <div className="login-card">
-          {/* Company / firm context */}
-          <button
-            type="button"
-            className="login-firm"
-            onClick={() => hasFirms && setSheetOpen(true)}
-            disabled={!hasFirms}
-          >
-            <span className="login-firm-avatar">
-              {(selectedCompany?.company_name || '?').trim().charAt(0).toUpperCase()}
-            </span>
-            <span className="login-firm-info">
-              <span className="login-firm-label">Company</span>
-              <span className="login-firm-name">
-                {selectedCompany?.company_name || (conn === 'offline' ? 'No server connected' : 'No firm yet')}
-              </span>
-            </span>
-            {hasFirms && companies.length > 1 && (
-              <span className="login-firm-count">{companies.length}</span>
-            )}
-            <span className="login-firm-chevron"><ChevronIcon /></span>
-          </button>
-
-          <div className="login-divider" />
-
-          {/* Username */}
           <div className="login-row">
-            <span className="login-row-icon"><UserIcon /></span>
+            <span className="login-row-icon"><MailIcon /></span>
             <input
+              ref={idRef}
               className="login-row-input"
               type="text"
+              inputMode="email"
               autoComplete="username"
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck="false"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Username"
+              enterKeyHint="next"
+              value={identifier}
+              onChange={(e) => { setIdentifier(e.target.value); setError(''); }}
+              onFocus={onFieldFocus}
+              placeholder="Email or phone"
             />
           </div>
 
           <div className="login-divider" />
 
-          {/* Password */}
           <div className="login-row">
             <span className="login-row-icon"><LockIcon /></span>
             <input
               className="login-row-input"
               type={showPassword ? 'text' : 'password'}
               autoComplete="current-password"
+              enterKeyHint="go"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => { setPassword(e.target.value); setError(''); }}
+              onFocus={onFieldFocus}
               placeholder="Password"
             />
             <button
@@ -297,42 +245,33 @@ export default function Login() {
           </div>
         </div>
 
-        <button type="submit" className="login-signin" disabled={submitting}>
-          {submitting ? <span className="login-spinner" /> : <>Sign in <ArrowIcon /></>}
+        {error && <div className="login-error" role="alert">{error}</div>}
+
+        <button type="submit" className="login-signin" disabled={busy}>
+          {busy ? <span className="login-spinner" /> : <>Sign in <ArrowIcon /></>}
         </button>
 
         <button
           type="button"
           className="login-forgot"
-          onClick={() => Toast.show({ icon: 'success', content: 'Ask the admin to reset it' })}
+          onClick={() => Toast.show({ content: 'Ask your ZEHEN administrator to reset it.' })}
         >
           Forgot password?
         </button>
 
-        {/* Footer hint */}
         <div className="login-hint">
-          <SparkIcon />
-          <span>
-            First time? Try{' '}
-            <span className="login-kbd">admin</span>{' '}
-            <span className="login-kbd">admin123</span>
-          </span>
+          <span>ZEHEN · Billing · Inventory · GST</span>
         </div>
       </form>
-
-      <CompanySheet
-        open={sheetOpen}
-        companies={companies}
-        selectedId={selectedCompanyId}
-        onSelect={(id) => setSelectedCompanyId(id)}
-        onConfirm={() => setSheetOpen(false)}
-        onClose={() => setSheetOpen(false)}
-      />
 
       <ServerDialog
         open={serverOpen}
         initialUrl={getServerUrl()}
-        onConnect={connectToServer}
+        onConnect={async (url) => {
+          const res = await fetch(`${url}/api/health`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          setServerUrl(url);
+        }}
         onClose={() => setServerOpen(false)}
       />
     </div>

@@ -121,7 +121,13 @@ async function lanGate(req, res, next) {
   // /api/companies/list-public is similarly exempt: the login screen
   // needs to populate the picker BEFORE the user has any token, and
   // that population shouldn't itself burn a license slot.
-  const path = req.path || req.url;
+  //
+  // NOTE: mounted as app.use('/api', lanGate), so Express strips '/api' from
+  // req.path — this list previously compared against '/api/health' and never
+  // matched a single request, meaning none of these exemptions actually
+  // applied. On an install with dev_lan_max_clients set, that could refuse
+  // the login screen's own company picker. Rebuild the full path.
+  const path = `${req.baseUrl || ''}${req.path || ''}` || (req.originalUrl || '').split('?')[0];
   if (
     path === '/api/health' ||
     path === '/api/server-info' ||
@@ -139,6 +145,21 @@ async function lanGate(req, res, next) {
       code: 'LAN_DISABLED',
     });
   }
+
+  // Phones reaching us through the Cloudflare tunnel are NOT LAN clients and
+  // must not consume LAN licence slots.
+  //
+  // Two reasons this matters. First, a shop that has bought 5 LAN seats has
+  // bought them for its counter PCs, not for the owner glancing at the
+  // dashboard from home. Second, the identity key below is
+  // `user:<id>:<iat>` — a NEW value on every login — so each time a phone
+  // re-authenticated it would register as another fresh device and burn
+  // another slot, until the shop hit a "Maximum LAN device limit reached"
+  // error caused entirely by one person's phone.
+  //
+  // Remote access has its own cap, enforced by the control plane as
+  // `max_devices` at pairing time, and its own gate in mobileGate.
+  if (req.isRemoteClient) return next();
 
   // Track activity from non-loopback requests for cap accounting +
   // admin disconnect/blocklist.

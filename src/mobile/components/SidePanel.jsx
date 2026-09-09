@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import BranchSheet from './BranchSheet';
+import CompanySwitchSheet from './CompanySwitchSheet';
 import { Toast } from 'antd-mobile';
 import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import useCompanyStore from '../../store/companyStore';
-import { companyAPI, setServerUrl as saveServerUrl, getServerUrl } from '../../api';
+import { companyAPI, setServerUrl as saveServerUrl, getServerUrl, getDeviceToken } from '../../api';
 import './SidePanel.css';
 
 const I = {
@@ -132,6 +134,8 @@ export default function SidePanel({ open, onClose }) {
 
   const [closing, setClosing] = useState(false);
   const [serverOpen,  setServerOpen]  = useState(false);
+  const [branchOpen,  setBranchOpen]  = useState(false);
+  const [companyOpen, setCompanyOpen] = useState(false);
   const [serverUrl,   setServerUrlVal] = useState(() => getServerUrl());
 
   function handleSaveServer() {
@@ -242,7 +246,7 @@ export default function SidePanel({ open, onClose }) {
               </div>
             </div>
             {firmCount > 1 && (
-              <button className="sp-firm-switch" onClick={() => { animateClose(); navigate('/login'); }}>
+              <button className="sp-firm-switch" onClick={() => { setCompanyOpen(true); }}>
                 {I.swap}
                 Switch firm
                 <span className="sp-firm-count">{firmCount} available</span>
@@ -298,6 +302,15 @@ export default function SidePanel({ open, onClose }) {
           {/* Server connection */}
           <div className="sp-section-label">Connection</div>
           <div className="sp-nav-list">
+            {/* Only meaningful once this phone is paired — an unpaired phone
+                belongs to no org, so it has no other branches to switch to. */}
+            {getDeviceToken() && (
+              <button className="sp-nav-row" onClick={() => setBranchOpen(true)}>
+                <div className="sp-nav-icon">{I.server}</div>
+                <span className="sp-nav-label">Branches</span>
+                <div className="sp-nav-chev">{I.chev}</div>
+              </button>
+            )}
             <button
               className={`sp-nav-row${serverOpen ? ' sp-nav-row-open' : ''}`}
               onClick={() => setServerOpen((v) => !v)}
@@ -387,6 +400,8 @@ export default function SidePanel({ open, onClose }) {
           </div>
         </div>
       </div>
+          <BranchSheet open={branchOpen} onClose={() => setBranchOpen(false)} />
+          <CompanySwitchSheet open={companyOpen} onClose={() => setCompanyOpen(false)} />
     </>
   );
 }

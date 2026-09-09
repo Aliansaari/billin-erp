@@ -182,6 +182,12 @@ app.use(globalRateLimit);
 // gets a 503 instead of (e.g.) a successful login. Health and
 // server-info endpoints are exempt inside the middleware itself so
 // the Server Setup screen can still probe.
+// Remote (tunnel) gate runs BEFORE lanGate: it flags internet-originated
+// requests and demands a paired device token, so lanGate can then treat
+// phones and office PCs as the separate things they are.
+const { mobileGate } = require('./middleware/mobileGate');
+app.use('/api', mobileGate);
+
 const { lanGate } = require('./middleware/lanGate');
 app.use('/api', lanGate);
 
@@ -221,6 +227,7 @@ app.use('/api/imports', require('./routes/imports'));
 app.use('/api/tally/ledger-mapping', require('./routes/tallyMapping'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
+app.use('/api/remote-access', require('./routes/remoteAccess'));
 app.use('/api/data', require('./routes/importExport'));
 app.use('/api/tally', require('./routes/tally'));
 app.use('/api/backup', require('./routes/backup'));
@@ -3498,6 +3505,19 @@ async function startServer() {
       httpServer.keepAliveTimeout = 65_000;   // > typical proxy idle timeout
       httpServer.headersTimeout = 70_000;     // must be > keepAliveTimeout
       httpServer.requestTimeout = 0;          // no hard cap — backups + imports run long
+
+      // Remote Access (Cloudflare Tunnel) — started here, after the server
+      // is already listening, and deliberately fire-and-forget. A shop with
+      // no internet must boot exactly as fast and work exactly as well as
+      // one with it, so this can never delay or fail the boot sequence.
+      try {
+        require('./services/remoteAccess').boot();
+        // Offline snapshot uploads. Only does anything once remote access is
+        // on, and every failure is swallowed — see services/snapshotPush.js.
+        require('./services/snapshotPush').start();
+      } catch (e) {
+        console.error('[remoteAccess] boot skipped:', e.message);
+      }
 
       // Start auto-backup scheduler
       require('./controllers/backupController').initScheduler();

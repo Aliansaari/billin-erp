@@ -108,6 +108,7 @@ import MembershipSettings from './pages/settings/MembershipSettings';
 import MembershipList from './pages/membership/MembershipList';
 import MembershipReport from './pages/membership/MembershipReport';
 import LanSettings from './pages/settings/LanSettings';
+import RemoteAccess from './pages/settings/RemoteAccess';
 import WhatsappSettings from './pages/settings/WhatsappSettings';
 import WhatsappBotSettings from './pages/settings/WhatsappBotSettings';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
@@ -863,6 +864,7 @@ export default function App() {
             <Route path="membership"          element={<RoleRoute perm="settings.manage_company"><MembershipSettings /></RoleRoute>} />
             <Route path="membership-plans"    element={<RoleRoute perm="settings.manage_company"><MembershipPlans /></RoleRoute>} />
             <Route path="network"             element={<RoleRoute perm="settings.manage_company"><LanSettings /></RoleRoute>} />
+            <Route path="remote-access"       element={<RoleRoute perm="settings.manage_company"><RemoteAccess /></RoleRoute>} />
             <Route path="whatsapp"            element={<RoleRoute perm="settings.manage_company"><WhatsappSettings /></RoleRoute>} />
             <Route path="whatsapp-bot"        element={<RoleRoute perm="settings.manage_company"><WhatsappBotSettings /></RoleRoute>} />
             <Route path="backup"              element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />

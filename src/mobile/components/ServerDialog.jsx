@@ -70,7 +70,7 @@ function humanizeError(e) {
   return msg;
 }
 
-export default function ServerDialog({ open, initialUrl, onConnect, onClose }) {
+export default function ServerDialog({ open, initialUrl, onConnect, onClose, onPair }) {
   const [raw, setRaw] = useState(initialUrl || '');
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState('');
@@ -171,6 +171,15 @@ export default function ServerDialog({ open, initialUrl, onConnect, onClose }) {
           {error && <div className="sd-error">{error}</div>}
           {!showPreview && !error && (
             <div className="sd-tip">Tip: just type the IP — we’ll add <code>http://</code> and <code>:3001</code> for you.</div>
+          )}
+
+          {/* A LAN address only works on the shop's own Wi-Fi. Pairing works
+              from anywhere and needs no typing, so offer it here rather than
+              leaving it to be discovered. */}
+          {onPair && !connecting && !ok && (
+            <button type="button" className="sd-pair-link" onClick={onPair}>
+              Away from the shop? Pair with a QR code instead
+            </button>
           )}
 
           <div className="sd-actions">

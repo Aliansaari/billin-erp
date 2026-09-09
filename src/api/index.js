@@ -116,6 +116,32 @@ export async function probeServer(baseUrl, { timeout = 4000 } = {}) {
   }
 }
 
+/* ── Device pairing token (mobile over Cloudflare Tunnel) ───────────────
+ *
+ * When a shop turns on Remote Access, its server becomes reachable at a
+ * public HTTPS hostname. The server then requires every request arriving
+ * through that tunnel to carry a device token the owner paired — otherwise
+ * the hostname plus a stolen password would be enough to reach the books
+ * from anywhere. See server/middleware/mobileGate.js.
+ *
+ * The token is per-phone, issued by the control plane when the user scans
+ * the pairing QR. It is NOT a session credential: it survives logout, and
+ * losing it means re-pairing, not re-logging-in. Sending it on LAN requests
+ * too is harmless — the server only inspects it on tunnel traffic.
+ */
+export const DEVICE_TOKEN_KEY = 'zehen_device_token';
+
+export function getDeviceToken() {
+  try { return localStorage.getItem(DEVICE_TOKEN_KEY) || ''; } catch { return ''; }
+}
+
+export function setDeviceToken(token) {
+  try {
+    if (token) localStorage.setItem(DEVICE_TOKEN_KEY, String(token));
+    else localStorage.removeItem(DEVICE_TOKEN_KEY);
+  } catch { /* private mode */ }
+}
+
 const api = axios.create({
   baseURL: resolveApiBaseUrl(),
   timeout: 30000,
@@ -125,6 +151,8 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  const device = getDeviceToken();
+  if (device) config.headers['X-Zehen-Device'] = device;
   return config;
 });
 
@@ -144,6 +172,16 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
+
+    // Not-paired is a device problem, not a session problem. Clearing the
+    // login here would be actively misleading: the user would be bounced to
+    // a sign-in screen, sign in successfully, and be bounced again forever,
+    // because the thing the server actually rejected was the phone.
+    if (status === 401 && error.response?.data?.code === 'DEVICE_NOT_PAIRED') {
+      try { sessionStorage.setItem('zehen_device_unpaired', '1'); } catch {}
+      return Promise.reject(error);
+    }
+
     if (status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');

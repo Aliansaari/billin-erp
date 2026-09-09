@@ -1,0 +1,26 @@
+name = "zehen-control-plane"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Ed25519 via WebCrypto needs no flags on modern compat dates; nodejs_compat
+# is deliberately NOT enabled — this Worker uses only standard web APIs.
+
+[vars]
+SITE_DOMAIN = "zehenapp.com"
+CF_ACCOUNT_ID = "802d6855f63eef0c8b3bbf62b55c8cfb"
+CF_ZONE_ID = "944e42dbf734c9c7eead58b54370691f"
+# Public half of the ZEHEN License Studio keypair — same value the desktop
+# embeds. Public by definition; safe in source.
+LICENSE_PUBLIC_KEY = "C05347K65klJ3v6gFae8Pbha/jsi3ZsreSfdm/++ucY="
+# Public half of the control plane's SSO signing key. Desktops verify
+# login assertions with it. SSO_PRIVATE_KEY is a secret (wrangler secret put).
+SSO_PUBLIC_KEY = "3ZIaCvgPUXHNcKsdL/PbByxEga4ioZveK1AEyAkC7n8="
+
+# CF_API_TOKEN is a SECRET, never a var. Set with:
+#   wrangler secret put CF_API_TOKEN
+# It needs exactly two permissions: Zone→DNS→Edit and Account→Cloudflare Tunnel→Edit.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "zehen-control-plane"
+database_id = "1561f9dc-07c4-47a2-8d93-24f3d31f1482"

@@ -1,0 +1,143 @@
+/* PairSheet — phone pairing dialog.
+ *
+ * Rendered as a child of the login screen, so it inherits the --ed-* tokens
+ * defined on .login-screen. Anchored in the upper-middle of the viewport for
+ * the same reason ServerDialog is: iOS overlays the soft keyboard across the
+ * bottom ~45% without resizing the WebView, so a vertically-centred dialog
+ * would have its input and its primary button hidden the moment the user
+ * taps the code field. */
+
+.pair-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  background: rgba(0, 0, 0, 0.66);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(env(safe-area-inset-top, 0px), 12vh) 20px 20px;
+  animation: pair-fade 0.18s ease both;
+}
+@keyframes pair-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.pair-dialog {
+  width: 100%;
+  max-width: 340px;
+  border-radius: 18px;
+  padding: 16px;
+  background: var(--ed-bg-raise, #131315);
+  border: 1px solid var(--ed-line, rgba(255, 255, 255, 0.09));
+  box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.75);
+  animation: pair-rise 0.22s cubic-bezier(0.22, 0.9, 0.24, 1) both;
+}
+@keyframes pair-rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pair-scrim, .pair-dialog { animation: none; }
+}
+
+.pair-head { display: flex; align-items: flex-start; gap: 11px; margin-bottom: 16px; }
+.pair-head-icon {
+  flex: none;
+  width: 32px; height: 32px;
+  border-radius: 9px;
+  display: grid; place-items: center;
+  color: var(--ed-accent-hi, #E8602B);
+  background: rgba(212, 80, 28, 0.12);
+  border: 1px solid rgba(212, 80, 28, 0.22);
+}
+.pair-head-text { flex: 1; min-width: 0; }
+.pair-title { font-size: 15px; font-weight: 600; color: var(--ed-fg, #F4F1EC); }
+.pair-sub {
+  font-size: 12px; line-height: 1.4; margin-top: 3px;
+  color: var(--ed-fg-mute, #6E6862);
+}
+.pair-close {
+  flex: none;
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border: 0; border-radius: 8px;
+  background: transparent;
+  color: var(--ed-fg-faint, #4C4741);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pair-close:active { background: rgba(255, 255, 255, 0.05); }
+
+.pair-scan-btn {
+  width: 100%; height: 46px;
+  border-radius: 12px;
+  border: 1px solid rgba(212, 80, 28, 0.35);
+  background: rgba(212, 80, 28, 0.12);
+  color: var(--ed-accent-hi, #E8602B);
+  font-family: inherit; font-size: 14.5px; font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.14s ease;
+}
+.pair-scan-btn:active:not(:disabled) { background: rgba(212, 80, 28, 0.2); }
+.pair-scan-btn:disabled { opacity: 0.55; cursor: default; }
+
+.pair-or {
+  display: flex; align-items: center; gap: 10px;
+  margin: 14px 0 12px;
+  color: var(--ed-fg-faint, #4C4741);
+  font-size: 11.5px;
+}
+.pair-or::before, .pair-or::after {
+  content: ''; flex: 1; height: 1px;
+  background: var(--ed-line, rgba(255, 255, 255, 0.07));
+}
+
+.pair-input {
+  width: 100%; height: 48px;
+  border-radius: 12px;
+  border: 1px solid var(--ed-line, rgba(255, 255, 255, 0.09));
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--ed-fg, #F4F1EC);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;                 /* ≥16px so iOS does not zoom on focus */
+  letter-spacing: 0.16em;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+.pair-input::placeholder { color: var(--ed-fg-faint, #4C4741); letter-spacing: 0.16em; }
+.pair-input:focus {
+  border-color: rgba(212, 80, 28, 0.5);
+  background: rgba(212, 80, 28, 0.06);
+}
+
+.pair-error {
+  margin-top: 10px;
+  font-size: 12.5px; line-height: 1.4;
+  color: #E8724B;
+}
+
+.pair-submit {
+  margin-top: 14px;
+  width: 100%; height: 48px;
+  border: 0; border-radius: 12px;
+  background: var(--ed-accent, #D4501C);
+  color: #fff;
+  font-family: inherit; font-size: 15.5px; font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset;
+  transition: background 0.14s ease, opacity 0.14s ease;
+}
+.pair-submit:active:not(:disabled) { background: var(--ed-accent-lo, #A93C12); }
+.pair-submit:disabled { opacity: 0.5; cursor: default; }
+
+/* While MLKit is scanning it renders the camera BEHIND the WebView, so the
+   page itself must become transparent or the user sees nothing but the app.
+   Scoped to body so every layer above (scrim, dialog) hides together. */
+body.pair-scanning,
+body.pair-scanning .login-screen { background: transparent !important; }
+body.pair-scanning .pair-scrim { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+body.pair-scanning .pair-dialog,
+body.pair-scanning .login-content { visibility: hidden; }

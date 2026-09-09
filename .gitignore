@@ -34,3 +34,10 @@ Wire_Imports_Prompt.md
 
 # Build artefacts from experimental packaging runs — never check these in.
 dist-electron-*/
+
+# Cloudflare Worker local secrets — never commit
+cloud/.dev.vars
+cloud/.wrangler/
+
+# Downloaded connector binary (fetched at build time)
+vendor/cloudflared/

@@ -1,0 +1,11 @@
+{
+  "name": "zehen-control-plane",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "db:init:local": "wrangler d1 execute zehen-control-plane --local --file=schema.sql",
+    "db:init:remote": "wrangler d1 execute zehen-control-plane --remote --file=schema.sql"
+  }
+}
