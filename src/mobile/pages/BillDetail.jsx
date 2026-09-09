@@ -200,7 +200,18 @@ export default function BillDetail() {
         const res = await searchApi.getAll({ search: no, limit: 1 });
         const rows = Array.isArray(res.data) ? res.data : (res.data?.data || []);
         if (rows.length === 0) throw new Error('Voucher not found');
-        return rows[0];
+
+        // The LIST endpoint returns bill summaries with no `items` array, so
+        // returning this row directly rendered a bill with no line items and
+        // every price as ₹0. Re-fetch the full record by id.
+        const found = rows[0];
+        const foundId = found.sales_bill_id ?? found.purchase_bill_id
+          ?? found.receipt_id ?? found.payment_id ?? found.id;
+        if (foundId != null) {
+          const full = await cfg.fetch(foundId);
+          return full.data?.data || full.data || found;
+        }
+        return found;
       }
       const res = await cfg.fetch(id);
       return res.data?.data || res.data;

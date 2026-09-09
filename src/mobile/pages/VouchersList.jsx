@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
+import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import ActivityRow from '../components/ActivityRow';
 import { formatINR, isoDate } from '../utils/format';
 import './VouchersList.css';
@@ -84,7 +85,9 @@ export default function VouchersList() {
     reportAPI.dayBook({ from_date: fromDate, to_date: toDate })
       .then((res) => {
         if (cancelled) return;
-        setData(res.data?.data || []);
+        // The day book returns oldest-first; a voucher list should open on the
+        // most recent transaction, not on something from the start of the year.
+        setData(sortVouchersNewestFirst(res.data?.data || []));
       })
       .catch((e) => {
         if (cancelled) return;

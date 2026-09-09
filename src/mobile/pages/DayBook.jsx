@@ -4,6 +4,7 @@ import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
 import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
+import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import ActivityRow from '../components/ActivityRow';
 import { formatINR, isoDate } from '../utils/format';
 import { shareViaNative } from '../utils/sharePdf';
@@ -122,7 +123,7 @@ export default function DayBook() {
     reportAPI.dayBook({ from_date: fromDate, to_date: toDate })
       .then((res) => {
         if (cancelled) return;
-        setData(res.data?.data || []);
+        setData(sortVouchersNewestFirst(res.data?.data || []));
         setSummary(res.data?.summary || null);
       })
       .catch(async (e) => {
@@ -135,7 +136,7 @@ export default function DayBook() {
             // when it uploads. Presenting it for any other requested range
             // would be a quietly wrong answer, so the banner says which day
             // this actually is.
-            setData(section?.data || []);
+            setData(sortVouchersNewestFirst(section?.data || []));
             setSummary(section?.summary || null);
             setOffline({ age: snapshotAge(snap), todayOnly: true });
             return;
@@ -277,14 +278,6 @@ export default function DayBook() {
 
   return (
     <div className="db-screen drill-in">
-      {offline && (
-        <div style={{ padding: '10px 16px 0' }}>
-          <OfflineBanner
-            age={offline.todayOnly ? `${offline.age} — today only` : offline.age}
-            onRetry={() => window.location.reload()}
-          />
-        </div>
-      )}
       {/* Topbar */}
       <div className="db-top">
         <button className="db-icon-btn framed" onClick={() => navigate(-1)} aria-label="Back">
@@ -316,6 +309,14 @@ export default function DayBook() {
           <ShareIcon />
         </button>
       </div>
+      {offline && (
+        <div className="offline-slot">
+          <OfflineBanner
+            age={offline.todayOnly ? `${offline.age} — today only` : offline.age}
+            onRetry={() => window.location.reload()}
+          />
+        </div>
+      )}
 
       {/* From/To range row */}
       <div className="db-range">

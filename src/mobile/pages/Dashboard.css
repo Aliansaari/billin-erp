@@ -114,16 +114,37 @@
 
 .notif-dropdown {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 10px);
   right: 0;
-  width: min(320px, calc(100vw - 40px));
+  width: min(340px, calc(100vw - 32px));
   background: var(--c-bg-surface);
   border: 1px solid var(--c-border);
-  border-radius: 20px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.15);
-  overflow: hidden;
+  border-radius: 18px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 16px 44px -12px rgba(0, 0, 0, 0.28);
+  /* Cap the height and scroll inside.
+     With no cap, a shop with several overdue parties produced a panel taller
+     than the screen: the last items were unreachable and the whole page
+     scrolled behind it. */
+  max-height: min(60vh, 440px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;   /* don't scroll the dashboard behind it */
   z-index: 100;
-  animation: notifSlide 0.2s ease-out;
+  animation: notifSlide 0.18s cubic-bezier(0.22, 0.9, 0.24, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .notif-dropdown { animation: none; }
+}
+
+/* Keep the title visible while the list scrolls under it. */
+.notif-dropdown-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--c-bg-surface);
+  border-bottom: 1px solid var(--c-line);
 }
 @keyframes notifSlide {
   from { opacity: 0; transform: translateY(-8px) scale(0.97); }
@@ -937,4 +958,12 @@
   background: var(--c-bg-surface);
   border: 1.5px solid var(--c-border);
   color: var(--c-text-soft);
+}
+
+/* Invisible tap-catcher behind the notification panel. */
+.notif-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 99;          /* under .notif-dropdown (100), over everything else */
+  background: transparent;
 }

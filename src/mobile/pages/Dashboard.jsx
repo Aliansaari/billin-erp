@@ -4,6 +4,8 @@ import { Toast, PullToRefresh } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
 import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
+import { sortVouchersNewestFirst } from '../utils/voucherOrder';
+import { activeCompanyName } from '../utils/identity';
 import useAuthStore from '../../store/authStore';
 import ActivityRow from '../components/ActivityRow';
 import {
@@ -109,9 +111,7 @@ export default function Dashboard() {
             setStats(sectionOf(snap, 'dashboard'));
             setInsights(sectionOf(snap, 'insights'));
             const raw = sectionOf(snap, 'dayBook')?.data || [];
-            setToday([...raw]
-              .sort((a, b) => Number(b.entry_number || 0) - Number(a.entry_number || 0))
-              .slice(0, 6));
+            setToday(sortVouchersNewestFirst(raw).slice(0, 6));
             setOffline({ age: snapshotAge(snap) });
             return;
           }
@@ -122,12 +122,7 @@ export default function Dashboard() {
         if (ins.status === 'fulfilled') setInsights(ins.value.data);
         if (db.status === 'fulfilled') {
           const raw = db.value.data?.data || [];
-          // Sort by entry_number descending so the most-recent transaction
-          // appears first, regardless of the API's default ordering.
-          const sorted = [...raw].sort(
-            (a, b) => Number(b.entry_number || 0) - Number(a.entry_number || 0),
-          );
-          setToday(sorted.slice(0, 6));
+          setToday(sortVouchersNewestFirst(raw).slice(0, 6));
         }
       })
       .catch(() => {
@@ -149,13 +144,8 @@ export default function Dashboard() {
   // session starts; if it's missing (e.g. activation flow before that
   // store key existed) we fall back to the user's name so the screen
   // never reads "Hello, undefined".
-  const companyName = (() => {
-    try {
-      const stored = localStorage.getItem('zehen_last_company_name');
-      if (stored) return stored;
-    } catch {}
-    return user?.company_name || (user?.full_name || user?.username || 'there').split(' ')[0];
-  })();
+  const companyName = activeCompanyName(null, user)
+    || (user?.full_name || user?.username || 'there').split(' ')[0];
   const initial = (companyName || '?').trim().charAt(0).toUpperCase();
   const greetingDate = formatGreetingDate(new Date(), user?.company_city || '');
   const greeting = greetingPrefix();
@@ -164,10 +154,6 @@ export default function Dashboard() {
   const todaySales       = stats?.today_sales?.total ?? 0;
   const todaySalesCount  = stats?.today_sales?.count ?? 0;
   const yesterdaySales   = stats?.prior?.today_sales?.total ?? 0;
-  const deltaPct = useMemo(() => {
-    if (!yesterdaySales) return null;
-    return ((todaySales - yesterdaySales) / yesterdaySales) * 100;
-  }, [todaySales, yesterdaySales]);
 
   const receiptsTotal    = stats?.today_receipts?.total ?? 0;
   const receiptsCount    = stats?.today_receipts?.count ?? 0;
@@ -253,6 +239,13 @@ export default function Dashboard() {
                 <span className="notif-badge">{notifications.length}</span>
               )}
             </button>
+            {/* Full-screen catcher so a tap anywhere closes the panel. The
+                click-outside listener alone missed taps that landed on
+                scrollable children and on the tab bar, so the panel felt
+                stuck open. */}
+            {notifOpen && (
+              <div className="notif-scrim" onClick={() => setNotifOpen(false)} aria-hidden />
+            )}
             {notifOpen && (
               <div className="notif-dropdown">
                 <div className="notif-dropdown-head">Notifications</div>
@@ -300,11 +293,6 @@ export default function Dashboard() {
       <div className="hero-card">
         <div className="hero-top" onClick={() => navigate(`/day-book?date=${isoDate()}`)}>
           <div className="hero-label">Today's sales</div>
-          {deltaPct !== null && (
-            <div className={`hero-badge ${deltaPct >= 0 ? 'up' : 'down'}`}>
-              {deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%
-            </div>
-          )}
         </div>
         <div className="hero-amount" onClick={() => navigate(`/day-book?date=${isoDate()}`)}>
           <span className="currency">₹</span>{formatINR(todaySales)}

@@ -180,11 +180,6 @@ export default function Outstanding() {
   return (
     <div className="rl-screen drill-in">
 
-      {offline && (
-        <div style={{ padding: '10px 16px 0' }}>
-          <OfflineBanner age={offline.age} onRetry={() => window.location.reload()} />
-        </div>
-      )}
 
       {/* ── Topbar ── */}
       <div className="rl-top">
@@ -217,6 +212,11 @@ export default function Outstanding() {
           <ShareIcon />
         </button>
       </div>
+      {offline && (
+        <div className="offline-slot">
+          <OfflineBanner age={offline.age} onRetry={() => window.location.reload()} />
+        </div>
+      )}
 
       {/* ── Search (collapsible) ── */}
       {searchOn && (

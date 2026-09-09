@@ -95,10 +95,31 @@ export default function Stock() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    productAPI.getAll({ limit: 10000 })
-      .then((res) => {
+    // Page through every product.
+    //
+    // A single `limit: 10000` looked like it fetched everything, but the
+    // server clamps every request to maxLimit = 500 (utils/helpers
+    // sanitizePagination), so the stock screen silently showed only the first
+    // 500 items with no indication anything was missing. Follow the `total`
+    // the API reports instead of trusting one oversized request.
+    (async () => {
+      const PAGE = 500;
+      const first = await productAPI.getAll({ limit: PAGE, page: 1 });
+      const firstRows = Array.isArray(first.data) ? first.data : (first.data?.data || []);
+      const total = Number(first.data?.total ?? firstRows.length);
+      const all = [...firstRows];
+
+      const pages = Math.ceil(total / PAGE);
+      for (let pageNo = 2; pageNo <= pages && !cancelled; pageNo++) {
+        const r = await productAPI.getAll({ limit: PAGE, page: pageNo });
+        const rows = Array.isArray(r.data) ? r.data : (r.data?.data || []);
+        if (!rows.length) break;
+        all.push(...rows);
+      }
+      return all;
+    })()
+      .then((raw) => {
         if (cancelled) return;
-        const raw = Array.isArray(res.data) ? res.data : (res.data?.data || []);
         setProducts(raw);
       })
       .catch(async (e) => {
@@ -286,16 +307,6 @@ export default function Stock() {
 
   return (
     <div className="st-screen">
-      {offline && (
-        <div style={{ padding: '10px 16px 0' }}>
-          <OfflineBanner
-            age={offline.trimmed
-              ? `${offline.age} — the item list was too large to save offline`
-              : offline.age}
-            onRetry={() => window.location.reload()}
-          />
-        </div>
-      )}
       <div className="st-top">
         <h1 className="st-title">Stock</h1>
         <div className="st-top-actions">
@@ -332,6 +343,16 @@ export default function Stock() {
           </button>
         </div>
       </div>
+      {offline && (
+        <div className="offline-slot">
+          <OfflineBanner
+            age={offline.trimmed
+              ? `${offline.age} — the item list was too large to save offline`
+              : offline.age}
+            onRetry={() => window.location.reload()}
+          />
+        </div>
+      )}
 
       {searchOn && (
         <div className="st-search">

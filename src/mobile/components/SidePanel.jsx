@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { activeCompanyName, userContactLine } from '../utils/identity';
 import BranchSheet from './BranchSheet';
 import CompanySwitchSheet from './CompanySwitchSheet';
 import { Toast } from 'antd-mobile';
@@ -180,14 +181,9 @@ export default function SidePanel({ open, onClose }) {
 
   if (!open && !closing) return null;
 
-  const companyName = (() => {
-    if (currentCompany?.company_name) return currentCompany.company_name;
-    try {
-      const stored = localStorage.getItem('zehen_last_company_name');
-      if (stored) return stored;
-    } catch {}
-    return user?.company_name || 'My Company';
-  })();
+  // Resolves through the companies this sign-in actually returned, so a
+  // single-company install shows its real name instead of "My Company".
+  const companyName = activeCompanyName(currentCompany, user) || 'Company';
 
   const companyInitial = (companyName || '?').trim().charAt(0).toUpperCase();
   const gstin = currentCompany?.gstin || user?.gstin || '';
@@ -195,7 +191,8 @@ export default function SidePanel({ open, onClose }) {
   const firmMeta = [gstin, city].filter(Boolean).join(' · ') || '—';
   const userName = user?.full_name || user?.username || 'User';
   const userInitial = userName.trim().charAt(0).toUpperCase();
-  const userEmail = user?.email || `${user?.username || 'admin'}@zehen.in`;
+  // Their real email/phone, or their role — never a fabricated address.
+  const userEmail = userContactLine(user);
   const userRole = user?.role || 'Owner';
   const fy = fyLabel();
   const firmCount = companyList.length || 1;

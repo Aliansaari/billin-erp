@@ -41,3 +41,14 @@
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 .ob-retry:active { background: rgba(181, 129, 26, 0.28); }
+
+/* Slot for the banner inside a screen that has its own sticky header.
+   It must sit BELOW the header: placed above, it pushed the safe-area top
+   padding down and opened an obvious gap under the status bar. `flex: none`
+   because these screens are flex columns — without it the banner is squeezed
+   to nothing when the content is tall. */
+.offline-slot {
+  flex: none;
+  padding: 10px 14px 0;
+  background: var(--c-bg-app, #F2EDE2);
+}
