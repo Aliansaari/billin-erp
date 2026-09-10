@@ -6,7 +6,7 @@ import { themeTokens, resolveMode } from '../theme/tokens';
  * themeStore — theme style + appearance preferences.
  *
  * Shape:
- *   themeStyle: 'classic' | 'modern'
+ *   themeStyle: 'classic' | 'modern' | 'glass'
  *   appearance: 'light' | 'dark' | 'system'
  *
  * Legacy fields (colorPrimary, sidebarStyle, compactMode, …) are kept so any
@@ -44,8 +44,9 @@ const useThemeStore = create(
     (set, get) => ({
       ...defaults,
 
-      /** Change theme style: 'classic' or 'modern'. */
-      setThemeStyle: (style) => set({ themeStyle: style === 'modern' ? 'modern' : 'classic' }),
+      /** Change theme style: 'classic', 'modern' (editorial) or 'glass'. */
+      setThemeStyle: (style) =>
+        set({ themeStyle: ['modern', 'glass'].includes(style) ? style : 'classic' }),
 
       /** Change appearance: 'light', 'dark', or 'system'. */
       setAppearance: (mode) =>

@@ -204,6 +204,7 @@ export default function SidePanel({ open, onClose }) {
   const styleOptions = [
     { key: 'classic', label: 'Classic', icon: I.classic },
     { key: 'modern', label: 'Editorial', icon: I.editorial },
+    { key: 'glass', label: 'Glass', icon: I.glass || I.editorial },
   ];
 
   const themeOptions = [

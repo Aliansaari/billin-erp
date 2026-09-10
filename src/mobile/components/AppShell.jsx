@@ -2,6 +2,7 @@ import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useOutlet } from 'react-router-dom';
 import TabBar from './TabBar';
 import { ShellContext } from './ShellContext';
+import { onResume, bindHardwareBack } from '../utils/nativeShell';
 import SidePanel from './SidePanel';
 import PageStage from './PageStage';
 import { refreshCompanyProfile } from '../utils/companyProfile';
@@ -56,6 +57,35 @@ export default function AppShell() {
   }, [location.pathname]);
   useEffect(() => { navigateRef.current = navigate; },     [navigate]);
   useEffect(() => { setPanelRef.current = setPanelOpen; }, [setPanelOpen]);
+
+  /* Coming back to the app.
+   *
+   * A phone goes in a pocket at 11am and comes out at 4pm still showing 11am's
+   * figures, with nothing to say they are old — and if the shop computer came
+   * back online in between, the app never noticed. Native apps refresh on
+   * resume. Screens listen for this event and reload themselves; the shell
+   * just broadcasts it, so no screen has to know about Capacitor.
+   *
+   * Throttled, because iOS fires a state change for every glance at the
+   * notification shade and a wholesaler's dashboard is not free to rebuild.
+   */
+  useEffect(() => {
+    let last = Date.now();
+    return onResume(() => {
+      const now = Date.now();
+      if (now - last < 45_000) return;
+      last = now;
+      window.dispatchEvent(new CustomEvent('zehen:resumed'));
+    });
+  }, []);
+
+  /* Android's hardware back button. Unhandled it closes the app from
+   * anywhere — including from the middle of a half-entered bill. It should
+   * mean what the back gesture means. */
+  useEffect(() => bindHardwareBack(
+    () => !isHomeRef.current,
+    () => navigateRef.current(-1),
+  ), []);
 
   // Capture phase so child stopPropagation can't block us
   useEffect(() => {

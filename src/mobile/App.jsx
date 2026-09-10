@@ -25,6 +25,7 @@ import AppShell from './components/AppShell';
 import Login from './pages/Login';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
+import { syncStatusBar } from './utils/nativeShell';
 
 // Lazy — every other screen is code-split into its own chunk, loaded on
 // first visit. This keeps the boot bundle small (the heavy PDF/report pages
@@ -75,6 +76,10 @@ function MobileThemeSync() {
   useEffect(() => {
     const apply = (mode) => {
       document.documentElement.setAttribute('data-mobile-theme', mode);
+      // The status bar is part of the app's surface on a phone: leave it on
+      // the Info.plist default and dark mode puts black glyphs on a near-black
+      // header, so the clock and the battery disappear.
+      syncStatusBar(mode === 'dark');
     };
     if (appearance === 'light' || appearance === 'dark') {
       apply(appearance);
@@ -87,7 +92,11 @@ function MobileThemeSync() {
     return () => mq.removeEventListener('change', handler);
   }, [appearance]);
   useEffect(() => {
-    document.documentElement.setAttribute('data-mobile-style', themeStyle === 'modern' ? 'modern' : 'classic');
+    // 'glass' layers on top of the editorial palette rather than replacing it,
+    // so it inherits every colour decision and only changes the material.
+    const style = ['modern', 'glass'].includes(themeStyle) ? themeStyle : 'classic';
+    document.documentElement.setAttribute('data-mobile-style', style === 'glass' ? 'modern' : style);
+    document.documentElement.setAttribute('data-mobile-material', style === 'glass' ? 'glass' : 'solid');
   }, [themeStyle]);
   return null;
 }

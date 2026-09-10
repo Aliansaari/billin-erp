@@ -18,6 +18,7 @@ import {
 } from '../utils/format';
 import './Dashboard.css';
 import { useShell } from '../components/ShellContext';
+import { onAppResumed } from '../utils/nativeShell';
 
 // SVG icons — kept inline to avoid an icon-lib dep and to match the
 // editorial stroke weight.
@@ -163,6 +164,14 @@ export default function Dashboard() {
       })
       .finally(() => { if (!cancelled()) setLoading(false); });
   }, []);
+
+  /* Refresh when the app comes back to the foreground.
+   *
+   * Figures from before lunch, still on screen at four o'clock and looking
+   * current, is the offline-snapshot problem in a different costume — and if
+   * the shop computer came back online while the phone was in a pocket, the
+   * app would never have noticed. */
+  useEffect(() => onAppResumed(() => { loadDashboard(); }), [loadDashboard]);
 
   useEffect(() => {
     const ref = { current: false };
