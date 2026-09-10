@@ -15,7 +15,7 @@ import { themeTokens, resolveMode } from '../theme/tokens';
  */
 
 const defaults = {
-  themeStyle: 'classic',
+  themeStyle: 'modern',
   appearance: 'system',
   // menuOrientation: 'vertical' (sidebar, default) or 'horizontal' (top-nav).
   // Persisted like theme/appearance so the operator's layout choice survives
@@ -44,9 +44,10 @@ const useThemeStore = create(
     (set, get) => ({
       ...defaults,
 
-      /** Change theme style: 'classic', 'modern' (editorial) or 'glass'. */
+      /** Change theme style: 'modern' (editorial) or 'glass'.
+       *  'classic' was retired — see SidePanel.styleOptions. */
       setThemeStyle: (style) =>
-        set({ themeStyle: ['modern', 'glass'].includes(style) ? style : 'classic' }),
+        set({ themeStyle: style === 'glass' ? 'glass' : 'modern' }),
 
       /** Change appearance: 'light', 'dark', or 'system'. */
       setAppearance: (mode) =>

@@ -181,6 +181,16 @@ export default function SidePanel({ open, onClose }) {
     }, 300);
   }
 
+  /* Face ID / Touch ID, if this device has it at all.
+   *
+   * ABOVE the early return on purpose. Hooks placed below it ran only while
+   * the panel was open, so opening it rendered more hooks than the render
+   * before — which React treats as a fatal error and which took the whole app
+   * down, not just this panel. */
+  const [bio, setBio] = useState({ available: false, label: null });
+  const [lockOn, setLockOn] = useState(isLockEnabled);
+  useEffect(() => { biometryInfo().then(setBio).catch(() => {}); }, []);
+
   if (!open && !closing) return null;
 
   // Resolves through the companies this sign-in actually returned, so a
@@ -202,15 +212,13 @@ export default function SidePanel({ open, onClose }) {
   const fy = fyLabel();
   const firmCount = companyList.length || 1;
 
-  // Face ID / Touch ID, if this device has it at all.
-  const [bio, setBio] = useState({ available: false, label: null });
-  const [lockOn, setLockOn] = useState(isLockEnabled);
-  useEffect(() => { biometryInfo().then(setBio).catch(() => {}); }, []);
-
+  /* Classic is gone. Editorial is the base look — it has no override rules at
+   * all — and Classic only ever restyled six things, so switching between the
+   * two genuinely looked like nothing had happened. Two options that differ
+   * visibly beat three where one is a rounding error. */
   const styleOptions = [
-    { key: 'classic', label: 'Classic', icon: I.classic },
     { key: 'modern', label: 'Editorial', icon: I.editorial },
-    { key: 'glass', label: 'Glass', icon: I.glass || I.editorial },
+    { key: 'glass', label: 'Glass', icon: I.glass || I.classic || I.editorial },
   ];
 
   const themeOptions = [

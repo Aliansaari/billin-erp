@@ -104,16 +104,29 @@
 }
 
 /* The tab showing UNDERNEATH a pushed screen. Visible so a back-drag reveals
-   the real list you are returning to, but never interactive — the screen on
-   top owns the touches. */
+   the real list you are returning to, but never interactive — and explicitly
+   BELOW the pushed screen. */
 .tab-pane.is-beneath {
   visibility: visible;
   pointer-events: none;
+  z-index: 0;
 }
 
-/* The pushed screen must be opaque, or the pane underneath shows through it
-   before the drag has started. */
+/* The pushed screen sits in the same positioned layer as the panes, above
+   them.
+
+   It has to be positioned to have a z-index at all. Without that it was a
+   plain flex child while the panes were absolutely positioned at z-index 1,
+   so every pushed screen — every report, every bill, every party — rendered
+   correctly and was then painted over by the tab it was opened from. The tab
+   bar still worked, so the app looked like it had simply stopped opening
+   anything.
+
+   Opaque for the same reason it is above: the pane underneath must not show
+   through until a back-drag actually moves this one aside. */
 .pt-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   background: var(--c-bg-app);
-  will-change: auto;
 }

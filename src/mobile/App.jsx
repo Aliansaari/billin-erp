@@ -95,7 +95,9 @@ function MobileThemeSync() {
   useEffect(() => {
     // 'glass' layers on top of the editorial palette rather than replacing it,
     // so it inherits every colour decision and only changes the material.
-    const style = ['modern', 'glass'].includes(themeStyle) ? themeStyle : 'classic';
+    // 'classic' was retired; anyone whose device still has it stored lands on
+    // Editorial rather than on a style with no button to leave it by.
+    const style = themeStyle === 'glass' ? 'glass' : 'modern';
     document.documentElement.setAttribute('data-mobile-style', style === 'glass' ? 'modern' : style);
     document.documentElement.setAttribute('data-mobile-material', style === 'glass' ? 'glass' : 'solid');
   }, [themeStyle]);

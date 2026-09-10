@@ -205,14 +205,22 @@ export default function AppShell() {
     };
 
     const onEnd = (e) => {
-      // Home: the edge swipe opens the side panel. Still a trigger, because
-      // there is nothing underneath to reveal — the panel is its own surface.
+      /* No drag was armed. Two cases, and both used to work before the
+       * interactive version existed, so both are kept:
+       *
+       *   Home — the edge swipe opens the side panel. Still a trigger,
+       *   because there is nothing underneath to reveal; the panel is its
+       *   own surface arriving from the edge.
+       *
+       *   A tab screen — there is no pushed screen to drag, but going back
+       *   to whatever you were on before is still what the gesture means.
+       *   Dropping this silently took away behaviour the app already had. */
       if (!drag) {
         const dx = e.changedTouches[0].clientX - touchStart.current.x;
         const dy = Math.abs(e.changedTouches[0].clientY - touchStart.current.y);
-        if (touchStart.current.x <= 80 && dx >= 50 && dy <= dx && isHomeRef.current) {
-          setPanelRef.current(true);
-        }
+        if (touchStart.current.x > 80 || dx < 50 || dy > dx) return;
+        if (isHomeRef.current) setPanelRef.current(true);
+        else navigateRef.current(-1);
         return;
       }
       if (!drag.started) { release(false); return; }
