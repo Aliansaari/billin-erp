@@ -94,9 +94,9 @@ export function onAppResumed(fn) {
  * anything anchored to the bottom ends up underneath the keyboard, which in a
  * billing app is the paid-amount field you are typing into.
  *
- * Three forms had grown their own copy of this listener with their own CSS
- * variable. One tracker now publishes the height as `--kb-h`, and keeps the
- * three legacy names in step so their existing CSS is untouched.
+ * Three forms had each grown their own copy of this listener with their own
+ * CSS variable — three chances to disagree about how tall the keyboard is.
+ * One tracker, one variable: `--kb-h`.
  *
  * Also turns on the iOS accessory bar. It is off by default in a WebView, and
  * it is the strip carrying Prev / Next / Done — without it there is no way to
@@ -107,9 +107,7 @@ export function startKeyboardTracking() {
   const root = document.documentElement;
   const apply = (px) => {
     const h = `${Math.max(0, Math.round(px))}px`;
-    for (const name of ['--kb-h', '--bf-kbd-h', '--vf-kbd-h', '--pf-kbd-h']) {
-      root.style.setProperty(name, h);
-    }
+    root.style.setProperty('--kb-h', h);
     root.classList.toggle('kb-open', px > 0);
   };
   apply(0);

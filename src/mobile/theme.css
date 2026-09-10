@@ -26,6 +26,7 @@
 
   --c-primary:      #B5421C;
   --c-primary-hi:   #DD5527;
+  --c-primary-shadow: rgba(139, 50, 16, 0.30);
   --c-primary-lo:   #8B3210;
   --c-primary-soft: #F7E5DA;
   --c-primary-line: rgba(181, 66, 28, 0.18);
@@ -104,6 +105,7 @@
 
   --c-primary:      #DD5527;
   --c-primary-hi:   #F06A3A;
+  --c-primary-shadow: rgba(181, 66, 28, 0.34);
   --c-primary-lo:   #B5421C;
   --c-primary-soft: rgba(196, 78, 24, 0.14);
   --c-primary-line: rgba(196, 78, 24, 0.25);
@@ -180,6 +182,7 @@
 
   --c-primary:      #0891A8;
   --c-primary-hi:   #0EAFCA;
+  --c-primary-shadow: rgba(7, 92, 107, 0.30);
   --c-primary-lo:   #075C6B;
   --c-primary-soft: rgba(8, 145, 168, 0.10);
   --c-primary-line: rgba(8, 145, 168, 0.22);
@@ -227,6 +230,7 @@
 
   --c-primary:      #0EAFCA;
   --c-primary-hi:   #0EAFCA;
+  --c-primary-shadow: rgba(7, 92, 107, 0.30);
   --c-primary-lo:   #0891A8;
   --c-primary-soft: rgba(14, 175, 202, 0.15);
   --c-primary-line: rgba(14, 175, 202, 0.30);

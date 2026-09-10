@@ -8,20 +8,47 @@
   background: var(--c-bg-app);
   color: var(--c-text);
   position: relative;
+
+  /* The keyboard takes space away from the SCREEN, it does not slide over it.
+   *
+   * The footer used to translate up by the keyboard height. That put the Save
+   * button in the right place and left a gap underneath it where the rest of
+   * the form carried on showing — half a bill row stranded between the button
+   * and the keyboard, which looked like a rendering fault. And because the
+   * content above never shrank, the amount was clipped through the middle of
+   * its digits by the footer arriving over it.
+   *
+   * Shrinking the whole column is the honest version: the footer stays the
+   * last thing in it, the content above compresses, and `overflow: hidden`
+   * means nothing can be stranded below. */
+  padding-bottom: var(--kb-h, 0px);
+  transition: padding-bottom 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* Direction accent — green for receipt (in), coral for payment (out) */
 .vf-in {
-  --dir: #4FBD7A;
-  --dir-soft: rgba(79, 189, 122, 0.14);
-  --dir-grad: linear-gradient(155deg, #4FBD7A 0%, #2D8242 100%);
-  --dir-shadow: rgba(63, 168, 104, 0.45);
+  /* Money in.
+   *
+   * Deeper and less saturated than before. The old green was a signal-green —
+   * the colour of a "success" toast, which is fine for something that flashes
+   * and leaves, and wrong for a surface someone looks at all day. This reads
+   * closer to a ledger than to a notification, and it holds white text at a
+   * proper contrast ratio rather than only just. */
+  --dir: #2E7D53;
+  --dir-strong: #1F5F3E;
+  --dir-soft: rgba(46, 125, 83, 0.10);
+  --dir-grad: linear-gradient(178deg, #34875B 0%, #245F41 100%);
+  --dir-shadow: rgba(31, 95, 62, 0.30);
 }
 .vf-out {
-  --dir: #E55A45;
-  --dir-soft: rgba(229, 90, 69, 0.14);
-  --dir-grad: linear-gradient(155deg, #E55A45 0%, #B83820 100%);
-  --dir-shadow: rgba(220, 68, 48, 0.45);
+  /* Money out. Held to the same discipline as the green, and pulled towards
+     the app's own terracotta so a payment screen still looks like ZEHEN
+     rather than like a warning. */
+  --dir: #B8452C;
+  --dir-strong: #8F3018;
+  --dir-soft: rgba(184, 69, 44, 0.10);
+  --dir-grad: linear-gradient(178deg, #C04C31 0%, #99351C 100%);
+  --dir-shadow: rgba(143, 48, 24, 0.30);
 }
 
 /* Atmospheric glow centered behind the hero amount */
@@ -212,7 +239,15 @@
 .vf-hero {
   text-align: center;
   padding: 24px 0 24px;
+  transition: padding 180ms cubic-bezier(0.32, 0.72, 0, 1);
 }
+
+/* Typing is when the amount matters most and when there is least room for it.
+   The figure stays the largest thing on screen, just not 52px of it. */
+:root.kb-open .vf-hero { padding: 10px 0 8px; }
+:root.kb-open .vf-hero-title { margin-bottom: 4px; font-size: 14px; }
+:root.kb-open .vf-hero-input { font-size: 40px; }
+:root.kb-open .vf-hero-quick { margin-top: 10px; }
 
 .vf-hero-title {
   font-family: var(--adm-font-family);
@@ -234,6 +269,7 @@
   font-family: var(--adm-font-family);
   font-weight: 700;
   font-size: 52px;
+  transition: font-size 180ms cubic-bezier(0.32, 0.72, 0, 1);
   letter-spacing: -0.035em;
   line-height: 1;
   color: var(--c-text);
@@ -448,24 +484,22 @@
 }
 
 /* ── Sticky footer ──────────────────────────────────────────────────
- * Bottom padding holds the footer above the fixed TabBar when no
- * keyboard is up. When the keyboard appears, the tab bar is hidden
- * behind it, so the tabbar-h reservation becomes empty white space —
- * shrink the padding by --vf-kbd-h (clamped) and translate the whole
- * footer up by the same amount, so the Save button lands right above
- * the keyboard with no orphan gap. */
+ * Bottom padding holds the footer above the fixed TabBar when no keyboard is
+ * up. With the keyboard up the tab bar is behind it, so that reservation
+ * would be an empty white band above the keys — hence the --kb-h subtraction.
+ * The footer itself never moves: .vf-screen shrinks instead. */
 .vf-footer {
   flex-shrink: 0;
   position: relative;
   z-index: 5;
   background: var(--c-bg-surface);
   border-top: 1px solid var(--c-border);
-  padding: 14px 18px max(10px, calc(var(--tabbar-h) - var(--vf-kbd-h, 0px) + 8px));
+  /* With the keyboard up the tab bar is behind it, so the space reserved for
+     it would be an empty white band above the keys. */
+  padding: 14px 18px max(10px, calc(var(--tabbar-h) - var(--kb-h, 0px) + 8px));
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
-  transform: translateY(calc(-1 * var(--vf-kbd-h, 0px)));
-  transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1),
-              padding 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: padding 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .vf-footer-summary {
@@ -649,22 +683,19 @@
   position: relative;
   overflow: hidden;
   -webkit-tap-highlight-color: transparent;
+  /* One tight shadow that reads as a raised surface, instead of the coloured
+     halo this had before — a glow the width of the button makes it look like
+     it is lit from inside, which is the difference between a control and a
+     decoration. The white top-edge inset stays: it is a single hairline and
+     it is what stops a flat fill looking printed on. */
   box-shadow:
-    0 8px 24px -8px var(--dir-shadow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
-  transition: transform 120ms;
+    0 1px 2px rgba(0, 0, 0, 0.10),
+    0 4px 12px -6px var(--dir-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1), filter 120ms;
 }
-.vf-save:active { transform: scale(0.98); }
-.vf-save:disabled { opacity: 0.65; cursor: not-allowed; }
-.vf-save::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 50%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, transparent 100%);
-  pointer-events: none;
-}
+.vf-save:active { transform: scale(0.985); filter: brightness(0.96); }
+.vf-save:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 
 /* ── Saved confirmation ─────────────────────────────────────────────
  *

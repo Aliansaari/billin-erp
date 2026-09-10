@@ -8,6 +8,11 @@
   background: var(--c-bg-app);
   color: var(--c-text);
   position: relative;
+
+  /* The keyboard takes space away from the screen rather than sliding over it
+     — see the same note in VoucherForm.css. */
+  padding-bottom: var(--kb-h, 0px);
+  transition: padding-bottom 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* Direction accent — green for customer, amber for supplier */
@@ -400,12 +405,10 @@
   z-index: 5;
   background: var(--c-bg-surface);
   border-top: 1px solid var(--c-border);
-  padding: 14px 18px max(10px, calc(var(--tabbar-h) - var(--pf-kbd-h, 0px) + 8px));
+  padding: 14px 18px max(10px, calc(var(--tabbar-h) - var(--kb-h, 0px) + 8px));
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
-  transform: translateY(calc(-1 * var(--pf-kbd-h, 0px)));
-  transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1),
-              padding 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: padding 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .pf-actions { display: flex; gap: 8px; }

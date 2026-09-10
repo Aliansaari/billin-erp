@@ -8,6 +8,13 @@
   background: var(--c-bg-app);
   background-image:
     radial-gradient(ellipse 60% 40% at 25% 5%, var(--c-hero-glow) 0%, transparent 55%);
+
+  /* The keyboard takes space away from the screen rather than sliding over
+     it — see the same note in VoucherForm.css. Translating the totals panel
+     up instead left the rest of the item list showing in the gap underneath
+     it, which read as a rendering fault rather than as a form. */
+  padding-bottom: var(--kb-h, 0px);
+  transition: padding-bottom 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* ── Header ────────────────────────────────────────────────────────── */
@@ -240,7 +247,10 @@
   height: 46px;
   border-radius: 12px;
   border: none;
-  background: linear-gradient(155deg, var(--c-primary-hi) 0%, var(--c-primary-lo) 100%);
+  /* Near-vertical, not diagonal. A 155° sweep puts a visible highlight across
+     one corner, which reads as a sticker; 178° is just enough depth to stop
+     the fill looking flat. */
+  background: linear-gradient(178deg, var(--c-primary-hi) 0%, var(--c-primary-lo) 100%);
   color: #FFF4EA;
   font-family: inherit;
   font-weight: 600;
@@ -403,20 +413,19 @@
 /* ── Sticky totals ─────────────────────────────────────────────────
  * Tab bar is position: fixed at the bottom; its safe-area is already
  * baked into --tabbar-h, so we only need that one variable plus a
- * little breathing room. When the iOS keyboard is up, --bf-kbd-h is
- * non-zero and we translate the panel up so the focused field (Paid)
- * stays visible above the keyboard. */
+ * little breathing room. With the keyboard up the tab bar is behind it, so
+ * that reservation is subtracted; the panel itself never moves, because
+ * .bf-screen shrinks instead. */
 .bf-totals {
   background: var(--c-bg-surface);
   border-top: 1px solid var(--c-border);
-  padding: 12px 14px calc(var(--tabbar-h) + 8px);
+  padding: 12px 14px max(10px, calc(var(--tabbar-h) - var(--kb-h, 0px) + 8px));
   flex-shrink: 0;
   position: relative;
   z-index: 5;
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
-  transform: translateY(calc(-1 * var(--bf-kbd-h, 0px)));
-  transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: padding 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .bf-totals-handle {
@@ -595,22 +604,20 @@
   position: relative;
   overflow: hidden;
   -webkit-tap-highlight-color: transparent;
+  /* One tight shadow rather than a coloured halo — a glow the width of the
+     button makes it look lit from inside, which is the difference between a
+     control and a decoration. */
   box-shadow:
-    0 8px 24px -8px var(--c-primary-soft),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
-  transition: transform 120ms;
+    0 1px 2px rgba(0, 0, 0, 0.10),
+    0 4px 12px -6px var(--c-primary-shadow, rgba(0, 0, 0, 0.28)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1), filter 120ms;
 }
-.bf-btn-primary:active { transform: scale(0.98); }
-.bf-btn-primary:disabled { opacity: 0.65; cursor: not-allowed; }
-.bf-btn-primary::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 50%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, transparent 100%);
-  pointer-events: none;
-}
+.bf-btn-primary:active { transform: scale(0.985); filter: brightness(0.96); }
+.bf-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+/* The half-height white wash is gone. A gradient over the top half of a
+   button is a 2010 gloss: it makes the fill look like plastic and it fights
+   the single hairline that is already doing the job of catching the light. */
 
 /* ── "Saved" confirmation ─────────────────────────────────────────────
    The form resets itself after a save, so the screen would otherwise look

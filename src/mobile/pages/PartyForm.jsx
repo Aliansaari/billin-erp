@@ -146,28 +146,10 @@ export default function PartyForm({ type }) {
   ];
   const progressDone = sections.filter((s) => s.complete).length;
 
-  // Keyboard lift for the footer.
-  useEffect(() => {
-    const root = document.documentElement;
-    const setKbd = (px) => root.style.setProperty('--pf-kbd-h', `${Math.max(0, px)}px`);
-    let cleanup = () => {};
-    if (Capacitor.isNativePlatform()) {
-      let showH = null, hideH = null;
-      import('@capacitor/keyboard').then(({ Keyboard }) => {
-        Keyboard.addListener('keyboardWillShow', (info) => setKbd(info.keyboardHeight)).then((h) => { showH = h; });
-        Keyboard.addListener('keyboardWillHide', () => setKbd(0)).then((h) => { hideH = h; });
-      }).catch(() => {});
-      cleanup = () => { showH?.remove?.(); hideH?.remove?.(); setKbd(0); };
-    } else if (window.visualViewport) {
-      const vv = window.visualViewport;
-      const apply = () => setKbd(window.innerHeight - vv.height - vv.offsetTop);
-      apply();
-      vv.addEventListener('resize', apply);
-      vv.addEventListener('scroll', apply);
-      cleanup = () => { vv.removeEventListener('resize', apply); vv.removeEventListener('scroll', apply); setKbd(0); };
-    }
-    return cleanup;
-  }, []);
+  /* Keyboard height comes from ONE tracker for the whole app
+   * (utils/nativeShell.startKeyboardTracking), published as --kb-h. This
+   * screen used to run its own copy of the listener; three copies meant three
+   * chances for them to disagree about how tall the keyboard was. */
 
   const handleSave = async () => {
     if (saving) return;
