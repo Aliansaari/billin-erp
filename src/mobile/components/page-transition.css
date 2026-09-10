@@ -130,3 +130,31 @@
   z-index: 2;
   background: var(--c-bg-app);
 }
+
+/* ── Tab changes ─────────────────────────────────────────────────────
+ *
+ * Short and small on purpose. Tabs are siblings, not a stack, so they must
+ * not slide across like a push — that would imply a history that is not
+ * there. Just enough movement that the eye registers a change of screen
+ * rather than a blink.
+ *
+ * fill-mode is none, and the natural state IS the final state: anything that
+ * stops these running (reduced motion, a paused compositor, a remount at the
+ * wrong moment) leaves the pane exactly where it belongs.
+ */
+@keyframes pane-in-tap {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pane-in-back {
+  from { opacity: 0; transform: translate3d(-14px, 0, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+.tab-pane.is-active.pane-in-tap  { animation: pane-in-tap  0.20s cubic-bezier(0.22, 0.9, 0.24, 1); }
+.tab-pane.is-active.pane-in-back { animation: pane-in-back 0.22s cubic-bezier(0.22, 0.9, 0.24, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-pane.is-active.pane-in-tap,
+  .tab-pane.is-active.pane-in-back { animation: none; }
+}

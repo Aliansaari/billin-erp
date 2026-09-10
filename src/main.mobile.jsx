@@ -5,7 +5,6 @@ import { Capacitor } from '@capacitor/core';
 import '@fontsource-variable/source-sans-3';
 import App from './mobile/App';
 import './mobile/theme.css';
-import './mobile/glass.css';
 import { startKeyboardTracking } from './mobile/utils/nativeShell';
 
 // On iOS/Android, ask Capacitor to NEVER auto-scroll the WebView when the

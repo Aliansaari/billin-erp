@@ -6,7 +6,7 @@ import { themeTokens, resolveMode } from '../theme/tokens';
  * themeStore — theme style + appearance preferences.
  *
  * Shape:
- *   themeStyle: 'classic' | 'modern' | 'glass'
+ *   themeStyle: 'classic' | 'modern'
  *   appearance: 'light' | 'dark' | 'system'
  *
  * Legacy fields (colorPrimary, sidebarStyle, compactMode, …) are kept so any
@@ -15,7 +15,7 @@ import { themeTokens, resolveMode } from '../theme/tokens';
  */
 
 const defaults = {
-  themeStyle: 'modern',
+  themeStyle: 'classic',
   appearance: 'system',
   // menuOrientation: 'vertical' (sidebar, default) or 'horizontal' (top-nav).
   // Persisted like theme/appearance so the operator's layout choice survives
@@ -44,10 +44,8 @@ const useThemeStore = create(
     (set, get) => ({
       ...defaults,
 
-      /** Change theme style: 'modern' (editorial) or 'glass'.
-       *  'classic' was retired — see SidePanel.styleOptions. */
-      setThemeStyle: (style) =>
-        set({ themeStyle: style === 'glass' ? 'glass' : 'modern' }),
+      /** Change theme style: 'classic' or 'modern'. */
+      setThemeStyle: (style) => set({ themeStyle: style === 'modern' ? 'modern' : 'classic' }),
 
       /** Change appearance: 'light', 'dark', or 'system'. */
       setAppearance: (mode) =>

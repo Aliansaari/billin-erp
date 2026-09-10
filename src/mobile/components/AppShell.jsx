@@ -283,6 +283,23 @@ export default function AppShell() {
   if (isTab) lastTabRef.current = location.pathname;
   const visiblePane = isTab ? location.pathname : lastTabRef.current;
 
+  /* Tab changes were a hard cut — one pane's visibility off, the next one's
+   * on, in the same frame. That reads as a blink rather than as a change of
+   * screen, and it is the one place left where nothing moves at all.
+   *
+   * A short move-and-fade is enough. Deliberately NOT the full push/pop slide:
+   * tabs are siblings, not a stack, and animating them like a stack would
+   * imply a history that is not there. Going BACK to a tab comes from the
+   * left, matching where it went; a tap comes up from below, which is what
+   * the tab bar itself suggests. */
+  const prevPaneRef = useRef(visiblePane);
+  const paneDirRef  = useRef(null);
+  if (prevPaneRef.current !== visiblePane) {
+    paneDirRef.current = navType === 'POP' ? 'back' : 'tap';
+    prevPaneRef.current = visiblePane;
+  }
+  const paneDir = paneDirRef.current;
+
   return (
     <>
       <div className="app-shell">
@@ -292,7 +309,8 @@ export default function AppShell() {
             <div
               key={path}
               className={`tab-pane${path === visiblePane ? ' is-active' : ''}`
-                + (path === visiblePane && !isTab ? ' is-beneath' : '')}
+                + (path === visiblePane && !isTab ? ' is-beneath' : '')
+                + (path === visiblePane && isTab && paneDir ? ` pane-in-${paneDir}` : '')}
               // Inert unless it is the screen actually being used, so a stray
               // tap or a focus jump can never land on a screen behind another.
               aria-hidden={!isTab || path !== location.pathname}

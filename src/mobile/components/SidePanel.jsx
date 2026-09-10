@@ -11,6 +11,7 @@ import useCompanyStore from '../../store/companyStore';
 import { companyAPI, setServerUrl as saveServerUrl, getServerUrl, getDeviceToken } from '../../api';
 import './SidePanel.css';
 import { biometryInfo, isLockEnabled, setLockEnabled, authenticate } from '../utils/biometric';
+import { select as hapticSelect } from '../utils/haptics';
 
 const I = {
   swap: (
@@ -189,6 +190,7 @@ export default function SidePanel({ open, onClose }) {
    * down, not just this panel. */
   const [bio, setBio] = useState({ available: false, label: null });
   const [lockOn, setLockOn] = useState(isLockEnabled);
+  const [bioBusy, setBioBusy] = useState(false);
   useEffect(() => { biometryInfo().then(setBio).catch(() => {}); }, []);
 
   if (!open && !closing) return null;
@@ -212,13 +214,9 @@ export default function SidePanel({ open, onClose }) {
   const fy = fyLabel();
   const firmCount = companyList.length || 1;
 
-  /* Classic is gone. Editorial is the base look — it has no override rules at
-   * all — and Classic only ever restyled six things, so switching between the
-   * two genuinely looked like nothing had happened. Two options that differ
-   * visibly beat three where one is a rounding error. */
   const styleOptions = [
+    { key: 'classic', label: 'Classic', icon: I.classic },
     { key: 'modern', label: 'Editorial', icon: I.editorial },
-    { key: 'glass', label: 'Glass', icon: I.glass || I.classic || I.editorial },
   ];
 
   const themeOptions = [
@@ -320,20 +318,35 @@ export default function SidePanel({ open, onClose }) {
           {bio.available && (
             <>
               <div className="sp-section-label">Security</div>
-              <button
-                className={`sp-nav-row${lockOn ? ' active' : ''}`}
-                onClick={async () => {
-                  if (lockOn) { setLockEnabled(false); setLockOn(false); return; }
-                  // Prove it works before promising it will. Turning the lock
-                  // on without a successful scan is how someone ends up locked
-                  // out of their own books.
-                  const ok = await authenticate(`Turn on ${bio.label} for ZEHEN`);
-                  if (ok) { setLockEnabled(true); setLockOn(true); }
-                }}
-              >
-                <span className="sp-nav-label">Require {bio.label}</span>
-                <span className="sp-nav-value">{lockOn ? 'On' : 'Off'}</span>
-              </button>
+              <div className="sp-switch-row">
+                <div className="sp-switch-text">
+                  <span className="sp-switch-title">Require {bio.label}</span>
+                  <span className="sp-switch-sub">
+                    Ask to unlock when the app has been closed for a few minutes.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={lockOn}
+                  aria-label={`Require ${bio.label}`}
+                  className={`sp-switch${lockOn ? ' on' : ''}${bioBusy ? ' busy' : ''}`}
+                  disabled={bioBusy}
+                  onClick={async () => {
+                    if (bioBusy) return;
+                    if (lockOn) { setLockEnabled(false); setLockOn(false); hapticSelect(); return; }
+                    setBioBusy(true);
+                    /* Prove it works before promising it will. Turning the lock
+                     * on without a successful scan is how someone ends up shut
+                     * out of their own books. */
+                    const ok = await authenticate(`Turn on ${bio.label} for ZEHEN`);
+                    setBioBusy(false);
+                    if (ok) { setLockEnabled(true); setLockOn(true); hapticSelect(); }
+                  }}
+                >
+                  <span className="sp-switch-knob" />
+                </button>
+              </div>
             </>
           )}
 

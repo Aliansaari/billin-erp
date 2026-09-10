@@ -71,6 +71,37 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+/* Warm the other tabs while the first one is being read.
+ *
+ * Every screen is code-split, so the first visit to a tab used to fetch its
+ * chunk before it could render anything — a spinner for something the phone
+ * could perfectly well have downloaded while the dashboard sat on screen.
+ * Pulling the modules in during idle time means the frame is there instantly
+ * and only the DATA has to arrive.
+ *
+ * Idle, not immediate: the dashboard's own requests matter more in the first
+ * second than a chunk nobody has asked for yet. requestIdleCallback is absent
+ * on older WebKit, hence the timeout fallback.
+ */
+function TabPreloader() {
+  useEffect(() => {
+    let cancelled = false;
+    const warm = () => {
+      if (cancelled) return;
+      // Same specifiers the lazy() calls use, so these resolve from the module
+      // cache when the route finally mounts.
+      import('./pages/VouchersList').catch(() => {});
+      import('./pages/Stock').catch(() => {});
+      import('./pages/Reports').catch(() => {});
+    };
+    const ric = window.requestIdleCallback;
+    if (ric) { const id = ric(warm, { timeout: 3000 }); return () => { cancelled = true; window.cancelIdleCallback?.(id); }; }
+    const t = setTimeout(warm, 1200);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, []);
+  return null;
+}
+
 function MobileThemeSync() {
   const appearance = useThemeStore((s) => s.appearance);
   const themeStyle = useThemeStore((s) => s.themeStyle);
@@ -93,13 +124,10 @@ function MobileThemeSync() {
     return () => mq.removeEventListener('change', handler);
   }, [appearance]);
   useEffect(() => {
-    // 'glass' layers on top of the editorial palette rather than replacing it,
-    // so it inherits every colour decision and only changes the material.
-    // 'classic' was retired; anyone whose device still has it stored lands on
-    // Editorial rather than on a style with no button to leave it by.
-    const style = themeStyle === 'glass' ? 'glass' : 'modern';
-    document.documentElement.setAttribute('data-mobile-style', style === 'glass' ? 'modern' : style);
-    document.documentElement.setAttribute('data-mobile-material', style === 'glass' ? 'glass' : 'solid');
+    // Anyone whose device still has 'glass' stored lands on Classic rather
+    // than on a style with no button to leave it by.
+    const style = themeStyle === 'modern' ? 'modern' : 'classic';
+    document.documentElement.setAttribute('data-mobile-style', style);
   }, [themeStyle]);
   return null;
 }
@@ -110,6 +138,7 @@ export default function MobileApp() {
       <MobileThemeSync />
 
       <AppLock />
+      <TabPreloader />
       <Routes>
         <Route path="/login" element={<Login />} />
 
