@@ -640,9 +640,11 @@ export default function VoucherForm({ type }) {
           </div>
         )}
 
+        {/* No arrow glyph. A "→" after the label is a mockup convention — it
+            promises a next step that does not exist, since saving commits and
+            stays put. The label is the whole message. */}
         <button className="vf-save" onClick={handleSave} disabled={saving}>
           {saving ? 'Saving…' : (isReceipt ? 'Save receipt' : 'Save payment')}
-          <ArrowRight />
         </button>
       </div>
 

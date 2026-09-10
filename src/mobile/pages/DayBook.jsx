@@ -92,9 +92,13 @@ export default function DayBook() {
   const pdfUrlRef = useRef(null);
 
   // Keep URL in sync with picked range so back/forward + deep-links round-trip.
+  /* setParams is not referentially stable, so depending on it re-runs this on
+   * every navigation. See the same note in VouchersList. */
+  const setParamsRef = useRef(setParams);
+  useEffect(() => { setParamsRef.current = setParams; }, [setParams]);
   useEffect(() => {
-    setParams({ from: fromDate, to: toDate }, { replace: true });
-  }, [fromDate, toDate, setParams]);
+    setParamsRef.current({ from: fromDate, to: toDate }, { replace: true });
+  }, [fromDate, toDate]);
 
   // Reverse direction: when the URL changes externally (browser back/forward,
   // a deep link, or a different chip target navigating here), pull the new

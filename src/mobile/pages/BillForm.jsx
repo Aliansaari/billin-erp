@@ -721,8 +721,8 @@ export default function BillForm({ type }) {
             Cancel
           </button>
           <button className="bf-btn-primary" onClick={handleSave} disabled={saving}>
+            {/* No arrow glyph — see the note in VoucherForm. */}
             {saving ? 'Saving…' : 'Save bill'}
-            <ArrowRight />
           </button>
         </div>
       </div>

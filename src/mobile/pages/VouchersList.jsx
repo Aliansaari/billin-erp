@@ -72,11 +72,29 @@ export default function VouchersList() {
   const [offline,  setOffline]  = useState(null);
   const searchRef = useRef(null);
 
+  /* Mirror the current range and filter into the URL.
+   *
+   * `setParams` is NOT referentially stable — React Router hands back a new
+   * function on every location change — so listing it as a dependency made
+   * this effect re-run on every navigation anywhere in the app. Since this
+   * screen is now kept mounted, that meant two history writes per tab switch,
+   * each one a `replace` that changes the location and re-renders every live
+   * pane. Nothing visibly broke; it was just the app doing a lap of work to
+   * write down what it had already written down.
+   *
+   * The ref keeps the latest setter without making it a trigger, and the
+   * comparison means an identical URL is never rewritten. */
+  const setParamsRef = useRef(setParams);
+  useEffect(() => { setParamsRef.current = setParams; }, [setParams]);
+  const lastParamsRef = useRef('');
   useEffect(() => {
     const p = { from: fromDate, to: toDate };
     if (filter !== 'all') p.type = filter;
-    setParams(p, { replace: true });
-  }, [fromDate, toDate, filter, setParams]);
+    const signature = `${p.from}|${p.to}|${p.type || ''}`;
+    if (signature === lastParamsRef.current) return;
+    lastParamsRef.current = signature;
+    setParamsRef.current(p, { replace: true });
+  }, [fromDate, toDate, filter]);
 
   useEffect(() => {
     if (toDate < fromDate) setToDate(fromDate);
