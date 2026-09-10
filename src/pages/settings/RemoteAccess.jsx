@@ -46,6 +46,8 @@ export default function RemoteAccess() {
   const [pair, setPair] = useState(null);      // { code, expires_at, hostname }
   const [qr, setQr] = useState('');
   const [accounts, setAccounts] = useState([]);
+  const [devices, setDevices] = useState([]);
+  const [deviceMeta, setDeviceMeta] = useState({ used: 0, max_devices: 0 });
   const [users, setUsers] = useState([]);
   const [usersErr, setUsersErr] = useState('');
   const [addOpen, setAddOpen] = useState(false);
@@ -101,13 +103,43 @@ export default function RemoteAccess() {
     }
   }, []);
 
+  const loadDevices = useCallback(async () => {
+    try {
+      const { data } = await api.post('/remote-access/devices', { action: 'list' });
+      /* Revoked rows are kept server-side for audit but not shown here. This
+       * card answers one question — who can reach this shop right now — and a
+       * list that also accumulated every phone ever removed would answer it
+       * worse every month. */
+      const all = Array.isArray(data?.devices) ? data.devices : [];
+      setDevices(all.filter((d) => !d.revoked));
+      setDeviceMeta({ used: data?.used ?? 0, max_devices: data?.max_devices ?? 0 });
+    } catch {
+      // Not activated, or the account service is unreachable. The card falls
+      // back to its own empty state rather than shouting about it.
+      setDevices([]);
+    }
+  }, []);
+
   useEffect(() => {
     load();
     loadAccounts();
+    loadDevices();
     loadUsers();
     pollRef.current = setInterval(load, POLL_MS);
     return () => clearInterval(pollRef.current);
-  }, [load, loadAccounts, loadUsers]);
+  }, [load, loadAccounts, loadDevices, loadUsers]);
+
+  async function removeDevice(deviceId) {
+    try {
+      const { data } = await api.post('/remote-access/devices', { action: 'revoke', device_id: deviceId });
+      if (data?.error) throw new Error(data.error);
+      message.success('Device removed — it can no longer connect.');
+      await loadDevices();
+      await load();
+    } catch (e) {
+      message.error(e?.response?.data?.error || e.message || 'Could not remove that device.');
+    }
+  }
 
   async function manage(payload, okMsg) {
     try {
@@ -237,11 +269,57 @@ export default function RemoteAccess() {
           <Empty description="Turn on remote access to pair a phone"
                  image={Empty.PRESENTED_IMAGE_SIMPLE} />
         ) : (
-          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            {status?.paired_devices
-              ? <>This shop has <b>{status.paired_devices}</b> paired {status.paired_devices === 1 ? 'phone' : 'phones'}. Only paired phones can connect from outside — a lost phone can be un-paired without changing anyone's password.</>
-              : <>No phones paired yet. Tap <b>Pair a phone</b>, then scan the code from the ZEHEN app on the phone.</>}
-          </Paragraph>
+          <>
+            <Paragraph type="secondary">
+              Only these devices can reach this shop from outside. Removing one cuts
+              it off immediately, without changing anyone’s password — that is what
+              to do with a phone that was lost or replaced.
+              {deviceMeta.max_devices ? (
+                <> Your licence allows <b>{deviceMeta.max_devices}</b>; <b>{deviceMeta.used}</b> in use.</>
+              ) : null}
+            </Paragraph>
+            <Table
+              size="small"
+              rowKey="device_id"
+              dataSource={devices}
+              pagination={false}
+              locale={{ emptyText: 'No devices paired yet — tap “Pair a phone”, or sign in from the ZEHEN app.' }}
+              columns={[
+                {
+                  title: 'Device',
+                  dataIndex: 'platform',
+                  render: (v) => <Tag>{v || 'unknown'}</Tag>,
+                },
+                {
+                  title: 'Signed in as',
+                  dataIndex: 'identifier',
+                  render: (v, r) => (v
+                    ? <span>{v}{r.account_label ? <Text type="secondary"> · {r.account_label}</Text> : null}</span>
+                    : <Text type="secondary">paired by code</Text>),
+                },
+                {
+                  title: 'Last used',
+                  dataIndex: 'last_seen',
+                  render: (v) => (v ? new Date(v).toLocaleString() : <Text type="secondary">never</Text>),
+                },
+                {
+                  title: '',
+                  width: 60,
+                  render: (_, r) => (
+                    <Popconfirm
+                      title="Remove this device?"
+                      description="It loses access to this shop right away. Signing in again from it will use a new slot."
+                      okText="Remove"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => removeDevice(r.device_id)}
+                    >
+                      <Button size="small" danger icon={<DeleteOutlined />} />
+                    </Popconfirm>
+                  ),
+                },
+              ]}
+            />
+          </>
         )}
       </Card>
 

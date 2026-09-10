@@ -107,6 +107,58 @@ router.post('/accounts', requirePermission('settings.manage_company'), async (re
   }
 });
 
+/**
+ * Paired devices — list them, and take one off.
+ *
+ * Slots are finite, and before this the owner could see a count and nothing
+ * else: a shop that had paired a phone it later replaced simply ran out with
+ * no way to free one. Same licence + fingerprint proof as account management,
+ * so it only works from the shop computer itself.
+ */
+router.post('/devices', requirePermission('settings.manage_company'), async (req, res) => {
+  const fs = require('fs');
+  const license = require('../services/license');
+  const { resolveLicensePath } = require('../config/license');
+
+  let licenseText;
+  try {
+    licenseText = fs.readFileSync(resolveLicensePath(), 'utf8').trim();
+  } catch {
+    return res.status(409).json({ error: 'Activate a licence before managing devices.' });
+  }
+
+  try {
+    const upstream = await fetch(`${remoteAccess.CONTROL_PLANE_URL}/v1/device/manage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...req.body,
+        license: licenseText,
+        machine_fp: license.machineFingerprint(),
+      }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    const body = await upstream.json().catch(() => ({}));
+
+    /* Pull the allow-list immediately after a revoke.
+     *
+     * The control plane has stopped handing out that token hash, but THIS
+     * server is what actually admits or refuses a request, and it only
+     * re-syncs on its own timer. Without this the owner would remove a device,
+     * be told it was done, and that phone would keep working for minutes —
+     * exactly the wrong behaviour for the one action whose entire purpose is
+     * to end access now. Best-effort: the timer is still the backstop.
+     */
+    if (upstream.ok && String(req.body?.action) === 'revoke') {
+      await remoteAccess.refreshDeviceAllowList().catch(() => {});
+    }
+
+    res.status(upstream.status).json(body);
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'Could not reach the ZEHEN account service.' });
+  }
+});
+
 /** ZEHEN users an app account can be linked to. */
 router.get('/linkable-users', requirePermission('settings.manage_company'), async (req, res) => {
   try {

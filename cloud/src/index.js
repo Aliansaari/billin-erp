@@ -23,6 +23,7 @@
  *   POST /v1/pair/start       desktop → short code to render as a QR
  *   POST /v1/pair/claim       mobile  → redeem code, receive device token
  *   GET  /v1/sites            mobile  → branches this device may open
+ *   POST /v1/device/manage    desktop → list / revoke this licence's devices
  *   GET  /v1/gate             mobile  → current entitlements
  *   POST /v1/admin/*          vendor  → flip entitlements, revoke devices
  */
@@ -879,6 +880,82 @@ async function handleAccountManage(env, body) {
   return fail('bad_action', 'Unknown action.');
 }
 
+/**
+ * POST /v1/device/manage  { license, machine_fp, action, device_id? }
+ *
+ * The owner's list of paired devices, and the way to take one off.
+ *
+ * Device slots are finite (a licence allows N), and until this existed there
+ * was no way to free one: the desktop could see a COUNT and nothing more, so
+ * a shop that filled its slots with a replaced phone and a couple of stale
+ * sign-ins was simply stuck. Authenticated by the licence plus this machine's
+ * fingerprint, exactly like account management — an owner sitting at the shop
+ * computer, which is the only place this should be possible from.
+ *
+ * `revoke` is soft: the row stays for audit and the token hash stops being
+ * handed to the desktop's allow-list, which is what actually ends access.
+ */
+async function handleDeviceManage(env, body) {
+  const payload = await verifyLicense(body.license, env.LICENSE_PUBLIC_KEY);
+  if (!payload) return fail('invalid_license', 'Licence signature did not verify.', 403);
+
+  const customerId = String(payload.customer_id ?? payload.customer_name ?? '').trim();
+  const org = await env.DB.prepare('SELECT * FROM orgs WHERE customer_id = ?').bind(customerId).first();
+  if (!org) return fail('unknown_org', 'This licence has no account yet.', 404);
+
+  const site = await env.DB.prepare('SELECT * FROM sites WHERE org_id = ? AND machine_fp = ?')
+    .bind(org.org_id, String(body.machine_fp || '')).first();
+  if (!site) return fail('unknown_site', 'This machine is not provisioned.', 404);
+
+  const action = String(body.action || 'list');
+
+  if (action === 'list') {
+    // Label is written as `account:<account_id>:<install_id>`; join the
+    // account so the owner sees "Ali's phone — aliansari@…" rather than an
+    // opaque id they cannot match to a person.
+    const { results } = await env.DB.prepare(
+      `SELECT d.device_id, d.label, d.platform, d.revoked, d.created_at, d.last_seen,
+              d.home_site, a.identifier, a.label AS account_label
+         FROM devices d
+    LEFT JOIN accounts a
+           ON d.label = 'account:' || a.account_id
+           OR d.label LIKE 'account:' || a.account_id || ':%'
+        WHERE d.org_id = ?
+     ORDER BY d.revoked ASC, d.last_seen DESC, d.created_at DESC`,
+    ).bind(org.org_id).all();
+
+    return json({
+      devices: (results || []).map((d) => ({
+        device_id: d.device_id,
+        platform: d.platform || 'unknown',
+        revoked: !!d.revoked,
+        created_at: d.created_at,
+        last_seen: d.last_seen,
+        identifier: d.identifier || null,
+        account_label: d.account_label || null,
+        home_site: d.home_site,
+      })),
+      max_devices: org.max_devices,
+      used: (results || []).filter((d) => !d.revoked).length,
+    });
+  }
+
+  if (action === 'revoke') {
+    const id = String(body.device_id || '');
+    if (!id) return fail('bad_device', 'Which device?');
+    const row = await env.DB.prepare('SELECT device_id FROM devices WHERE device_id = ? AND org_id = ?')
+      .bind(id, org.org_id).first();
+    // Scoped to this org on purpose: a licence must never be able to revoke
+    // another customer's device by guessing an id.
+    if (!row) return fail('unknown_device', 'That device is not on this account.', 404);
+    await env.DB.prepare('UPDATE devices SET revoked = 1 WHERE device_id = ? AND org_id = ?')
+      .bind(id, org.org_id).run();
+    return json({ ok: true });
+  }
+
+  return fail('bad_action', 'Unknown action.');
+}
+
 // ── router ───────────────────────────────────────────────────────────
 export default {
   async fetch(request, env) {
@@ -901,6 +978,7 @@ export default {
       if (path === '/v1/provision'   && request.method === 'POST') return await handleProvision(env, body);
       if (path === '/v1/account/login'  && request.method === 'POST') return await handleAccountLogin(env, body);
       if (path === '/v1/account/manage' && request.method === 'POST') return await handleAccountManage(env, body);
+      if (path === '/v1/device/manage'  && request.method === 'POST') return await handleDeviceManage(env, body);
       if (path === '/v1/site/devices'&& request.method === 'POST') return await handleSiteDevices(env, body);
       if (path === '/v1/snapshot'    && request.method === 'POST') return await handleSnapshotPut(env, body);
       if (path === '/v1/pair/start'  && request.method === 'POST') return await handlePairStart(env, body);
