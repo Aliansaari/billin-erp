@@ -72,6 +72,20 @@ export default function VouchersList() {
   const [offline,  setOffline]  = useState(null);
   const searchRef = useRef(null);
 
+  /* How many rows are actually mounted.
+   *
+   * This list had no window at all: it rendered every voucher in the range.
+   * On a real shop's financial year that is over a thousand ActivityRows —
+   * each with its own icons and actions — built in a single synchronous
+   * render. The screen goes blank for as long as that takes, and on a WebView
+   * already holding another tab alive it is enough to get the whole thing
+   * restarted by iOS. It looked like a crash because, from the outside, it
+   * was indistinguishable from one.
+   *
+   * Counts, totals, the PDF and the search all still run over the FULL set —
+   * only the DOM is capped. */
+  const [visibleCount, setVisibleCount] = useState(60);
+
   /* Mirror the current range and filter into the URL.
    *
    * `setParams` is NOT referentially stable — React Router hands back a new
@@ -99,6 +113,9 @@ export default function VouchersList() {
   useEffect(() => {
     if (toDate < fromDate) setToDate(fromDate);
   }, [fromDate, toDate]);
+
+  // A new range, filter or search term is a new list — start at the top of it.
+  useEffect(() => { setVisibleCount(60); }, [fromDate, toDate, filter, search]);
 
   useEffect(() => {
     if (searchOn) setTimeout(() => searchRef.current?.focus(), 50);
@@ -421,7 +438,15 @@ export default function VouchersList() {
       </div>
 
       {/* List */}
-      <div className="vl-list-wrap">
+      <div
+        className="vl-list-wrap"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 600) {
+            setVisibleCount((n) => (n < filtered.length ? n + 60 : n));
+          }
+        }}
+      >
         {loading && <div className="vl-empty">Loading…</div>}
         {!loading && filtered.length === 0 && (
           <div className="vl-empty">
@@ -436,7 +461,7 @@ export default function VouchersList() {
                 : 'No vouchers in this period'}
           </div>
         )}
-        {!loading && filtered.map((entry) => (
+        {!loading && filtered.slice(0, visibleCount).map((entry) => (
           <ActivityRow
             key={entry.entry_number}
             entry={entry}
