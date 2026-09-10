@@ -77,6 +77,20 @@ const FILTERS = [
   { key: 'out',  label: 'Out of stock' },
 ];
 
+/* One request's worth of rows. 500 is the server's own ceiling
+ * (helpers.sanitizePagination), so asking for more just gets 500. */
+const PAGE_SIZE = 500;
+
+/* Catalogues at or under this stay entirely in memory: local filtering, local
+ * search, exact chip counts, and it all keeps working offline. Above it the
+ * server drives, because holding 30,000 enriched rows in a WebView and
+ * re-filtering them on every keystroke is not a slower version of the same
+ * screen — it is a screen that stops responding. */
+const BULK_LIMIT = 1500;
+
+/* Rows a phone can turn into a PDF without falling over. */
+const PDF_ROW_CAP = 2000;
+
 export default function Stock() {
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
@@ -92,56 +106,100 @@ export default function Stock() {
   // this many are mounted at once. Grows as the user scrolls. Filtering /
   // totals / PDF still run over the entire dataset — only the DOM is capped.
   const [visibleCount, setVisibleCount] = useState(80);
+  const [totalCount, setTotalCount] = useState(0);   // server's count for this query
+  const [summary, setSummary]       = useState(null); // whole-catalogue chip counts
+  const [nextPage, setNextPage]     = useState(2);
+  const [listBusy, setListBusy]     = useState(false);
   const searchRef = useRef(null);
   const pdfUrlRef = useRef(null);
 
+  /* ── Loading, at two very different scales ──────────────────────────
+   *
+   * A shop with 120 products and a shop with 30,000 want opposite things.
+   *
+   * Small catalogue: hold it all. Filtering and search are then instant, work
+   * with no network, and the chip counts are exact. There is no reason to make
+   * a 120-item shop wait on a round trip to type a letter.
+   *
+   * Large catalogue: holding it all is not "slower", it is broken. 30,000
+   * products meant sixty paged requests fired at once through a tunnel, sixty
+   * enriched queries on the shop PC, ~24 MB of objects in a WebView, and a
+   * re-filter of that whole array on every keystroke. So above the threshold
+   * the server does work it is already able to do: it accepts `search`,
+   * `search_field` and `stock_status`, and returns whole-catalogue counts in
+   * `summary` — so the chips stay right without the rows behind them ever
+   * being loaded.
+   *
+   * Which mode is decided by the first response's `total`. Neither shop has
+   * to be configured for it, and neither pays for the other's problem. */
+  const bulkRef  = useRef(true);   // whole catalogue in memory?
+  const reqIdRef = useRef(0);      // drops responses from superseded queries
+  const moreRef  = useRef(false);  // a page-append is already in flight
+
+  const rowsOf = (res) => (Array.isArray(res.data) ? res.data : (res.data?.data || []));
+
+  const queryParams = (page, { filter: f = 'all', search: q = '' } = {}) => {
+    const params = { limit: PAGE_SIZE, page };
+    if (f !== 'all') params.stock_status = f;
+    const term = String(q).trim();
+    if (term) {
+      /* `a:` article, `b:` barcode, `n:` name, `h:` HSN — the same prefixes the
+       * local matcher understands, handed to the server instead.
+       *
+       * Only the SCOPED term goes over the wire. "a: 668 plazo" means
+       * article-668 AND matches-plazo-somewhere, and the endpoint takes one
+       * search string against one field — so the server narrows to article 668
+       * (33 rows out of 30,000) and the extra words are ANDed locally over
+       * that handful. Splitting it this way keeps the meaning intact without
+       * needing a second search parameter on the server. */
+      const parsed = parseSearch(term);
+      if (parsed.scope) params.search_field = parsed.scope;
+      params.search = parsed.term || term;
+    }
+    return params;
+  };
+
+  /* Mount: load the catalogue unfiltered and decide the mode. */
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    // Page through every product — PROGRESSIVELY.
-    //
-    // Two separate problems here. The server clamps every request to
-    // maxLimit=500 (sanitizePagination), so a single `limit: 10000` silently
-    // truncated the catalogue. But fetching all pages before rendering was
-    // worse for a big shop: ten sequential round trips over a tunnel is
-    // several seconds staring at a blank list.
-    //
-    // So: render page one the moment it lands, then fill the rest in behind
-    // it. The screen is usable immediately and the list grows under the user.
+
     // Show the previous visit's catalogue instantly; refresh behind it.
     const cachedStock = getCached('stock');
     if (cachedStock) { setProducts(cachedStock); setLoading(false); }
 
-    const loadStock = async () => {
-      const PAGE = 500;
-      const first = await productAPI.getAll({ limit: PAGE, page: 1 });
-      const firstRows = Array.isArray(first.data) ? first.data : (first.data?.data || []);
-      if (cancelled) return;
+    const run = async () => {
+      const myReq = ++reqIdRef.current;
+      const first = await productAPI.getAll(queryParams(1));
+      if (cancelled || myReq !== reqIdRef.current) return;
 
-      setProducts(firstRows);
+      const rows  = rowsOf(first);
+      const total = Number(first.data?.total ?? rows.length);
+      setProducts(rows);
+      setTotalCount(total);
+      setSummary(first.data?.summary || null);
+      setNextPage(2);
+      setLoading(false);
       setOffline(null);
-      setLoading(false);              // usable now, not after every page
 
-      const total = Number(first.data?.total ?? firstRows.length);
-      const pages = Math.ceil(total / PAGE);
-      if (pages <= 1) { setCached('stock', firstRows); return; }
+      bulkRef.current = total <= BULK_LIMIT;
+      if (!bulkRef.current || total <= rows.length) return;
 
-      // Remaining pages in parallel, then ONE state update so React renders
-      // once rather than once per page.
+      // Small enough to hold: fill in the rest behind the first paint, so the
+      // screen is usable at once and complete a moment later.
+      const pages = Math.ceil(total / PAGE_SIZE);
       const rest = await Promise.all(
         Array.from({ length: pages - 1 }, (_, i) =>
-          productAPI.getAll({ limit: PAGE, page: i + 2 })
-            .then((r) => (Array.isArray(r.data) ? r.data : (r.data?.data || [])))
-            .catch(() => [])),
+          productAPI.getAll(queryParams(i + 2)).then(rowsOf).catch(() => [])),
       );
-      if (cancelled) return;
-      const more = rest.flat();
-      const all = [...firstRows, ...more];
-      if (more.length) setProducts(all);
-      setCached('stock', all);
+      if (cancelled || myReq !== reqIdRef.current) return;
+      const all = [...rows, ...rest.flat()];
+      setProducts(all);
+      setNextPage(pages + 1);
+      setCached('stock', all);       // only a COMPLETE catalogue is worth caching
     };
 
-    loadStock()
+    run()
       .catch(async (e) => {
         if (cancelled) return;
         if (isUnreachable(e)) {
@@ -151,7 +209,10 @@ export default function Stock() {
             const raw = Array.isArray(section)
               ? section
               : (section?.data || section?.products || []);
+            bulkRef.current = true;      // the snapshot is all we will ever have
             setProducts(raw);
+            setTotalCount(raw.length);
+            setSummary(null);
             // A partial list must never read as a complete one — someone
             // checking whether an article is in stock would conclude it is
             // not, when it is simply past the cut.
@@ -182,7 +243,55 @@ export default function Stock() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+    // Mount only. Filter and search are handled below, and re-running this
+    // would throw away a loaded catalogue on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* Filter / search, in server mode only.
+   *
+   * Debounced, because at 30,000 rows every keystroke is a real query on the
+   * shop's PC. In bulk mode this does nothing at all — the list is already
+   * here, and filtering it locally is instantaneous. */
+  useEffect(() => {
+    if (bulkRef.current) return undefined;
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const myReq = ++reqIdRef.current;
+      setListBusy(true);
+      try {
+        const res = await productAPI.getAll(queryParams(1, { filter, search }));
+        if (cancelled || myReq !== reqIdRef.current) return;
+        setProducts(rowsOf(res));
+        setTotalCount(Number(res.data?.total ?? 0));
+        if (res.data?.summary) setSummary(res.data.summary);
+        setNextPage(2);
+      } catch (e) {
+        if (!cancelled) Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not search stock') });
+      } finally {
+        if (!cancelled) setListBusy(false);
+      }
+    }, 280);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [filter, search]);
+
+  /* Append the next page when the list nears its end (server mode). */
+  const loadMore = async () => {
+    if (bulkRef.current || moreRef.current) return;
+    if (products.length >= totalCount) return;
+    moreRef.current = true;
+    const myReq = reqIdRef.current;
+    try {
+      const res = await productAPI.getAll(queryParams(nextPage, { filter, search }));
+      if (myReq !== reqIdRef.current) return;   // the query changed under us
+      const rows = rowsOf(res);
+      if (rows.length) {
+        setProducts((prev) => [...prev, ...rows]);
+        setNextPage((n) => n + 1);
+      }
+    } catch { /* a failed page is a shorter list, not a broken screen */ }
+    finally { moreRef.current = false; }
+  };
 
   useEffect(() => {
     if (searchOn) setTimeout(() => searchRef.current?.focus(), 50);
@@ -229,6 +338,13 @@ export default function Stock() {
 
   async function generatePdf() {
     if (filtered.length === 0) return null;
+    /* A PDF of 30,000 rows is not a document anyone opens — it is a phone
+     * that stops responding for a minute and then runs out of memory. Export
+     * what is on screen and say so; the desktop is where a full stock report
+     * belongs. */
+    if (filtered.length > PDF_ROW_CAP) {
+      Toast.show({ content: `Exporting the first ${PDF_ROW_CAP.toLocaleString('en-IN')} — narrow the search for a smaller list.` });
+    }
     try {
       const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
         import('jspdf'), import('jspdf-autotable'),
@@ -242,7 +358,7 @@ export default function Stock() {
       autoTable(doc, {
         startY: 72,
         head: [['Product', 'SKU / Barcode', 'Pur Rate', 'Sale Rate', 'Qty', 'Value']],
-        body: filtered.map((p) => {
+        body: filtered.slice(0, PDF_ROW_CAP).map((p) => {
           const name = p.product_name || p.name || '';
           const sku  = p.barcode || p.sku || p.product_code || '';
           const qty  = Number(p.current_stock ?? p.stock_quantity ?? 0);
@@ -298,7 +414,18 @@ export default function Stock() {
     return 'in';
   };
 
+  /* In bulk mode `products` is the whole catalogue and the filter runs here.
+   * In server mode the rows already ARE the answer to this query — filtering
+   * them again would only hide rows the server deliberately sent. */
   const filtered = useMemo(() => {
+    if (!bulkRef.current) {
+      // The server already applied the scope, the scoped term and the stock
+      // status. What it could not apply is the extra words of a combined
+      // search, so those are ANDed here over the rows it sent back.
+      const parsed = parseSearch(search);
+      if (!parsed.extra?.length) return products;
+      return products.filter((p) => matchesSearch(p, { ...parsed, term: '' }));
+    }
     let rows = products;
     if (filter !== 'all') {
       rows = rows.filter((p) => stockStatus(p) === filter);
@@ -320,14 +447,30 @@ export default function Stock() {
     const el = e.currentTarget;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 600) {
       setVisibleCount((n) => (n < filtered.length ? n + 80 : n));
+      // Server mode: the rows we have ARE the window, so nearing the end means
+      // asking for more rather than revealing more.
+      if (!bulkRef.current) loadMore();
     }
   };
 
+  /* Chip counts. In bulk mode, counted here from the real rows. In server mode
+   * they come from the response's `summary`, which the server computes across
+   * the WHOLE catalogue — so "Out of stock 412" is true even though only 500
+   * rows have ever been loaded. Counting the loaded rows instead would show a
+   * number that grows as you scroll, which is worse than no number. */
   const counts = useMemo(() => {
+    if (!bulkRef.current && summary) {
+      return {
+        all: Number(summary.total_count ?? totalCount ?? 0),
+        in:  Number(summary.in_count  ?? 0),
+        low: Number(summary.low_count ?? 0),
+        out: Number(summary.out_count ?? 0),
+      };
+    }
     const c = { all: products.length, in: 0, low: 0, out: 0 };
     for (const p of products) c[stockStatus(p)]++;
     return c;
-  }, [products]);
+  }, [products, summary, totalCount]);
 
   const totalValue = useMemo(() => {
     return filtered.reduce((sum, p) => {
@@ -488,7 +631,15 @@ export default function Stock() {
 
       {!loading && filtered.length > 0 && (
         <div className="st-footer">
-          <span className="st-footer-count">{filtered.length} product{filtered.length === 1 ? '' : 's'}</span>
+          {/* In server mode `filtered` is only what has been scrolled into
+              existence, so the honest number is the server's count for this
+              query — and saying "500 products" for a 30,000-item shop would
+              be a lie that changes as you scroll. */}
+          <span className="st-footer-count">
+            {bulkRef.current
+              ? `${filtered.length} product${filtered.length === 1 ? '' : 's'}`
+              : `${filtered.length} of ${totalCount.toLocaleString('en-IN')} loaded`}
+          </span>
           <span className="st-footer-total">₹{formatINR(totalValue)}</span>
         </div>
       )}
