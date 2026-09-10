@@ -121,6 +121,7 @@ export default function AppShell() {
     const paint = (x, w) => {
       if (!drag) return;
       const p = Math.min(1, x / w);
+      drag.x = x;
       drag.stage.style.transform = `translate3d(${x}px,0,0)`;
       // A shadow that thins as the screen leaves reads as depth rather than
       // as a rectangle sliding over another rectangle.
@@ -138,13 +139,42 @@ export default function AppShell() {
       stage.style.transition = 'transform 0.26s cubic-bezier(0.22,0.9,0.24,1), box-shadow 0.26s linear';
       if (beneath) beneath.style.transition = 'transform 0.26s cubic-bezier(0.22,0.9,0.24,1)';
       if (commit) {
+        /* Duration matched to how the finger was moving.
+         *
+         * A fixed 260ms after a hard flick feels like the screen is wading;
+         * after a slow drag near the threshold it feels rushed. iOS matches
+         * the remaining distance to the velocity you released at, clamped so
+         * it can never be instant or sluggish. */
+        const remaining = w - drag.x;
+        const ms = Math.max(120, Math.min(340, drag.v > 0.1 ? remaining / drag.v : 300));
+        stage.style.transition = `transform ${ms}ms cubic-bezier(0.22,0.9,0.24,1), box-shadow ${ms}ms linear`;
+        if (beneath) beneath.style.transition = `transform ${ms}ms cubic-bezier(0.22,0.9,0.24,1)`;
         stage.style.transform = `translate3d(${w}px,0,0)`;
         stage.style.boxShadow = 'none';
         if (beneath) beneath.style.transform = 'translate3d(0,0,0)';
         hapticTap();
+        const bn = beneath;
         // Navigate when the screen has actually left, not before — otherwise
         // the route swaps under a half-moved element and it snaps.
-        setTimeout(() => navigateRef.current(-1), 210);
+        setTimeout(() => {
+          // The finger has done the animation; the router must not do it
+          // again. Set here rather than above so an unrelated re-render
+          // during the slide cannot consume the flag before the navigation.
+          gestureNavRef.current = true;
+          navigateRef.current(-1);
+          /* Hand the pane back its stylesheet.
+           *
+           * It is the visible screen now, and a leftover inline
+           * `transform: translate3d(0,0,0)` is not a no-op: any transform
+           * makes the element a containing block for position:fixed
+           * descendants, which would trap every bottom sheet opened from
+           * this tab inside the pane. Cleared on the next frame, after the
+           * route has swapped, so nothing moves. */
+          if (bn) requestAnimationFrame(() => {
+            bn.style.transition = '';
+            bn.style.transform  = '';
+          });
+        }, Math.max(90, ms - 40));
       } else {
         stage.style.transform = 'translate3d(0,0,0)';
         stage.style.boxShadow = 'none';
@@ -179,6 +209,7 @@ export default function AppShell() {
         lastX: t.clientX,
         lastT: e.timeStamp,
         v: 0,
+        x: 0,
       };
       stage.style.transition = 'none';
       if (drag.beneath) drag.beneath.style.transition = 'none';
@@ -329,13 +360,25 @@ export default function AppShell() {
    * imply a history that is not there. Going BACK to a tab comes from the
    * left, matching where it went; a tap comes up from below, which is what
    * the tab bar itself suggests. */
+  /* Set when the back GESTURE performs the navigation.
+   *
+   * The drag already slid the screen off under the finger. Letting the router
+   * then play its own entry animation means the destination slides in a
+   * second time, from a position it was never in — two motions for one
+   * navigation, which is what made the gesture look wrong rather than feel
+   * wrong. Suppressed for exactly one render, then cleared. */
+  const gestureNavRef = useRef(false);
+
   const prevPaneRef = useRef(visiblePane);
   const paneDirRef  = useRef(null);
   if (prevPaneRef.current !== visiblePane) {
-    paneDirRef.current = navType === 'POP' ? 'back' : 'tap';
+    paneDirRef.current = gestureNavRef.current ? null : (navType === 'POP' ? 'back' : 'tap');
     prevPaneRef.current = visiblePane;
   }
   const paneDir = paneDirRef.current;
+
+  const suppressed = gestureNavRef.current;
+  useEffect(() => { gestureNavRef.current = false; });
 
   return (
     <>
@@ -373,7 +416,7 @@ export default function AppShell() {
           {!isTab && (
             <PageStage
               key={location.pathname}
-              direction={navType === 'POP' ? 'back' : 'forward'}
+              direction={suppressed ? null : (navType === 'POP' ? 'back' : 'forward')}
             >
               <Suspense fallback={<RouteFallback />}>
                 {outlet}

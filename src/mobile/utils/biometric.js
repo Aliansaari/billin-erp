@@ -50,14 +50,41 @@ export const setLockEnabled = (on) => {
  * the cost of a false lock is an interruption every time iOS decides to
  * reclaim some memory, which is what makes people switch the feature off.
  */
-const BEAT_KEY = 'zehen_alive_at';
+const BEAT_KEY  = 'zehen_alive_at';
+const EXIT_KEY  = 'zehen_clean_exit';
 const RESTART_WINDOW_MS = 20_000;
 
+/* A fresh heartbeat alone was the wrong test, and it disabled the lock.
+ *
+ * The heartbeat is also written when the app goes to the background — so
+ * closing ZEHEN and opening it again within twenty seconds looked exactly
+ * like a crash-restart, and the lock was skipped on the one journey it exists
+ * for: someone picking the phone up and opening the app.
+ *
+ * The real discriminator is whether the app got to run its own shutdown. A
+ * crash or a WebView reclaim never reaches the hide handler; a person
+ * swiping the app away always does. So: a restart is a fresh heartbeat AND
+ * no clean-exit marker. Anything else is an arrival, and an arrival locks.
+ */
+let bootVerdict = null;   // decided once per page load, then frozen
+
 export function wasRestartedNotLaunched() {
+  if (bootVerdict !== null) return bootVerdict;
+  let restarted = false;
   try {
-    const last = Number(localStorage.getItem(BEAT_KEY) || 0);
-    return !!last && Date.now() - last < RESTART_WINDOW_MS;
-  } catch { return false; }
+    const last  = Number(localStorage.getItem(BEAT_KEY) || 0);
+    const clean = localStorage.getItem(EXIT_KEY) === '1';
+    restarted = !clean && !!last && Date.now() - last < RESTART_WINDOW_MS;
+    /* Consumed here, on the first read of the run.
+     *
+     * If it were left for a later handler to clear, a clean exit followed by
+     * a crash would still be carrying the marker and the crash-restart would
+     * lock. And it must be read before it is cleared, which is why both
+     * happen in one place rather than at two ends of the boot sequence. */
+    localStorage.removeItem(EXIT_KEY);
+  } catch { /* private mode — treat as a launch, which locks */ }
+  bootVerdict = restarted;
+  return bootVerdict;
 }
 
 /* A count of times the WebView came back on its own rather than being opened.
@@ -86,12 +113,38 @@ export function startHeartbeat() {
   const beat = () => {
     try { localStorage.setItem(BEAT_KEY, String(Date.now())); } catch { /* private mode */ }
   };
+  // The boot verdict is frozen on its first read (wasRestartedNotLaunched),
+  // which also consumes the marker — so nothing here has to race it.
   beat();
   const id = setInterval(beat, 5_000);
-  // Also on the way out, so the last value is as close to the end as possible.
-  const onHide = () => { if (document.visibilityState === 'hidden') beat(); };
+
+  const onHide = () => {
+    if (document.visibilityState === 'hidden') {
+      beat();
+      // Reaching this line at all is the signal: the app was closed, not
+      // killed. pagehide covers the cases visibilitychange misses on iOS.
+      try { localStorage.setItem(EXIT_KEY, '1'); } catch { /* ignore */ }
+    } else {
+      /* Back on screen with the page still alive — so the hide it wrote the
+       * marker for did NOT end the run, and the marker is now a lie. Left
+       * set, a later foreground crash would read it as a clean exit and lock
+       * the operator out mid-sale, which is the exact failure this whole
+       * mechanism exists to avoid. Cleared on every return, so the marker
+       * only ever survives a hide that really was the end. */
+      try { localStorage.removeItem(EXIT_KEY); } catch { /* ignore */ }
+    }
+  };
+  const onPageHide = () => {
+    try { localStorage.setItem(EXIT_KEY, '1'); } catch { /* ignore */ }
+  };
   document.addEventListener('visibilitychange', onHide);
-  return () => { clearInterval(id); document.removeEventListener('visibilitychange', onHide); };
+  window.addEventListener('pagehide', onPageHide);
+
+  return () => {
+    clearInterval(id);
+    document.removeEventListener('visibilitychange', onHide);
+    window.removeEventListener('pagehide', onPageHide);
+  };
 }
 
 /** What this device can actually do — used to label the setting honestly

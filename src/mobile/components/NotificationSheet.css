@@ -22,6 +22,10 @@
      after the animation should have finished. The natural state is the final
      state; the keyframes only animate into it. */
   animation: ns-fade 0.16s ease;
+  /* Marks the backdrop as tappable to WKWebView, which otherwise treats a
+     plain div as inert and fires no click for a tap on it. */
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 @keyframes ns-fade { from { opacity: 0; } to { opacity: 1; } }
 

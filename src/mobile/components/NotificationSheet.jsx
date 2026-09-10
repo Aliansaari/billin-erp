@@ -68,6 +68,34 @@ export default function NotificationSheet({ open, items = [], onClose }) {
     setDy(delta < 0 ? delta : delta * 0.18);
   };
 
+  /* Tap outside to dismiss — done on touch, not on click.
+   *
+   * The backdrop is a plain <div>, and WKWebView does not synthesise a click
+   * for a tap on an element it does not consider clickable: no href, no
+   * button, no cursor:pointer, and React's own handler lives on the root
+   * rather than on the node, so the DOM node looks inert to the engine. The
+   * onClick fired in a desktop browser and did nothing on the phone, which
+   * is exactly the report. Touch events have no such rule.
+   *
+   * A tap, not a swipe: if the finger travelled more than a few pixels the
+   * user was doing something else, and the panel stays. */
+  const bdTouch = useRef(null);
+
+  const onBackdropTouchStart = (e) => {
+    if (e.target !== e.currentTarget || e.touches.length !== 1) { bdTouch.current = null; return; }
+    bdTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  const onBackdropTouchEnd = (e) => {
+    const t0 = bdTouch.current;
+    bdTouch.current = null;
+    if (!t0 || e.target !== e.currentTarget) return;
+    const t = e.changedTouches[0];
+    if (Math.abs(t.clientX - t0.x) > 10 || Math.abs(t.clientY - t0.y) > 10) return;
+    hapticSelect();
+    onClose?.();
+  };
+
   const onTouchEnd = (e) => {
     if (!drag.current) return;
     const delta = e.changedTouches[0].clientY - drag.current.y0;
@@ -84,9 +112,13 @@ export default function NotificationSheet({ open, items = [], onClose }) {
   );
 
   return ReactDOM.createPortal(
+    /* onClick stays for the desktop shell and for keyboard/AT activation;
+       the touch handlers are what actually run on the phone. */
     <div
       className="ns-backdrop"
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
+      onTouchStart={onBackdropTouchStart}
+      onTouchEnd={onBackdropTouchEnd}
     >
       <div
         className={`ns-sheet${drag.current ? ' is-dragging' : ''}`}
