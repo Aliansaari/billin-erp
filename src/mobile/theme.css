@@ -60,6 +60,11 @@
   --c-hero-mid:     #1A1612;
   --c-hero-to:      #0F0C09;
   --c-hero-glow:    rgba(181, 66, 28, 0.18);
+  /* Foreground for anything sitting ON the hero card or the attention pill.
+     Those surfaces are dark in EVERY theme, so this must not follow the
+     theme the way --c-bg-surface does — using that token flipped the pill's
+     text to near-black on near-black the moment dark mode was on. */
+  --c-on-hero: #FBF8F1;
   --c-drawer-bg:    var(--c-bg-surface);
   --c-drawer-glow:  rgba(196, 78, 24, 0.06);
   --c-drawer-glow2: transparent;
@@ -138,6 +143,11 @@
   --c-hero-mid:     #1A1918;
   --c-hero-to:      #121212;
   --c-hero-glow:    rgba(212, 80, 28, 0.20);
+  /* Foreground for anything sitting ON the hero card or the attention pill.
+     Those surfaces are dark in EVERY theme, so this must not follow the
+     theme the way --c-bg-surface does — using that token flipped the pill's
+     text to near-black on near-black the moment dark mode was on. */
+  --c-on-hero: #FBF8F1;
   --c-drawer-bg:    #121215;
   --c-drawer-glow:  rgba(196, 78, 24, 0.12);
   --c-drawer-glow2: rgba(196, 78, 24, 0.06);
@@ -203,6 +213,11 @@
   --c-hero-mid:     #FFFFFF;
   --c-hero-to:      #FFFFFF;
   --c-hero-glow:    rgba(8, 145, 168, 0.10);
+  /* Foreground for anything sitting ON the hero card or the attention pill.
+     Those surfaces are dark in EVERY theme, so this must not follow the
+     theme the way --c-bg-surface does — using that token flipped the pill's
+     text to near-black on near-black the moment dark mode was on. */
+  --c-on-hero: #FBF8F1;
   --c-drawer-bg:    var(--c-bg-surface);
   --c-drawer-glow:  rgba(8, 145, 168, 0.08);
   --c-drawer-glow2: transparent;
@@ -260,6 +275,11 @@
   --c-hero-mid:     #131D26;
   --c-hero-to:      #131D26;
   --c-hero-glow:    rgba(14, 175, 202, 0.18);
+  /* Foreground for anything sitting ON the hero card or the attention pill.
+     Those surfaces are dark in EVERY theme, so this must not follow the
+     theme the way --c-bg-surface does — using that token flipped the pill's
+     text to near-black on near-black the moment dark mode was on. */
+  --c-on-hero: #FBF8F1;
   --c-drawer-bg:    #131D26;
   --c-drawer-glow:  rgba(14, 175, 202, 0.16);
   --c-drawer-glow2: rgba(7, 92, 107, 0.10);

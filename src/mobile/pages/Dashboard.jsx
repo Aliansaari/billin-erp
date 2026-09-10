@@ -437,14 +437,28 @@ export default function Dashboard() {
 
       {/* Hero card */}
       <div className="hero-card">
+        {/* The period switcher lives in the card's top-right.
+            It was sitting between the sub-line and the two boxes, which
+            crowded them and put a control in the middle of a reading path.
+            Up here it fills the space that was a gradient and nothing else,
+            and it is where a period switcher belongs. */}
         <div className="hero-head">
           <div className="hero-top" onClick={() => navigate(`/day-book?date=${isoDate()}`)}>
             <div className="hero-label">{hero.label}</div>
           </div>
-          {/* The card's top-right was a gradient and nothing else — the most
-              valuable space on the screen doing no work. Fourteen days of
-              sales, as a shape rather than a verdict. */}
-          <div className="hero-spark"><Sparkline points={series} /></div>
+          <div className="hero-periods" role="tablist" aria-label="Sales period">
+            {[['today', 'Today'], ...(series.length ? [['week', 'Week']] : []), ['month', 'Month']].map(([key, label]) => (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={period === key}
+                className={`hero-period${period === key ? ' active' : ''}`}
+                onClick={() => { hapticSelect(); setPeriod(key); }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="hero-amount" onClick={() => navigate(`/day-book?date=${isoDate()}`)}>
           <span className="currency">₹</span>{formatINR(hero.total)}
@@ -453,19 +467,12 @@ export default function Dashboard() {
           {hero.sub}
         </div>
 
-        <div className="hero-periods" role="tablist" aria-label="Sales period">
-          {[['today', 'Today'], ...(series.length ? [['week', 'Week']] : []), ['month', 'Month']].map(([key, label]) => (
-            <button
-              key={key}
-              role="tab"
-              aria-selected={period === key}
-              className={`hero-period${period === key ? ' active' : ''}`}
-              onClick={() => { hapticSelect(); setPeriod(key); }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {/* Full width, under the figure it belongs to. At 108px in a corner
+            fourteen points were a squiggle; across the card they are a shape
+            you can read at a glance, which was the entire purpose. */}
+        {series.length > 0 && (
+          <div className="hero-spark"><Sparkline points={series} /></div>
+        )}
 
         <div className="hero-boxes">
           <button className="hero-box" onClick={() => goVouchers('receipt')}>

@@ -19,7 +19,7 @@ import React, { useMemo } from 'react';
  * space.
  * ────────────────────────────────────────────────────────────────────── */
 
-export default function Sparkline({ points = [], width = 108, height = 40 }) {
+export default function Sparkline({ points = [], width = 300, height = 34 }) {
   const geometry = useMemo(() => {
     const values = points.map((p) => Number(p.total) || 0);
     if (values.length < 2) return null;
@@ -50,9 +50,12 @@ export default function Sparkline({ points = [], width = 108, height = 40 }) {
   return (
     <svg
       className="spark"
-      width={width}
-      height={height}
       viewBox={`0 0 ${width} ${height}`}
+      /* Stretched to whatever width the card gives it. `none` lets the shape
+         fill that width; without it a 300-unit box would letterbox itself and
+         leave the very gap this was drawn to fill. The stroke is pinned below
+         so stretching cannot make the line thicker at one end. */
+      preserveAspectRatio="none"
       fill="none"
       aria-hidden="true"
       focusable="false"
@@ -70,10 +73,22 @@ export default function Sparkline({ points = [], width = 108, height = 40 }) {
         strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
-        opacity="0.85"
+        vectorEffect="non-scaling-stroke"
+        opacity="0.9"
       />
       {/* Today. Without it the line is a trend with no "you are here". */}
-      <circle cx={geometry.last[0]} cy={geometry.last[1]} r="2.6" fill="currentColor" />
+      {/* Drawn as a stroked dot rather than a filled circle: preserveAspectRatio
+          "none" would squash a circle into an ellipse, and a non-scaling
+          stroke keeps this round at any width. */}
+      <circle
+        cx={geometry.last[0]}
+        cy={geometry.last[1]}
+        r="0.1"
+        stroke="currentColor"
+        strokeWidth="5.5"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   );
 }

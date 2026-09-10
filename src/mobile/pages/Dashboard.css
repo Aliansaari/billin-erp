@@ -15,9 +15,17 @@
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   background: var(--c-bg-app);
+  /* Two soft washes rather than two coloured blobs.
+   *
+   * On a cream page they were barely there; on a dark one they read as a
+   * brown smudge at the top and a green cast at the bottom — colour with no
+   * object producing it, which looks like a rendering fault rather than
+   * atmosphere. Wider, weaker, and pushed to the corners so they give the
+   * page depth without ever becoming a shape you notice. */
   background-image:
-    radial-gradient(ellipse at 18% 20%, var(--c-hero-glow) 0%, transparent 45%),
-    radial-gradient(ellipse at 85% 80%, rgba(45, 90, 61, 0.06) 0%, transparent 45%);
+    radial-gradient(120% 55% at 12% -5%, var(--c-hero-glow) 0%, transparent 62%),
+    radial-gradient(110% 45% at 92% 104%, rgba(45, 90, 61, 0.045) 0%, transparent 60%);
+  background-attachment: fixed;
   padding: 12px var(--pad)
            calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 16px);
   scrollbar-width: none;
@@ -1051,13 +1059,13 @@
   gap: 12px;
 }
 .hero-spark {
-  flex: none;
-  color: var(--c-bg-surface);
-  opacity: 0.85;
-  margin-top: -2px;
+  color: var(--c-on-hero);
+  opacity: 0.8;
+  margin: 12px 0 2px;
   pointer-events: none;
 }
 .hero-spark:empty { display: none; }
+.hero-spark .spark { display: block; width: 100%; height: 34px; }
 
 /* ── Period switcher ─────────────────────────────────────────────────
    Text, not a segmented control: inside a dark card a recessed track would be
@@ -1065,27 +1073,41 @@
    framed. */
 .hero-periods {
   display: flex;
-  gap: 4px;
-  margin: 14px 0 2px;
+  gap: 2px;
+  flex: none;
+  /* Sits in the card's top-right, aligned to the label's cap height. */
+  margin-top: -2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(251, 248, 241, 0.07);
 }
 .hero-period {
   border: 0;
   background: transparent;
-  color: rgba(251, 248, 241, 0.5);
+  color: rgba(251, 248, 241, 0.55);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  padding: 5px 11px;
+  padding: 4px 10px;
   border-radius: 999px;
   -webkit-tap-highlight-color: transparent;
   transition: color 140ms ease, background-color 140ms ease;
 }
 .hero-period.active {
-  color: var(--c-bg-surface);
-  background: rgba(251, 248, 241, 0.13);
+  color: var(--c-on-hero);
+  background: rgba(251, 248, 241, 0.14);
 }
 
 /* The attention CARDS are gone — see components/AttentionPill.css for what
    replaced them and why. */
 
+
+
+/* Dark needs less of it again: the same wash that reads as warmth on cream
+   reads as a stain on near-black, where there is no brightness for it to
+   modulate. */
+[data-mobile-theme="dark"] .dash {
+  background-image:
+    radial-gradient(120% 50% at 12% -8%, var(--c-hero-glow) 0%, transparent 55%);
+}
