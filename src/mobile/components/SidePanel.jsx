@@ -8,7 +8,8 @@ import { Toast } from 'antd-mobile';
 import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import useCompanyStore from '../../store/companyStore';
-import { companyAPI, setServerUrl as saveServerUrl, getServerUrl, getDeviceToken } from '../../api';
+import api, { companyAPI, setServerUrl as saveServerUrl, getServerUrl, getDeviceToken } from '../../api';
+import { fetchSnapshot, snapshotAge } from '../utils/offlineSnapshot';
 import './SidePanel.css';
 import { biometryInfo, isLockEnabled, setLockEnabled, authenticate, restartCount } from '../utils/biometric';
 import { select as hapticSelect } from '../utils/haptics';
@@ -124,6 +125,13 @@ function fyLabel() {
   };
 }
 
+/** The shop this phone is pointed at, without the scheme. */
+function hostLabel() {
+  const u = getServerUrl();
+  if (!u) return 'this computer';
+  return String(u).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+}
+
 export default function SidePanel({ open, onClose }) {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
@@ -181,6 +189,30 @@ export default function SidePanel({ open, onClose }) {
       navigate('/login', { replace: true });
     }, 300);
   }
+
+  /* Is what we are showing actually live?
+   *
+   * The footer used to carry a green dot and the word "synced", hardcoded —
+   * it said the same thing whether the shop computer was answering or had
+   * been switched off since lunch. A status light that cannot be wrong is not
+   * a status light, it is a sticker.
+   *
+   * Checked when the panel opens, because that is exactly when someone is
+   * asking the question. */
+  const [conn, setConn] = useState({ state: 'checking', host: '', age: '' });
+  useEffect(() => {
+    if (!open) return undefined;
+    let dead = false;
+    setConn((c) => ({ ...c, state: 'checking', host: hostLabel() }));
+    api.get('/health', { timeout: 6000 })
+      .then((r) => { if (!dead) setConn({ state: r.data?.db ? 'live' : 'degraded', host: hostLabel(), age: '' }); })
+      .catch(async () => {
+        if (dead) return;
+        const snap = await fetchSnapshot().catch(() => null);
+        setConn({ state: 'offline', host: hostLabel(), age: snap ? snapshotAge(snap) : '' });
+      });
+    return () => { dead = true; };
+  }, [open]);
 
   /* Face ID / Touch ID, if this device has it at all.
    *
@@ -269,22 +301,94 @@ export default function SidePanel({ open, onClose }) {
             )}
           </div>
 
-          {/* Data context */}
-          <div className="sp-section-label">Data context</div>
-          <button
-            className="sp-ctx-card"
-            onClick={() => Toast.show({ content: 'FY selection coming soon', position: 'bottom' })}
-          >
-            <div className="sp-ctx-icon">{I.cal}</div>
-            <div className="sp-ctx-info">
-              <div className="sp-ctx-label">Financial year</div>
-              <div className="sp-ctx-value">{fy.label}</div>
-              <div className="sp-ctx-sub">{fy.range}</div>
+          {/* Financial year is CONTEXT, not a control.
+              It used to look like a button and answered a tap with "FY
+              selection coming soon" — a control that exists only to apologise
+              is worse than no control. Shown as what it is: the period every
+              figure in this app is scoped to. */}
+          <div className="sp-fy">
+            <div className="sp-fy-icon">{I.cal}</div>
+            <div className="sp-fy-text">
+              <span className="sp-fy-label">Financial year</span>
+              <span className="sp-fy-value">{fy.label}</span>
             </div>
-            <div className="sp-ctx-chev">{I.chev}</div>
-          </button>
+            <span className="sp-fy-range">{fy.range}</span>
+          </div>
 
-          {/* Style */}
+          {/* ── Connection ──────────────────────────────────────────────
+              Promoted, because it answers the question people actually open
+              this panel with: is what I am looking at real? It used to be a
+              hostname in a row, at the same weight as "About ZEHEN". */}
+          <div className="sp-section-label">Connection</div>
+          <div className={`sp-conn sp-conn--${conn.state}`}>
+            <span className="sp-conn-dot" aria-hidden />
+            <div className="sp-conn-text">
+              <span className="sp-conn-title">
+                {conn.state === 'live' && 'Live'}
+                {conn.state === 'checking' && 'Checking…'}
+                {conn.state === 'degraded' && 'Server reachable, database down'}
+                {conn.state === 'offline' && 'Shop computer offline'}
+              </span>
+              <span className="sp-conn-sub">
+                {conn.state === 'offline'
+                  ? (conn.age ? `Showing saved figures from ${conn.age}` : 'No saved figures on this phone yet')
+                  : conn.host}
+              </span>
+            </div>
+            <button
+              className="sp-conn-retry"
+              onClick={() => { hapticSelect(); window.location.reload(); }}
+            >
+              Retry
+            </button>
+          </div>
+
+          <div className="sp-nav-list">
+            {/* Only meaningful once this phone is paired — an unpaired phone
+                belongs to no org, so it has no other branches to switch to. */}
+            {getDeviceToken() && (
+              <button className="sp-nav-row" onClick={() => setBranchOpen(true)}>
+                <div className="sp-nav-icon">{I.server}</div>
+                <span className="sp-nav-label">Branches</span>
+                <div className="sp-nav-chev">{I.chev}</div>
+              </button>
+            )}
+            {/* Changing the address is a recovery tool, not a menu item — it
+                is here for the day the shop's IP changes, and it should not
+                sit at the same weight as the things people use. */}
+            <button
+              className={`sp-nav-row sp-nav-row--quiet${serverOpen ? ' sp-nav-row-open' : ''}`}
+              onClick={() => setServerOpen((v) => !v)}
+            >
+              <span className="sp-nav-label">Change server address</span>
+              <div className="sp-nav-chev">{I.chev}</div>
+            </button>
+            {serverOpen && (
+              <div className="sp-server-body">
+                <input
+                  className="sp-server-input"
+                  type="url"
+                  placeholder="http://192.168.x.x:3001"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrlVal(e.target.value)}
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck="false"
+                />
+                <button
+                  className="sp-server-btn"
+                  onClick={handleSaveServer}
+                  disabled={!serverUrl.trim()}
+                >
+                  Save &amp; Reload
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Preferences ─────────────────────────────────────────────
+              Set once and then forgotten, so they sit below the things that
+              are read every day rather than above them. */}
           <div className="sp-section-label">Style</div>
           <div className="sp-theme-seg sp-theme-seg-2">
             {styleOptions.map((s) => (
@@ -299,7 +403,6 @@ export default function SidePanel({ open, onClose }) {
             ))}
           </div>
 
-          {/* Appearance */}
           <div className="sp-section-label">Appearance</div>
           <div className="sp-theme-seg">
             {themeOptions.map((t) => (
@@ -351,89 +454,12 @@ export default function SidePanel({ open, onClose }) {
             </>
           )}
 
-          {/* Server connection */}
-          <div className="sp-section-label">Connection</div>
-          <div className="sp-nav-list">
-            {/* Only meaningful once this phone is paired — an unpaired phone
-                belongs to no org, so it has no other branches to switch to. */}
-            {getDeviceToken() && (
-              <button className="sp-nav-row" onClick={() => setBranchOpen(true)}>
-                <div className="sp-nav-icon">{I.server}</div>
-                <span className="sp-nav-label">Branches</span>
-                <div className="sp-nav-chev">{I.chev}</div>
-              </button>
-            )}
-            <button
-              className={`sp-nav-row${serverOpen ? ' sp-nav-row-open' : ''}`}
-              onClick={() => setServerOpen((v) => !v)}
-            >
-              <div className="sp-nav-icon">{I.server}</div>
-              <span className="sp-nav-label">Server</span>
-              <span className="sp-server-url-hint">{getServerUrl() ? getServerUrl().replace(/^https?:\/\//, '') : 'not set'}</span>
-              <div className="sp-nav-chev">{I.chev}</div>
-            </button>
-            {serverOpen && (
-              <div className="sp-server-body">
-                <input
-                  className="sp-server-input"
-                  type="url"
-                  placeholder="http://192.168.x.x:3001"
-                  value={serverUrl}
-                  onChange={(e) => setServerUrlVal(e.target.value)}
-                  autoCorrect="off"
-                  autoCapitalize="none"
-                  spellCheck="false"
-                />
-                <button
-                  className="sp-server-btn"
-                  onClick={handleSaveServer}
-                  disabled={!serverUrl.trim()}
-                >
-                  Save &amp; Reload
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Settings */}
-          <div className="sp-section-label">Settings</div>
-          <div className="sp-nav-list">
-            <button className="sp-nav-row" onClick={() => { animateClose(); }}>
-              <div className="sp-nav-icon">{I.user}</div>
-              <span className="sp-nav-label">Profile & preferences</span>
-              <div className="sp-nav-chev">{I.chev}</div>
-            </button>
-            <button className="sp-nav-row" onClick={() => { animateClose(); }}>
-              <div className="sp-nav-icon">{I.gst}</div>
-              <span className="sp-nav-label">GST & tax setup</span>
-              <div className="sp-nav-chev">{I.chev}</div>
-            </button>
-            <button className="sp-nav-row" onClick={() => { animateClose(); }}>
-              <div className="sp-nav-icon">{I.bell}</div>
-              <span className="sp-nav-label">Notifications</span>
-              <div className="sp-nav-chev">{I.chev}</div>
-            </button>
-            <button className="sp-nav-row" onClick={() => { animateClose(); }}>
-              <div className="sp-nav-icon">{I.sync}</div>
-              <span className="sp-nav-label">Backup & sync</span>
-              <div className="sp-nav-chev">{I.chev}</div>
-            </button>
-          </div>
-
-          {/* Help */}
-          <div className="sp-section-label">Help</div>
-          <div className="sp-nav-list">
-            <button className="sp-nav-row" onClick={() => { animateClose(); }}>
-              <div className="sp-nav-icon">{I.help}</div>
-              <span className="sp-nav-label">Help & support</span>
-              <div className="sp-nav-chev">{I.chev}</div>
-            </button>
-            <button className="sp-nav-row" onClick={() => { animateClose(); }}>
-              <div className="sp-nav-icon">{I.info}</div>
-              <span className="sp-nav-label">About ZEHEN</span>
-              <div className="sp-nav-chev">{I.chev}</div>
-            </button>
-          </div>
+          {/* Six rows used to sit here — Profile & preferences, GST & tax
+              setup, Notifications, Backup & sync, Help & support, About ZEHEN.
+              Every one of them did nothing but close the panel. A menu whose
+              items do not go anywhere teaches people to stop opening it, and
+              it is the reason this panel felt dead. They come back when they
+              lead somewhere. */}
 
           {/* Sign out */}
           <div className="sp-footer">
@@ -449,10 +475,10 @@ export default function SidePanel({ open, onClose }) {
                     "restarts: 0" would be clutter on every phone that is fine. */}
                 {restarts > 0 && <> <span className="sp-acc">·</span> {restarts} restart{restarts === 1 ? '' : 's'}</>}
               </span>
-              <span className="sp-sync-status">
-                <span className="sp-sync-dot" />
-                synced
-              </span>
+              {/* The connection block above says whether this is live, and it
+                  actually checks. A second light down here saying "synced" no
+                  matter what was the panel's most confident lie. */}
+              <span className="sp-device-note">{conn.host}</span>
             </div>
           </div>
         </div>
