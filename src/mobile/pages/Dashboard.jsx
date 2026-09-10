@@ -464,6 +464,9 @@ export default function Dashboard() {
           <ActivityRow
             key={entry.entry_number}
             entry={entry}
+            /* This list IS today, so the date on each row is redundant. The
+               Vouchers tab and the Day Book span a range and must keep it. */
+            todayImplied
             onClick={() => openBillDetail(entry)}
           />
         ))}

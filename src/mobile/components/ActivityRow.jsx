@@ -65,15 +65,23 @@ const WhatsappIcon = () => (
   </svg>
 );
 
-export default function ActivityRow({ entry, onClick }) {
+export default function ActivityRow({ entry, onClick, todayImplied = false }) {
   const { side, amount } = amountInfo(entry);
   const incoming = isIn(entry.voucher_type);
-  /* On the home screen almost every row is from today, so printing the date
-   * on each one is the same seven characters repeated down the list — noise
-   * that pushes the voucher number, the thing that differs, off to the side.
-   * Today is implied; only older entries say when. */
+  /* Hiding today's date is only correct where the list IS today.
+   *
+   * On the home screen "Recent activity" is today's, so printing 10 Sep '26 on
+   * every row is the same seven characters repeated down the list, pushing the
+   * voucher number — the part that differs — off to the side.
+   *
+   * The Vouchers tab and the Day Book are the opposite: they span a chosen
+   * range, often a whole financial year, and a row without its date there is
+   * a row you cannot place. So this is opt-in, and off by default: a shared
+   * row must not quietly drop information because one of its three callers
+   * happens not to need it. */
   const isToday = String(entry.entry_date || '').slice(0, 10) === new Date().toISOString().slice(0, 10);
-  const dateLabel = entry.entry_date && !isToday ? formatShortDate(entry.entry_date) : '';
+  const showDate = entry.entry_date && !(todayImplied && isToday);
+  const dateLabel = showDate ? formatShortDate(entry.entry_date) : '';
 
   function openWhatsapp(e) {
     // Stop the row's own click so we don't drill INTO the bill while
