@@ -263,6 +263,21 @@ api.interceptors.response.use(
         }
         return Promise.reject(error);
       }
+      // Blocked because we are reaching this shop over its tunnel rather
+      // than sitting at it — see server/middleware/mobileGate.js. The raw
+      // message is already operator-facing, but on the desktop it lands on
+      // someone who opened another shop from the company switcher and has no
+      // reason to connect "403" with "I am not at that computer".
+      if (data && data.code === 'REMOTE_FORBIDDEN') {
+        try {
+          antdMessage.warning({
+            key: 'remote-forbidden',
+            content: 'Backups, data import/export and licence changes can only be done at that shop’s own computer.',
+            duration: 6,
+          });
+        } catch { /* no toast available; caller handles */ }
+        return Promise.reject(error);
+      }
       // Default-password lockout (server/middleware/auth.js). Its body
       // message is developer-facing ("POST your new password to …") and the
       // dashboard fires several requests at once, so the bare text would

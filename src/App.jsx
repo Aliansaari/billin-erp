@@ -127,6 +127,7 @@ import EntityFormModalDemo from './pages/dev/EntityFormModalDemo';
 import DeveloperSettings from './pages/settings/DeveloperSettings';
 import LicenseSettings from './pages/settings/LicenseSettings';
 import CompanyList from './pages/settings/CompanyList';
+import { isRemoteShop } from './utils/remoteShop';
 import {
   useShowLedgerIntegrity, useShowImportExport, useShowTallySync,
   useShowServerSettings, useDeveloperMode,
@@ -594,6 +595,16 @@ export default function App() {
   // between /license and / repeatedly.
   useEffect(() => {
     if (needsServerSetup) return;
+    /* Skip the whole probe while working in another shop over its tunnel.
+     *
+     * Both gates below ask about THIS computer's install — is it set up, is
+     * its licence active — and neither is answerable by a shop we are merely
+     * a client of: /api/setup and /api/license are refused to remote callers
+     * by design (server/middleware/mobileGate.js). Running the probe anyway
+     * just produced a "this can only be done at that shop's computer" toast
+     * on every boot. The remote shop's own server enforces its own licence on
+     * every request it serves us, so there is nothing to check from here. */
+    if (isRemoteShop()) return;
     const here = window.location.pathname;
     if (here.startsWith('/license') || here === '/server-setup' || here === '/setup') {
       try { sessionStorage.setItem('boot_probe_at', here); } catch {}

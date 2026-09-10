@@ -14,6 +14,7 @@ import { hasPermission } from '../../utils/perms';
 import useAuthStore from '../../store/authStore';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import './SettingsLayout.css';
+import { isRemoteShop } from '../../utils/remoteShop';
 
 /**
  * SettingsLayout — macOS-style two-pane settings hub.
@@ -101,16 +102,16 @@ const SETTINGS_GROUPS = [
     items: [
       // LAN access — share this PC's ZEHEN with other PCs / phones
       // on the same Wi-Fi. Admin-level (super admin / company manager).
-      { path: 'network',       icon: <WifiOutlined />,        label: 'LAN & Network',     perm: 'settings.manage_company' },
-      { path: 'remote-access', icon: <GlobalOutlined />,      label: 'Remote Access',     perm: 'settings.manage_company' },
+      { path: 'network',       icon: <WifiOutlined />,        label: 'LAN & Network',     perm: 'settings.manage_company', localOnly: true },
+      { path: 'remote-access', icon: <GlobalOutlined />,      label: 'Remote Access',     perm: 'settings.manage_company', localOnly: true },
       // Send invoices / statements to customers on WhatsApp (Web link or official Cloud-API).
       { path: 'whatsapp',      icon: <WhatsAppOutlined />,    label: 'WhatsApp',          perm: 'settings.manage_company' },
       // Customer self-service bot — auto-replies to customers who message the number.
       { path: 'whatsapp-bot',  icon: <RobotOutlined />,       label: 'WhatsApp Bot',      perm: 'settings.manage_company' },
-      { path: 'import-export', icon: <SwapOutlined />,        label: 'Import & Export',   perm: 'settings.import_export', flag: 'dev_show_import_export' },
-      { path: 'import',        icon: <ImportOutlined />,      label: 'Import (queued)',   perm: 'settings.import_export', flag: 'dev_show_import_export' },
+      { path: 'import-export', icon: <SwapOutlined />,        label: 'Import & Export',   perm: 'settings.import_export', flag: 'dev_show_import_export', localOnly: true },
+      { path: 'import',        icon: <ImportOutlined />,      label: 'Import (queued)',   perm: 'settings.import_export', flag: 'dev_show_import_export', localOnly: true },
       { path: 'tally',         icon: <ApiOutlined />,         label: 'TallyPrime Sync',   perm: 'settings.tally',         flag: 'dev_show_tally_sync' },
-      { path: 'backup',        icon: <CloudServerOutlined />, label: 'Backup & Recovery', perm: 'settings.backup' },
+      { path: 'backup',        icon: <CloudServerOutlined />, label: 'Backup & Recovery', perm: 'settings.backup', localOnly: true },
     ],
   },
   {
@@ -122,7 +123,7 @@ const SETTINGS_GROUPS = [
       // License — visible to anyone (so the customer can see expiry /
       // customer ID); the sensitive Replace flow is dev-gated inside
       // the panel itself.
-      { path: 'license',   icon: <KeyOutlined />,  label: 'License',          perm: null },
+      { path: 'license',   icon: <KeyOutlined />,  label: 'License',          perm: null, localOnly: true },
     ],
   },
 ];
@@ -140,6 +141,8 @@ export default function SettingsLayout() {
   const devUnlocked   = useDevModeStore((s) => s.unlocked);
   const previewAsUser = useDevModeStore((s) => s.previewAsUser);
   const effectiveDev  = devUnlocked && !previewAsUser;
+  // Working in another shop over its tunnel — see the localOnly filter below.
+  const remote = isRemoteShop();
 
   // Filter groups to ones the current user can reach. Drop groups that
   // end up with no visible items so the rail doesn't show empty
@@ -156,6 +159,12 @@ export default function SettingsLayout() {
         items: g.items.filter((it) => {
           // __devOnly entries — only when dev mode is unlocked AND not previewing.
           if (it.__devOnly && !effectiveDev) return false;
+          /* localOnly — administers the INSTALLATION rather than the books:
+           * backups, licence, import/export, this PC's own network settings.
+           * The tunnel refuses all of them (mobileGate's forbidden prefixes),
+           * so while we are working in another shop they are dead ends. Hide
+           * them rather than let someone click through to a 403. */
+          if (it.localOnly && remote) return false;
           // Permission check.
           if (it.perm !== null && it.perm !== undefined && !hasPermission(user, it.perm)) return false;
           // Flag check — bypass when dev mode is active.
@@ -166,7 +175,7 @@ export default function SettingsLayout() {
         }),
       }))
       .filter((g) => g.items.length > 0);
-  }, [user, settings, query, effectiveDev]);
+  }, [user, settings, query, effectiveDev, remote]);
 
   const totalVisible = visibleGroups.reduce((n, g) => n + g.items.length, 0);
 

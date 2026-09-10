@@ -2,12 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Dropdown, Tag, Tooltip, Modal, Input, Form, message } from 'antd';
 import {
   BankOutlined, DownOutlined, CheckOutlined, SwapOutlined,
-  PlusOutlined, AppstoreOutlined, LockOutlined,
+  PlusOutlined, AppstoreOutlined, LockOutlined, CloudServerOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { authAPI, companyAPI } from '../api';
 import useCompanyStore from '../store/companyStore';
 import useAuthStore from '../store/authStore';
+import ConnectShopModal from './ConnectShopModal';
+import { getKnownShops, getRemoteShop } from '../utils/remoteShop';
 import './company-switcher.css';
 
 /* ── CompanySwitcher ──────────────────────────────────────────────────
@@ -62,6 +64,13 @@ export default function CompanySwitcher({ collapsed = false, alignRight = false 
   // it open in place instead of navigating to a separate page.
   const [ddOpen, setDdOpen]       = useState(false);
 
+  // "Open another shop" — a shop is a different SERVER, not another company
+  // on this one, so it gets its own sign-in rather than the password modal.
+  const [shopOpen, setShopOpen]   = useState(false);
+  const [shopSeed, setShopSeed]   = useState(null);
+  const knownShops = getKnownShops();
+  const remoteShop = getRemoteShop();
+
   // Refresh the company list on mount in case it changed since login.
   useEffect(() => {
     companyAPI.list()
@@ -86,10 +95,17 @@ export default function CompanySwitcher({ collapsed = false, alignRight = false 
     return () => window.removeEventListener('company-switcher:open', onF9);
   }, []);
 
-  // Hide entirely when only one company. Nothing to switch between.
-  if (!list || list.length < 2) return null;
+  /* Used to hide entirely with one company — nothing to switch between.
+   * It is also the way into another shop now, and a single-company shop is
+   * exactly the install most likely to have a second branch, so it stays
+   * visible whenever there is somewhere to go. */
+  const soleCompany = !list || list.length < 2;
+  if (soleCompany && !knownShops.length && !remoteShop) return null;
 
-  const current = list.find((c) => c.company_id === currentId) || list[0];
+  const current = (list || []).find((c) => c.company_id === currentId) || (list || [])[0] || {
+    company_id: 0,
+    name: remoteShop?.name || 'ZEHEN',
+  };
 
   // Click-handler from the dropdown — opens the password modal.
   const handlePick = (target) => {
@@ -143,17 +159,25 @@ export default function CompanySwitcher({ collapsed = false, alignRight = false 
     }
   };
 
+  const groupLabel = (text) => (
+    <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#94a3b8', padding: '2px 0' }}>
+      {text}
+    </div>
+  );
+
+  const openShop = (shop) => {
+    setDdOpen(false);
+    setShopSeed(shop || null);
+    setShopOpen(true);
+  };
+
   const items = [
     {
       key: 'header',
       type: 'group',
-      label: (
-        <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#94a3b8', padding: '2px 0' }}>
-          Switch company
-        </div>
-      ),
+      label: groupLabel(remoteShop ? `Companies in ${remoteShop.name}` : 'Switch company'),
     },
-    ...list.map((c) => ({
+    ...(list || []).map((c) => ({
       key: `c-${c.company_id}`,
       icon: c.company_id === current.company_id
         ? <CheckOutlined style={{ color: '#16a34a' }} />
@@ -168,10 +192,39 @@ export default function CompanySwitcher({ collapsed = false, alignRight = false 
     })),
     { type: 'divider' },
     {
+      key: 'shops-header',
+      type: 'group',
+      label: groupLabel('Another shop'),
+    },
+    /* Shops opened before. A shop is another business on another computer, so
+     * it is never listed alongside this install's companies — mixing the two
+     * lists is how someone picks the wrong one. */
+    ...knownShops
+      .filter((sh) => sh.site_id !== remoteShop?.site_id)
+      .map((sh) => ({
+        key: `shop-${sh.site_id}`,
+        icon: <CloudServerOutlined style={{ color: '#6366F1' }} />,
+        label: (
+          <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+            <span>{sh.name}</span>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>{sh.identifier}</span>
+          </span>
+        ),
+        onClick: () => openShop(sh),
+      })),
+    {
+      key: 'shop-new',
+      icon: <CloudServerOutlined />,
+      label: 'Open another shop…',
+      onClick: () => openShop(null),
+    },
+    { type: 'divider' },
+    {
       key: 'manage',
       icon: <AppstoreOutlined />,
       label: 'Manage Companies',
-      onClick: () => navigate('/settings/companies'),
+      disabled: !!remoteShop,
+      onClick: () => { if (!remoteShop) navigate('/settings/companies'); },
     },
   ];
 
@@ -249,6 +302,11 @@ export default function CompanySwitcher({ collapsed = false, alignRight = false 
           </Dropdown>
         </Tooltip>
         {passwordModal}
+        <ConnectShopModal
+          open={shopOpen}
+          seed={shopSeed}
+          onClose={() => setShopOpen(false)}
+        />
       </>
     );
   }
@@ -275,6 +333,11 @@ export default function CompanySwitcher({ collapsed = false, alignRight = false 
         </button>
       </Dropdown>
       {passwordModal}
+        <ConnectShopModal
+          open={shopOpen}
+          seed={shopSeed}
+          onClose={() => setShopOpen(false)}
+        />
     </>
   );
 }

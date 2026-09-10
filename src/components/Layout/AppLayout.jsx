@@ -5,6 +5,7 @@ import useThemeStore from '../../store/themeStore';
 import Sidebar from './Sidebar';
 import TopNav from './TopNav';
 import PastFYBanner from '../PastFYBanner';
+import RemoteShopBanner from '../RemoteShopBanner';
 
 const { Content } = Layout;
 
@@ -322,6 +323,7 @@ export default function AppLayout() {
             body when viewingFY !== currentFY. Renders null otherwise, so
             no reserved space in the common case. */}
         <PastFYBanner />
+        <RemoteShopBanner />
         <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Content style={{
             margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
@@ -390,6 +392,7 @@ export default function AppLayout() {
         {/* Past-FY banner — amber strip above the page body when the
             user is viewing a past FY context. Null in the common case. */}
         <PastFYBanner />
+        <RemoteShopBanner />
         <Content style={{
           margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
           padding:       isFullPage ? 0 : 'clamp(10px, 2vw, 24px)',
