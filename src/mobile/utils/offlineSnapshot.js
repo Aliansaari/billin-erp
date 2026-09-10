@@ -69,47 +69,81 @@ function sessionCompanyId() {
 }
 
 /**
- * Do these saved figures belong to the company the user is looking at?
+ * The slice of the snapshot belonging to the company this session is in.
  *
- * The desktop signs its snapshot token for the primary company, so a snapshot
- * only ever describes company 1. A phone signed into a second company was
- * still rendering it — one company's ₹14 lakh outstanding under another
- * company's name. That is precisely the "stale number presented as current"
- * this module exists to prevent, only worse: it was never that company's
- * number at all.
+ * A current payload (`format: 2`) carries one entry per company. The phone is
+ * signed into exactly one at a time, and rendering any other entry would put
+ * someone else's money under this company's name — which is exactly what
+ * happened while the snapshot described the primary company and nothing else.
  *
- * Snapshots taken before this stamp existed carry no company_id; those are
- * allowed through rather than blanking every phone until the desktop pushes
- * again, which it does every ten minutes.
+ * Returns null when this company is not in the snapshot at all. That is a real
+ * state, not an error: the desktop sheds non-primary companies when the
+ * payload will not fit, and a company added since the last push is not in it
+ * yet either.
  */
-export function snapshotMatchesSession(snapshot) {
-  const stamped = snapshot?.snapshot?.company_id;
-  if (stamped === undefined || stamped === null) return true;
+function entryForSession(snapshot) {
+  const snap = snapshot?.snapshot;
+  if (!snap) return null;
   const mine = sessionCompanyId();
-  if (mine === null) return true;
-  return Number(stamped) === mine;
+
+  if (Array.isArray(snap.companies)) {
+    if (mine === null) {
+      // Cannot tell which company we are in — take the one the snapshot calls
+      // primary rather than guessing at the list order.
+      return snap.companies.find((e) => e.is_primary) || snap.companies[0] || null;
+    }
+    return snap.companies.find((e) => Number(e.company_id) === mine) || null;
+  }
+
+  /* format 1 — one company's sections at the top level. Kept so the phone
+   * still works against a desktop that has not been updated yet. Those
+   * snapshots may carry no company stamp at all; they are trusted, because
+   * refusing them would blank out every single-company shop on an older
+   * desktop and gain nothing. */
+  if (!snap.sections) return null;
+  const stamped = snap.company_id;
+  if (stamped !== undefined && stamped !== null && mine !== null && Number(stamped) !== mine) {
+    return null;
+  }
+  return {
+    company_id: stamped ?? mine,
+    missing: snap.missing,
+    partial: snap.partial,
+    sections: snap.sections,
+  };
 }
 
-/** One section of the snapshot, shaped like the live API response so a screen
- *  can render it without a second code path. Returns null for a snapshot that
- *  belongs to a different company — see snapshotMatchesSession. */
+/**
+ * Are there saved figures for the company the user is looking at?
+ *
+ * False means the snapshot exists but holds nothing for this company. Screens
+ * say so rather than rendering an empty list, which would read as "this
+ * company has no stock" instead of "we never saved it".
+ */
+export function snapshotMatchesSession(snapshot) {
+  return entryForSession(snapshot) !== null;
+}
+
+/** One section of this company's slice, shaped like the live API response so
+ *  a screen can render it without a second code path. */
 export function sectionOf(snapshot, key) {
-  if (!snapshotMatchesSession(snapshot)) return null;
-  return snapshot?.snapshot?.sections?.[key] ?? null;
+  return entryForSession(snapshot)?.sections?.[key] ?? null;
 }
 
 /** True when this section was shed to fit the size cap — the screen should
  *  say "not saved for offline" rather than render an empty list as if the
  *  shop genuinely had no stock. */
 export function sectionWasTrimmed(snapshot, key) {
-  return Array.isArray(snapshot?.snapshot?.missing) && snapshot.snapshot.missing.includes(key);
+  const missing = entryForSession(snapshot)?.missing;
+  return Array.isArray(missing) && missing.includes(key);
 }
 
 /** True when this section IS present but holds only the first N rows,
  *  because the full list would not fit the upload cap. The screen may render
  *  it — it just must not imply the list is complete. */
 export function sectionIsPartial(snapshot, key) {
-  return Array.isArray(snapshot?.snapshot?.partial) && snapshot.snapshot.partial.includes(key);
+  const partial = entryForSession(snapshot)?.partial;
+  return Array.isArray(partial) && partial.includes(key);
 }
 
 /** Human age of the snapshot, e.g. "12 minutes ago". */

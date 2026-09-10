@@ -159,26 +159,63 @@ let lastResult = null;
  * the ordinary auth + permission stack rather than around it. Sixty seconds,
  * never written to disk, never leaves this process.
  */
-async function systemToken() {
+/**
+ * Every company this install can serve, newest-first by id.
+ *
+ * The snapshot used to describe company 1 only, because that is what
+ * systemToken() signed for. A phone signed into a second company therefore
+ * had no saved figures of its own — and, before the company stamp landed,
+ * was shown the primary company's instead.
+ */
+async function activeCompanies() {
+  const Company = require('../models/Company');
+  const rows = await Company.findAll({
+    where: { is_active: true },
+    order: [['company_id', 'ASC']],
+  });
+  return rows.map((c) => ({
+    company_id: c.company_id,
+    name: c.name,
+    is_primary: !!c.is_primary,
+  }));
+}
+
+/**
+ * Mint a short-lived token for an admin user IN `companyId`, so the internal
+ * calls go through the ordinary auth + permission stack rather than around it.
+ *
+ * The user must exist in that company: the auth middleware re-reads the token's
+ * user against the company being served and rejects a mismatch. So the lookup
+ * runs inside that company's context, not the ambient one.
+ *
+ * Sixty seconds, never written to disk, never leaves this process.
+ */
+async function systemToken(companyId) {
   if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is not set');
 
   // Models are per-company factories behind an AsyncLocalStorage proxy, so
   // they must come from the models bag — requiring the file directly yields
   // the definition function, not a bound model.
-  const { User, Role } = require('../models');
-  const user = await User.findOne({
-    where: { is_active: true },
-    include: [{ model: Role }],
-    order: [['user_id', 'ASC']],
-  });
-  if (!user) throw new Error('No active user to sign a snapshot token for');
+  const { User, Role, companyContext } = require('../models');
+  const { getCompanyConnection } = require('./companyConnections');
+
+  const conn = await getCompanyConnection(companyId);
+  const user = await companyContext.run(
+    { sequelize: conn.sequelize, models: conn.models, companyId },
+    async () => User.findOne({
+      where: { is_active: true },
+      include: [{ model: Role }],
+      order: [['user_id', 'ASC']],
+    }),
+  );
+  if (!user) throw new Error(`No active user in company ${companyId} to sign a snapshot token for`);
 
   return jwt.sign(
     {
       user_id: user.user_id,
       username: user.username,
       role: user.Role?.role_name || 'Admin',
-      company_id: 1,
+      company_id: companyId,
       snapshot: true,          // marks provenance in any audit log
     },
     process.env.JWT_SECRET,
@@ -229,6 +266,42 @@ async function collect(port, token) {
   return { sections, failed };
 }
 
+/**
+ * Trim one company's sections down to `budget` bytes.
+ *
+ * Truncating comes first and shedding is the last resort: half a list beats
+ * no list, and the phone is told which sections are partial so a short list is
+ * never presented as a complete one. Rows come off the END, so what survives
+ * is what the endpoints order first — most recent vouchers, stock in its
+ * normal listing order.
+ */
+function fitToBudget(entry, budget) {
+  const size = () => JSON.stringify(entry).length;
+  const MIN_ROWS = 100;
+
+  for (const key of ['stock', 'parties', 'dayBook']) {
+    while (size() > budget) {
+      const rows = listOf(entry.sections[key]);
+      if (!rows || rows.length <= MIN_ROWS) break;
+      setListOf(entry.sections[key], rows.slice(0, Math.max(MIN_ROWS, Math.floor(rows.length / 2))));
+      if (!entry.partial.includes(key)) entry.partial.push(key);
+    }
+    if (size() <= budget) break;
+  }
+
+  // Still over: a single section is enormous, or the small ones alone exceed
+  // the budget. Drop whole sections, least essential first.
+  for (const key of ['stock', 'parties', 'dayBook', 'insights']) {
+    if (size() <= budget) break;
+    if (entry.sections[key] === undefined) continue;
+    delete entry.sections[key];
+    entry.missing.push(key);
+    entry.partial = entry.partial.filter((k) => k !== key);
+    entry.trimmed = true;
+  }
+  return size();
+}
+
 async function pushOnce() {
   const status = remoteAccess.getStatus();
   if (!status.enabled || !status.site_id) return { skipped: 'remote access is off' };
@@ -241,63 +314,84 @@ async function pushOnce() {
   }
 
   const port = process.env.SERVER_PORT || 3001;
-  const token = await systemToken();
-  const { sections, failed } = await collect(port, token);
 
-  if (!Object.keys(sections).length) return { skipped: 'every section failed' };
+  let companies;
+  try {
+    companies = await activeCompanies();
+  } catch (e) {
+    // A snapshot of the primary company is better than none, and this is the
+    // shape every install had before multi-company snapshots existed.
+    console.error('[snapshot] could not list companies:', e.message);
+    companies = [{ company_id: 1, name: null, is_primary: true }];
+  }
+  if (!companies.length) return { skipped: 'no active companies' };
+
+  /* One entry per company.
+   *
+   * A phone is signed into exactly one company at a time and must see that
+   * company's figures — not the primary company's, which is what it used to
+   * get. Each entry carries its own `missing`/`partial`, because a big
+   * catalogue in one company should not mark another company's stock as
+   * trimmed. */
+  const entries = [];
+  for (const c of companies) {
+    let token;
+    try {
+      token = await systemToken(c.company_id);
+    } catch (e) {
+      console.error(`[snapshot] company ${c.company_id} (${c.name}): ${e.message}`);
+      continue;
+    }
+    const { sections, failed } = await collect(port, token);
+    if (!Object.keys(sections).length) {
+      console.error(`[snapshot] company ${c.company_id} (${c.name}): every section failed`);
+      continue;
+    }
+    entries.push({
+      company_id: c.company_id,
+      company_name: c.name || null,
+      is_primary: !!c.is_primary,
+      missing: failed,
+      partial: [],
+      sections,
+    });
+  }
+
+  if (!entries.length) return { skipped: 'every company failed' };
+
+  /* Share the size cap across companies rather than giving each the whole
+   * thing. An equal split is deliberately naive but predictable: with two
+   * companies neither can crowd the other out, and a shop with one company is
+   * unaffected because it gets the entire budget as before. */
+  const perCompany = Math.floor(SNAPSHOT_SOFT_LIMIT / entries.length);
+  for (const entry of entries) fitToBudget(entry, perCompany);
+
+  const primary = entries.find((e) => e.is_primary) || entries[0];
 
   const payload = {
     generated_at: Date.now(),
     host: os.hostname(),
-    // Which company these figures belong to. systemToken() signs company_id 1,
-    // so a snapshot only ever describes the primary company — and a phone
-    // signed into a second company must NOT render it. Stamping it here lets
-    // the phone tell, instead of showing one company's outstanding under
-    // another company's name.
-    company_id: 1,
-    missing: failed,
-    // Sections that ARE present but hold only the first N rows. Distinct from
-    // `missing`: the phone can render these, it just must not present them as
-    // the complete list.
-    partial: [],
-    sections,
+    // format 2 = per-company. Older phones look for a top-level `sections`,
+    // find none, and show "no saved figures" — the safe failure, and the
+    // correct one, since what they would otherwise render is another
+    // company's money.
+    format: 2,
+    // Kept at the top level so a phone can name the snapshot's default
+    // company without walking the list.
+    company_id: primary.company_id,
+    company_name: primary.company_name,
+    companies: entries,
   };
 
-  /* Keep the upload under the cap — by TRUNCATING first, and only shedding
-   * as a last resort.
-   *
-   * The old code went straight to shedding, so a shop with a few thousand
-   * products lost the item list entirely and the phone showed an empty Stock
-   * tab: the shops with the most stock were the ones guaranteed to get none
-   * of it. Half a list is far more useful than no list, and the phone says
-   * which sections are partial so nobody reads a short list as a complete one.
-   *
-   * Rows come off the END, so what survives is what the endpoints order
-   * first — most recent vouchers, and stock in its normal listing order. */
   const size = () => JSON.stringify(payload).length;
-  const MIN_ROWS = 100;
 
-  for (const key of ['stock', 'parties', 'dayBook']) {
-    while (size() > SNAPSHOT_SOFT_LIMIT) {
-      const rows = listOf(payload.sections[key]);
-      if (!rows || rows.length <= MIN_ROWS) break;
-      setListOf(payload.sections[key], rows.slice(0, Math.max(MIN_ROWS, Math.floor(rows.length / 2))));
-      if (!payload.partial.includes(key)) payload.partial.push(key);
-    }
-    if (size() <= SNAPSHOT_SOFT_LIMIT) break;
+  // Belt and braces: the per-company budgets ignore the envelope, so shed
+  // whole non-primary companies if the total still will not fit.
+  while (size() > SNAPSHOT_SOFT_LIMIT && payload.companies.length > 1) {
+    const dropped = payload.companies.pop();
+    console.error(`[snapshot] dropped company ${dropped.company_id} (${dropped.company_name}) — payload over cap`);
   }
-
-  // Still too big (a single section is enormous, or the small sections alone
-  // exceed the cap). Drop whole sections, least essential first.
-  const SHED_ORDER = ['stock', 'parties', 'dayBook', 'insights'];
-  for (const key of SHED_ORDER) {
-    if (size() <= SNAPSHOT_SOFT_LIMIT) break;
-    if (payload.sections[key] === undefined) continue;
-    delete payload.sections[key];
-    payload.missing.push(key);
-    payload.partial = payload.partial.filter((k) => k !== key);
-    payload.trimmed = true;
-  }
+  if (size() > SNAPSHOT_SOFT_LIMIT) fitToBudget(payload.companies[0], SNAPSHOT_SOFT_LIMIT - 2048);
 
   const res = await fetch(`${remoteAccess.CONTROL_PLANE_URL}/v1/snapshot`, {
     method: 'POST',
@@ -316,21 +410,26 @@ async function pushOnce() {
     at: Date.now(),
     bytes: body.bytes,
     kb: Math.round(size() / 1024),
-    missing: payload.missing,
-    partial: payload.partial,
+    companies: payload.companies.map((e) => ({
+      company_id: e.company_id,
+      missing: e.missing,
+      partial: e.partial,
+    })),
   };
   // One line per push. When a shop rings up saying the phone shows nothing
   // offline, this is the first thing worth reading: it says whether the
-  // upload happened, how close to the cap it is, and what got left out.
-  console.log(
-    `[snapshot] pushed ${lastResult.kb} KB`
-    + (payload.partial.length ? ` · partial: ${payload.partial.join(', ')}` : '')
-    + (payload.missing.length ? ` · missing: ${payload.missing.join(', ')}` : ''),
-  );
+  // upload happened, how close to the cap it is, and what got left out of
+  // which company.
+  const detail = payload.companies.map((e) => {
+    const bits = [];
+    if (e.partial.length) bits.push(`partial: ${e.partial.join('/')}`);
+    if (e.missing.length) bits.push(`missing: ${e.missing.join('/')}`);
+    return `#${e.company_id}${bits.length ? ` (${bits.join(', ')})` : ''}`;
+  }).join(' ');
+  console.log(`[snapshot] pushed ${lastResult.kb} KB · companies ${detail}`);
   return lastResult;
 }
 
-/** Fire-and-forget wrapper — a failed push is logged and forgotten. */
 function safePush() {
   pushOnce().catch((e) => {
     lastResult = { at: Date.now(), error: e.message };
