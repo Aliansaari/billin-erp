@@ -4,7 +4,7 @@ import { Toast } from 'antd-mobile';
 import { Capacitor } from '@capacitor/core';
 import { productAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
-import { fetchSnapshot, sectionOf, sectionWasTrimmed, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
+import { fetchSnapshot, sectionOf, sectionWasTrimmed, sectionIsPartial, snapshotAge, isUnreachable, friendlyError, snapshotMatchesSession } from '../utils/offlineSnapshot';
 import { parseSearch, matchesSearch } from '../utils/searchPrefix';
 import { getCached, setCached } from '../utils/screenCache';
 import { formatINR } from '../utils/format';
@@ -148,9 +148,24 @@ export default function Stock() {
           const snap = await fetchSnapshot().catch(() => null);
           const section = sectionOf(snap, 'stock');
           if (!cancelled && section) {
-            const raw = Array.isArray(section) ? section : (section?.data || []);
+            const raw = Array.isArray(section)
+              ? section
+              : (section?.data || section?.products || []);
             setProducts(raw);
-            setOffline({ age: snapshotAge(snap) });
+            // A partial list must never read as a complete one — someone
+            // checking whether an article is in stock would conclude it is
+            // not, when it is simply past the cut.
+            setOffline({
+              age: snapshotAge(snap),
+              partial: sectionIsPartial(snap, 'stock') ? raw.length : 0,
+            });
+            return;
+          }
+          if (!cancelled && snap && !snapshotMatchesSession(snap)) {
+            // Saved figures exist, but for a different company. Showing them
+            // under this company's name would be worse than showing nothing.
+            setOffline({ age: snapshotAge(snap), otherCompany: true });
+            setProducts([]);
             return;
           }
           // The item list is the first thing dropped when a snapshot would
@@ -162,8 +177,7 @@ export default function Stock() {
             return;
           }
         }
-        const msg = e?.response?.data?.error || e?.message || 'Failed to load stock';
-        Toast.show({ icon: 'fail', content: msg });
+        Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load stock') });
         setProducts([]);
       })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -362,9 +376,12 @@ export default function Stock() {
       {offline && (
         <div className="offline-slot">
           <OfflineBanner
+            note={offline.otherCompany ? 'no saved figures for this company' : null}
             age={offline.trimmed
               ? `${offline.age} — the item list was too large to save offline`
-              : offline.age}
+              : offline.partial
+                ? `${offline.age} — first ${offline.partial} items only`
+                : offline.age}
             onRetry={() => window.location.reload()}
           />
         </div>
@@ -400,7 +417,11 @@ export default function Stock() {
         {loading && <div className="st-empty">Loading…</div>}
         {!loading && filtered.length === 0 && (
           <div className="st-empty">
-            {search.trim() ? `No matches for "${search.trim()}"` : 'No products found'}
+            {search.trim()
+              ? `No matches for "${search.trim()}"`
+              : offline
+                ? 'No items in the saved copy'
+                : 'No products found'}
           </div>
         )}
         {!loading && filtered.slice(0, visibleCount).map((p) => {

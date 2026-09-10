@@ -18,6 +18,8 @@ import MoreSheet from '../components/MoreSheet';
 import ScanSheet from '../components/ScanSheet';
 import './BillForm.css';
 import { success as hapticSuccess, warn as hapticWarn, tap as hapticTap } from '../utils/haptics';
+import { friendlyError } from '../utils/offlineSnapshot';
+import { displayVoucherNo } from '../utils/voucherNumber';
 
 const BackIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -462,7 +464,7 @@ export default function BillForm({ type }) {
     } catch (e) {
       // The idempotency key is deliberately NOT regenerated here, so retrying
       // a request that actually committed collapses onto the same bill.
-      const msg = e?.response?.data?.error || e?.message || 'Save failed';
+      const msg = friendlyError(e, 'Could not save — nothing was recorded');
       try {
         hapticWarn();
         Toast.show({ icon: 'fail', content: msg });
@@ -514,7 +516,7 @@ export default function BillForm({ type }) {
                 operator can find this bill by the number they just read. */}
             {justSaved.number && (
               <span className="bf-saved-num">
-                {isPurchase ? '#' : 'INV-'}{justSaved.number}
+                {displayVoucherNo(justSaved.number, isPurchase ? 'purchase' : 'sale')}
               </span>
             )}
           </span>

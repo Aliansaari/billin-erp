@@ -5,6 +5,7 @@ import { Toast, Dialog } from 'antd-mobile';
 import api, { beginCompanySwitch, endCompanySwitch } from '../../api';
 import useAuthStore from '../../store/authStore';
 import './CompanySwitchSheet.css';
+import { friendlyError } from '../utils/offlineSnapshot';
 
 /**
  * Company switcher.
@@ -80,7 +81,7 @@ export default function CompanySwitchSheet({ open, onClose }) {
       hapticWarn();
       Toast.show({
         icon: 'fail',
-        content: e?.response?.data?.error || e?.message || 'Could not switch company.',
+        content: friendlyError(e, 'Could not switch company.'),
       });
     }
   }

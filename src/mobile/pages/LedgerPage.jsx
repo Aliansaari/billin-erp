@@ -8,6 +8,7 @@ import { buildStatementPdf } from '../../utils/ledgerPdf';
 import { shareViaNative } from '../utils/sharePdf';
 import useKeyboardInset from '../hooks/useKeyboardInset';
 import './ReportList.css';
+import { friendlyError } from '../utils/offlineSnapshot';
 
 // ── Icons ──────────────────────────────────────────────────────────────
 const ChevL = () => (
@@ -196,7 +197,7 @@ export default function LedgerPage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        Toast.show({ icon: 'fail', content: e?.response?.data?.error || 'Failed to load ledger' });
+        Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load ledger') });
         setEntries([]);
         setMeta(null);
       })

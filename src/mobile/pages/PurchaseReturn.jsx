@@ -5,6 +5,7 @@ import { formatINR, formatShortDate, defaultFY, isoDate } from '../utils/format'
 import { useBack } from '../utils/useBack';
 import { shareViaNative } from '../utils/sharePdf';
 import './ReportList.css';
+import { friendlyError } from '../utils/offlineSnapshot';
 
 // ── Icons ─────────────────────────────────────────────────────────────
 const ChevL = () => (
@@ -65,9 +66,9 @@ export default function PurchaseReturn() {
         const data = res.data?.data || res.data || [];
         setRows(Array.isArray(data) ? data : []);
       })
-      .catch(() => {
+      .catch((e) => {
         if (cancelled) return;
-        Toast.show({ icon: 'fail', content: 'Failed to load purchase returns' });
+        Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load purchase returns') });
         setRows([]);
       })
       .finally(() => { if (!cancelled) setLoading(false); });

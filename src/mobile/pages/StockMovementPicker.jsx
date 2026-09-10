@@ -5,6 +5,7 @@ import { productAPI } from '../../api';
 import { formatINR } from '../utils/format';
 import { useBack } from '../utils/useBack';
 import './ReportList.css';
+import { friendlyError } from '../utils/offlineSnapshot';
 
 const ChevL = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -40,9 +41,9 @@ export default function StockMovementPicker() {
         const raw = Array.isArray(res.data) ? res.data : (res.data?.data || []);
         setProducts(raw);
       })
-      .catch(() => {
+      .catch((e) => {
         if (cancelled) return;
-        Toast.show({ icon: 'fail', content: 'Failed to load products' });
+        Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load products') });
         setProducts([]);
       })
       .finally(() => { if (!cancelled) setLoading(false); });

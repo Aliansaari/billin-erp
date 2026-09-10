@@ -4,6 +4,11 @@ import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import ActivityRow from '../components/ActivityRow';
+import OfflineBanner from '../components/OfflineBanner';
+import {
+  fetchSnapshot, sectionOf, sectionWasTrimmed, sectionIsPartial,
+  snapshotAge, isUnreachable, friendlyError, snapshotMatchesSession,
+} from '../utils/offlineSnapshot';
 import { formatINR, isoDate } from '../utils/format';
 import './VouchersList.css';
 import Overlay from '../components/Overlay';
@@ -63,6 +68,7 @@ export default function VouchersList() {
   const [search,   setSearch]   = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  const [offline,  setOffline]  = useState(null);
   const searchRef = useRef(null);
 
   useEffect(() => {
@@ -89,11 +95,53 @@ export default function VouchersList() {
         // The day book returns oldest-first; a voucher list should open on the
         // most recent transaction, not on something from the start of the year.
         setData(sortVouchersNewestFirst(res.data?.data || []));
+        setOffline(null);
       })
-      .catch((e) => {
+      .catch(async (e) => {
         if (cancelled) return;
-        const msg = e?.response?.data?.error || e?.message || 'Failed to load vouchers';
-        Toast.show({ icon: 'fail', content: msg });
+
+        /* Shop PC unreachable → fall back to the snapshot the desktop last
+         * uploaded, exactly as Stock and Outstanding do.
+         *
+         * Before this, Vouchers was the one tab with no offline path at all:
+         * it caught the error, toasted axios's own words at the operator
+         * ("Request failed with status code 530" — Cloudflare's way of saying
+         * the PC is not answering) and rendered "No vouchers in this period".
+         * An empty list is the worst possible answer here, because it is
+         * indistinguishable from a real quiet period. */
+        if (isUnreachable(e)) {
+          const snap = await fetchSnapshot().catch(() => null);
+          const section = sectionOf(snap, 'dayBook');
+          const rows = Array.isArray(section) ? section : (section?.data || null);
+          if (!cancelled && rows) {
+            // The snapshot covers a fixed recent window, which rarely matches
+            // the range the operator has picked, so filter to the overlap and
+            // let the banner explain what they are looking at.
+            const inRange = rows.filter((r) => {
+              const d = String(r.entry_date || '').slice(0, 10);
+              return d && d >= fromDate && d <= toDate;
+            });
+            setData(sortVouchersNewestFirst(inRange));
+            setOffline({
+              age: snapshotAge(snap),
+              partial: sectionIsPartial(snap, 'dayBook'),
+            });
+            return;
+          }
+          if (!cancelled) {
+            setData([]);
+            setOffline({
+              age: snapshotAge(snap),
+              // Saved figures for a different company must not appear under
+              // this one's name — sectionOf already refuses them; say why.
+              otherCompany: !!snap && !snapshotMatchesSession(snap),
+              trimmed: sectionWasTrimmed(snap, 'dayBook'),
+            });
+            return;
+          }
+        }
+
+        Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load vouchers') });
         setData([]);
       })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -240,6 +288,20 @@ export default function VouchersList() {
         </button>
       </div>
 
+      {offline && (
+        <div className="offline-slot">
+          <OfflineBanner
+            note={offline.otherCompany ? 'no saved figures for this company' : null}
+            age={offline.trimmed
+              ? `${offline.age} — the voucher list was too large to save offline`
+              : offline.partial
+                ? `${offline.age} — recent vouchers only`
+                : offline.age}
+            onRetry={() => window.location.reload()}
+          />
+        </div>
+      )}
+
       {/* Date range */}
       <div className="vl-range">
         <label className="vl-date">
@@ -334,7 +396,15 @@ export default function VouchersList() {
         {loading && <div className="vl-empty">Loading…</div>}
         {!loading && filtered.length === 0 && (
           <div className="vl-empty">
-            {search.trim() ? `No matches for "${search.trim()}"` : 'No vouchers in this period'}
+            {/* Offline, an empty list means "not in the saved copy", which is
+                a different statement from "the shop had a quiet week". Saying
+                the first when we mean the second is how someone concludes a
+                bill was never entered. */}
+            {search.trim()
+              ? `No matches for "${search.trim()}"`
+              : offline
+                ? 'No saved vouchers in this period'
+                : 'No vouchers in this period'}
           </div>
         )}
         {!loading && filtered.map((entry) => (

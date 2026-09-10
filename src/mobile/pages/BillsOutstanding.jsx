@@ -5,6 +5,7 @@ import { formatINR, formatShortDate, defaultFY, isoDate } from '../utils/format'
 import { useBack } from '../utils/useBack';
 import { shareViaNative } from '../utils/sharePdf';
 import './ReportList.css';
+import { friendlyError } from '../utils/offlineSnapshot';
 
 // ── Icons ─────────────────────────────────────────────────────────────
 const ChevL = () => (
@@ -70,9 +71,9 @@ export default function BillsOutstanding({ partyType }) {
         const data = res.data?.bills || res.data?.data || res.data || [];
         setRows(Array.isArray(data) ? data : []);
       })
-      .catch(() => {
+      .catch((e) => {
         if (cancelled) return;
-        Toast.show({ icon: 'fail', content: 'Failed to load bills' });
+        Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load bills') });
         setRows([]);
       })
       .finally(() => { if (!cancelled) setLoading(false); });

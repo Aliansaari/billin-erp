@@ -1,5 +1,6 @@
 import React from 'react';
 import { formatINR, formatShortDate } from '../utils/format';
+import { displayVoucherNo } from '../utils/voucherNumber';
 
 // One row in either the dashboard "Recent activity" or the full DayBook.
 // Layout (top → bottom on the left, top → bottom on the right):
@@ -28,12 +29,12 @@ function rowLabel(entry) {
   return t || 'Voucher';
 }
 
-// "Sale INV-1010" / "Purchase #2014" / "Receipt #1011".
+// "Sale INV-1010" / "Purchase #2014" / "Receipt #1011" — but a shop whose
+// numbers already read "INV-0623" gets that, not "INV-INV-0623".
 function voucherIdLabel(entry) {
-  const num = entry.voucher_no || '';
+  const num = displayVoucherNo(entry.voucher_no, entry.voucher_type === 'Sales' ? 'sale' : '');
   if (!num) return rowLabel(entry);
-  if (entry.voucher_type === 'Sales') return `Sale INV-${num}`;
-  return `${rowLabel(entry)} #${num}`;
+  return `${rowLabel(entry)} ${num}`;
 }
 
 function amountInfo(entry) {

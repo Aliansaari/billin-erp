@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
-import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
+import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable, friendlyError, snapshotMatchesSession } from '../utils/offlineSnapshot';
 import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import ActivityRow from '../components/ActivityRow';
 import { formatINR, isoDate } from '../utils/format';
@@ -139,11 +139,15 @@ export default function DayBook() {
             // this actually is.
             setData(sortVouchersNewestFirst(section?.data || []));
             setSummary(section?.summary || null);
-            setOffline({ age: snapshotAge(snap), todayOnly: true });
+            setOffline({
+              age: snapshotAge(snap),
+              todayOnly: true,
+              note: snapshotMatchesSession(snap) ? null : 'no saved figures for this company',
+            });
             return;
           }
         }
-        const msg = e?.response?.data?.error || e?.message || 'Failed to load day book';
+        const msg = friendlyError(e, 'Could not load the day book');
         Toast.show({ icon: 'fail', content: msg });
         setData([]);
         setSummary(null);
@@ -313,6 +317,7 @@ export default function DayBook() {
       {offline && (
         <div className="offline-slot">
           <OfflineBanner
+            note={offline.note}
             age={offline.todayOnly ? `${offline.age} — today only` : offline.age}
             onRetry={() => window.location.reload()}
           />

@@ -3,7 +3,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import { Toast, PullToRefresh } from 'antd-mobile';
 import { reportAPI, isOfflineSession } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
-import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
+import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable, snapshotMatchesSession, friendlyError } from '../utils/offlineSnapshot';
 import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import { activeCompanyName } from '../utils/identity';
 import { getCached, setCached } from '../utils/screenCache';
@@ -123,11 +123,19 @@ export default function Dashboard() {
         if (allFailed && isUnreachable(s.reason)) {
           const snap = await fetchSnapshot();
           if (!cancelled() && snap) {
+            // sectionOf returns null for a snapshot belonging to a different
+            // company, so this renders zeros rather than another company's
+            // figures — but zeros under a live-looking banner read as "quiet
+            // day", so the banner has to say what actually happened.
+            const mine = snapshotMatchesSession(snap);
             setStats(sectionOf(snap, 'dashboard'));
             setInsights(sectionOf(snap, 'insights'));
             const raw = sectionOf(snap, 'dayBook')?.data || [];
             setToday(sortVouchersNewestFirst(raw).slice(0, 6));
-            setOffline({ age: snapshotAge(snap) });
+            setOffline({
+              age: snapshotAge(snap),
+              note: mine ? null : 'no saved figures for this company',
+            });
             return;
           }
         }
@@ -149,8 +157,8 @@ export default function Dashboard() {
           setToday(sortVouchersNewestFirst(raw).slice(0, 6));
         }
       })
-      .catch(() => {
-        if (!cancelled()) Toast.show({ icon: 'fail', content: 'Failed to load dashboard' });
+      .catch((e) => {
+        if (!cancelled()) Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load the dashboard') });
       })
       .finally(() => { if (!cancelled()) setLoading(false); });
   }, []);
@@ -355,7 +363,7 @@ export default function Dashboard() {
       >
       {/* Stays visible for as long as the stale figures do — see
           components/OfflineBanner.jsx for why it cannot be dismissed. */}
-      {offline && <OfflineBanner age={offline.age} onRetry={() => window.location.reload()} />}
+      {offline && <OfflineBanner age={offline.age} note={offline.note} onRetry={() => window.location.reload()} />}
 
       {/* Hero card */}
       <div className="hero-card">

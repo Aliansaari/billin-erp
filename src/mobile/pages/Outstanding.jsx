@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
-import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable } from '../utils/offlineSnapshot';
+import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable, snapshotMatchesSession, friendlyError } from '../utils/offlineSnapshot';
 import { formatINR } from '../utils/format';
 import { useBack } from '../utils/useBack';
 import { shareViaNative } from '../utils/sharePdf';
@@ -87,11 +87,14 @@ export default function Outstanding() {
             const all = section?.data || [];
             // The snapshot holds both parties; filter to the tab being viewed.
             setRows(all.filter((r) => !r.party_type || r.party_type === mode));
-            setOffline({ age: snapshotAge(snap) });
+            setOffline({
+              age: snapshotAge(snap),
+              note: snapshotMatchesSession(snap) ? null : 'no saved figures for this company',
+            });
             return;
           }
         }
-        Toast.show({ icon: 'fail', content: 'Failed to load outstanding' });
+        Toast.show({ icon: 'fail', content: friendlyError(err, 'Could not load outstanding') });
         setRows([]);
       })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -214,7 +217,7 @@ export default function Outstanding() {
       </div>
       {offline && (
         <div className="offline-slot">
-          <OfflineBanner age={offline.age} onRetry={() => window.location.reload()} />
+          <OfflineBanner age={offline.age} note={offline.note} onRetry={() => window.location.reload()} />
         </div>
       )}
 

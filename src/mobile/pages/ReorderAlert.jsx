@@ -5,6 +5,7 @@ import { formatINR } from '../utils/format';
 import { useBack } from '../utils/useBack';
 import { shareViaNative } from '../utils/sharePdf';
 import './ReportList.css';
+import { friendlyError } from '../utils/offlineSnapshot';
 
 // ── Icons ───────────────────────────────────────────────────────────────
 const ChevL = () => (
@@ -140,7 +141,7 @@ export default function ReorderAlert() {
       })
       .catch((e) => {
         if (cancelled) return;
-        Toast.show({ icon: 'fail', content: e?.response?.data?.error || 'Failed to load stock data' });
+        Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load stock data') });
         setData([]);
       })
       .finally(() => { if (!cancelled) setLoading(false); });

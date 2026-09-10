@@ -82,7 +82,7 @@ export default function StockMovement() {
         }
         setMovements(rows.reverse());
       } else {
-        Toast.show({ icon: 'fail', content: 'Failed to load movements' });
+        Toast.show({ icon: 'fail', content: 'Could not load movements' });
       }
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };

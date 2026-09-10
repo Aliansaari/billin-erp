@@ -5,6 +5,7 @@ import { formatINR, isoDate, defaultFY } from '../utils/format';
 import { useBack } from '../utils/useBack';
 import { shareViaNative } from '../utils/sharePdf';
 import './ReportList.css';
+import { friendlyError } from '../utils/offlineSnapshot';
 
 // ── Icons ───────────────────────────────────────────────────────────────
 const ChevL = () => (
@@ -179,7 +180,7 @@ export default function FastSlowMovers() {
       })
       .catch((e) => {
         if (cancelled) return;
-        Toast.show({ icon: 'fail', content: e?.response?.data?.error || 'Failed to load data' });
+        Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load data') });
         setData([]);
       })
       .finally(() => { if (!cancelled) setLoading(false); });

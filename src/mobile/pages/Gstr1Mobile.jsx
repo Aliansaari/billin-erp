@@ -5,6 +5,7 @@ import { formatINR, isoDate } from '../utils/format';
 import { useBack } from '../utils/useBack';
 import { shareViaNative } from '../utils/sharePdf';
 import './ReportList.css';
+import { friendlyError } from '../utils/offlineSnapshot';
 
 // ── Icons ──────────────────────────────────────────────────────────────
 const ChevL = () => (
@@ -109,7 +110,7 @@ export default function Gstr1Mobile() {
       })
       .catch((e) => {
         if (cancelled) return;
-        Toast.show({ icon: 'fail', content: e?.response?.data?.error || 'Failed to load GSTR-1' });
+        Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load GSTR-1') });
         setRawData({});
       })
       .finally(() => { if (!cancelled) setLoading(false); });

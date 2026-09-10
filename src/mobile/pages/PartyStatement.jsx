@@ -9,6 +9,7 @@ import { shareViaNative } from '../utils/sharePdf';
 import useKeyboardInset from '../hooks/useKeyboardInset';
 import './ReportList.css';
 import Overlay from '../components/Overlay';
+import { friendlyError } from '../utils/offlineSnapshot';
 
 // ── Icons ──────────────────────────────────────────────────────────────
 const ChevL = () => (
@@ -218,7 +219,7 @@ export default function PartyStatement({ partyType = 'Customer' }) {
       })
       .catch((e) => {
         if (cancelled) return;
-        Toast.show({ icon: 'fail', content: e?.response?.data?.error || 'Failed to load statement' });
+        Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load statement') });
         setEntries([]);
         setMeta(null);
       })
