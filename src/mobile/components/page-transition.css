@@ -142,12 +142,17 @@
  * stops these running (reduced motion, a paused compositor, a remount at the
  * wrong moment) leaves the pane exactly where it belongs.
  */
+/* Starting at 0.35 rather than 0 on purpose. At zero, any frame where the
+ * animation has not begun yet — and leaving a long list is exactly when the
+ * compositor is busiest — shows an empty screen. A blank flash reads as a
+ * crash, which is worse than no animation at all. From a third of the way up,
+ * the worst case is a slightly abrupt appearance. */
 @keyframes pane-in-tap {
-  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  from { opacity: 0.35; transform: translate3d(0, 10px, 0); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes pane-in-back {
-  from { opacity: 0; transform: translate3d(-14px, 0, 0); }
+  from { opacity: 0.35; transform: translate3d(-14px, 0, 0); }
   to   { opacity: 1; transform: none; }
 }
 

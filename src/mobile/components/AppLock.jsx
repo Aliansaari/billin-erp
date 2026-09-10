@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import useAuthStore from '../../store/authStore';
-import { isLockEnabled, authenticate, RELOCK_AFTER_MS } from '../utils/biometric';
+import { isLockEnabled, authenticate, RELOCK_AFTER_MS, wasRestartedNotLaunched } from '../utils/biometric';
 import { onAppResumed } from '../utils/nativeShell';
 import './AppLock.css';
 
@@ -22,7 +22,13 @@ export default function AppLock() {
 
   // Locked from the very first render when the feature is on, so nothing is
   // ever briefly visible while we work out whether to ask.
-  const [locked, setLocked] = useState(() => enabled && isAuthenticated);
+  /* Locked from the very first render when the feature is on, so nothing is
+   * ever briefly visible while we work out whether to ask — EXCEPT when the
+   * WebView merely restarted under us, which is not the operator arriving.
+   * See wasRestartedNotLaunched(). */
+  const [locked, setLocked] = useState(
+    () => enabled && isAuthenticated && !wasRestartedNotLaunched(),
+  );
   const [asking, setAsking] = useState(false);
   const leftAt = useRef(0);
 

@@ -6,6 +6,7 @@ import '@fontsource-variable/source-sans-3';
 import App from './mobile/App';
 import './mobile/theme.css';
 import { startKeyboardTracking } from './mobile/utils/nativeShell';
+import { startHeartbeat } from './mobile/utils/biometric';
 
 // On iOS/Android, ask Capacitor to NEVER auto-scroll the WebView when the
 // soft keyboard appears. Together with `resize: 'none'` in
@@ -23,6 +24,10 @@ if (Capacitor.isNativePlatform()) {
 // turns on the iOS Prev/Next/Done accessory bar, and keeps the focused field
 // on screen. See utils/nativeShell.js.
 startKeyboardTracking();
+
+// Heartbeat so a WebView restart can be told apart from the operator opening
+// the app — see utils/biometric.wasRestartedNotLaunched.
+startHeartbeat();
 
 // Self-heal stale localStorage on boot — same logic as desktop main.jsx.
 // If we have a half-cleared session (token missing but user present, or

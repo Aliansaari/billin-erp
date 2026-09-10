@@ -34,6 +34,45 @@ export const setLockEnabled = (on) => {
   } catch { /* private mode */ }
 };
 
+/* ── Was this a real launch, or did the WebView just restart? ─────────
+ *
+ * iOS reclaims a backgrounded WKWebView whenever it wants the memory, and the
+ * page comes back from nothing with no way to tell that apart from the
+ * operator tapping the icon. Locking on the second one is right; locking on
+ * the first is the app demanding a face scan while it sits in someone's hand
+ * mid-sale, for no reason they can see.
+ *
+ * So the app leaves a heartbeat. If the last one is only seconds old, the
+ * previous run was alive moments ago and this is a restart, not an arrival.
+ *
+ * Erring towards NOT locking is deliberate. The cost of missing one lock is
+ * that a phone already in the owner's hand stays unlocked a little longer;
+ * the cost of a false lock is an interruption every time iOS decides to
+ * reclaim some memory, which is what makes people switch the feature off.
+ */
+const BEAT_KEY = 'zehen_alive_at';
+const RESTART_WINDOW_MS = 20_000;
+
+export function wasRestartedNotLaunched() {
+  try {
+    const last = Number(localStorage.getItem(BEAT_KEY) || 0);
+    return !!last && Date.now() - last < RESTART_WINDOW_MS;
+  } catch { return false; }
+}
+
+/** Keep the heartbeat fresh while the app is on screen. */
+export function startHeartbeat() {
+  const beat = () => {
+    try { localStorage.setItem(BEAT_KEY, String(Date.now())); } catch { /* private mode */ }
+  };
+  beat();
+  const id = setInterval(beat, 5_000);
+  // Also on the way out, so the last value is as close to the end as possible.
+  const onHide = () => { if (document.visibilityState === 'hidden') beat(); };
+  document.addEventListener('visibilitychange', onHide);
+  return () => { clearInterval(id); document.removeEventListener('visibilitychange', onHide); };
+}
+
 /** What this device can actually do — used to label the setting honestly
  *  ("Face ID" vs "Touch ID" vs nothing at all). */
 export async function biometryInfo() {

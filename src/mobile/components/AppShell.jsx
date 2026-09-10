@@ -29,7 +29,8 @@ function RouteFallback() {
  * caching it silently dragged the app back to Home from whichever tab you
  * pressed. A screen is only safe to keep alive if rendering it again is a
  * no-op; anything that navigates as a side effect of rendering is not. */
-const TAB_PATHS = new Set(['/dashboard', '/vouchers', '/stock', '/reports']);
+const TAB_ORDER = ['/dashboard', '/vouchers', '/stock', '/reports'];
+const TAB_PATHS = new Set(TAB_ORDER);
 
 function useCompanyProfileSync() {
   useEffect(() => { refreshCompanyProfile().catch(() => {}); }, []);
@@ -269,9 +270,36 @@ export default function AppShell() {
   // Memoised so a shell re-render does not invalidate it for every screen.
   const shellCtx = useMemo(() => ({ setPanelOpen }), [setPanelOpen]);
   const isTab  = TAB_PATHS.has(location.pathname);
+  /* Keep tabs alive, but not all of them for ever.
+   *
+   * Every live pane is a full screen's worth of DOM and data held in a
+   * WebView that iOS will restart the moment it wants the memory back — and a
+   * restart is invisible except that everything blanks and comes back from
+   * nothing. Stock is the heavy one: hundreds of rows, each with its own
+   * chips and figures.
+   *
+   * Three is the number that matters. It covers going back and forth between
+   * two tabs, and the one you touched longest ago rebuilds — from the
+   * persisted cache, so it paints rather than spins. Unbounded felt better
+   * right up until the phone disagreed. */
+  const MAX_LIVE_PANES = 3;
   const tabCache = useRef(new Map());
-  if (isTab && outlet) tabCache.current.set(location.pathname, outlet);
-  const tabs = [...tabCache.current.entries()];
+  if (isTab && outlet) {
+    // Re-inserting moves the key to the end, which is what makes this LRU.
+    tabCache.current.delete(location.pathname);
+    tabCache.current.set(location.pathname, outlet);
+    while (tabCache.current.size > MAX_LIVE_PANES) {
+      const oldest = tabCache.current.keys().next().value;
+      if (oldest === location.pathname) break;
+      tabCache.current.delete(oldest);
+    }
+  }
+  /* Rendered in a STABLE order, not in recency order. React reconciles
+   * children by position, so reordering them on every tab change would move
+   * each pane to a different slot and remount the very screens this exists to
+   * keep alive. */
+  const tabs = [...tabCache.current.entries()]
+    .sort((a, b) => TAB_ORDER.indexOf(a[0]) - TAB_ORDER.indexOf(b[0]));
 
   /* Which pane is showing. While a detail screen is pushed, the tab it was
    * opened from stays VISIBLE underneath rather than hidden with the rest —
