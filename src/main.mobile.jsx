@@ -6,7 +6,7 @@ import '@fontsource-variable/source-sans-3';
 import App from './mobile/App';
 import './mobile/theme.css';
 import { startKeyboardTracking } from './mobile/utils/nativeShell';
-import { startHeartbeat } from './mobile/utils/biometric';
+import { startHeartbeat, noteBootKind } from './mobile/utils/biometric';
 
 // On iOS/Android, ask Capacitor to NEVER auto-scroll the WebView when the
 // soft keyboard appears. Together with `resize: 'none'` in
@@ -27,6 +27,7 @@ startKeyboardTracking();
 
 // Heartbeat so a WebView restart can be told apart from the operator opening
 // the app — see utils/biometric.wasRestartedNotLaunched.
+noteBootKind();
 startHeartbeat();
 
 // Self-heal stale localStorage on boot — same logic as desktop main.jsx.

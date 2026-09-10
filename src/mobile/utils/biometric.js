@@ -60,6 +60,27 @@ export function wasRestartedNotLaunched() {
   } catch { return false; }
 }
 
+/* A count of times the WebView came back on its own rather than being opened.
+ *
+ * Recorded because guessing at this from the outside costs a build and a
+ * round trip each time: "blank for a second and then the same screen" is what
+ * a restart looks like from the operator's side, and it is indistinguishable
+ * from several other faults. The number is shown in the side panel footer, so
+ * it can simply be read out. Zero there means the app is not restarting and
+ * the fault is somewhere else entirely. */
+const RESTART_COUNT_KEY = 'zehen_restarts';
+
+export function restartCount() {
+  try { return Number(localStorage.getItem(RESTART_COUNT_KEY) || 0); } catch { return 0; }
+}
+
+export function noteBootKind() {
+  if (!wasRestartedNotLaunched()) return;
+  try {
+    localStorage.setItem(RESTART_COUNT_KEY, String(restartCount() + 1));
+  } catch { /* private mode */ }
+}
+
 /** Keep the heartbeat fresh while the app is on screen. */
 export function startHeartbeat() {
   const beat = () => {

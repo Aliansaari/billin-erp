@@ -95,12 +95,27 @@
   pointer-events: none;
   /* Below the active pane and below any pushed screen. */
   z-index: 0;
+
+  /* Free the rendered subtree of a hidden tab.
+   *
+   * `visibility: hidden` stops the paint but keeps the whole render tree and
+   * every composited layer alive — three full screens' worth of rows and
+   * figures held in a WebView that iOS restarts the instant it wants the
+   * memory back. That restart is invisible except that the app blanks and
+   * comes back from nothing, which is what was happening after Stock.
+   *
+   * content-visibility: hidden skips the subtree's rendering entirely while
+   * PRESERVING its state — including the scroll offset of anything inside it,
+   * which display:none would throw away and which is the whole reason these
+   * panes are kept mounted at all. */
+  content-visibility: hidden;
 }
 
 .tab-pane.is-active {
   visibility: visible;
   pointer-events: auto;
   z-index: 1;
+  content-visibility: visible;
 }
 
 /* The tab showing UNDERNEATH a pushed screen. Visible so a back-drag reveals
@@ -110,6 +125,8 @@
   visibility: visible;
   pointer-events: none;
   z-index: 0;
+  /* Must actually render — a back-drag reveals it. */
+  content-visibility: visible;
 }
 
 /* The pushed screen sits in the same positioned layer as the panes, above

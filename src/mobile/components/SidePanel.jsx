@@ -10,7 +10,7 @@ import useThemeStore from '../../store/themeStore';
 import useCompanyStore from '../../store/companyStore';
 import { companyAPI, setServerUrl as saveServerUrl, getServerUrl, getDeviceToken } from '../../api';
 import './SidePanel.css';
-import { biometryInfo, isLockEnabled, setLockEnabled, authenticate } from '../utils/biometric';
+import { biometryInfo, isLockEnabled, setLockEnabled, authenticate, restartCount } from '../utils/biometric';
 import { select as hapticSelect } from '../utils/haptics';
 
 const I = {
@@ -191,6 +191,7 @@ export default function SidePanel({ open, onClose }) {
   const [bio, setBio] = useState({ available: false, label: null });
   const [lockOn, setLockOn] = useState(isLockEnabled);
   const [bioBusy, setBioBusy] = useState(false);
+  const restarts = restartCount();
   useEffect(() => { biometryInfo().then(setBio).catch(() => {}); }, []);
 
   if (!open && !closing) return null;
@@ -442,7 +443,12 @@ export default function SidePanel({ open, onClose }) {
               <span className="sp-signout-hint">this device</span>
             </button>
             <div className="sp-footer-line">
-              <span className="sp-version">v0.1.0 <span className="sp-acc">·</span> ZEHEN</span>
+              <span className="sp-version">
+                v0.1.0 <span className="sp-acc">·</span> ZEHEN
+                {/* Only shown when it has actually happened — a permanent
+                    "restarts: 0" would be clutter on every phone that is fine. */}
+                {restarts > 0 && <> <span className="sp-acc">·</span> {restarts} restart{restarts === 1 ? '' : 's'}</>}
+              </span>
               <span className="sp-sync-status">
                 <span className="sp-sync-dot" />
                 synced
