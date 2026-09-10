@@ -74,3 +74,31 @@
     animation: none;
   }
 }
+
+/* ── Tab panes ───────────────────────────────────────────────────────
+ *
+ * All four bottom-bar screens stay mounted (see AppShell). Only one is
+ * visible; the rest are stacked underneath, painted over, and inert.
+ *
+ * `visibility: hidden` rather than `display: none` on purpose: display:none
+ * takes the element out of layout, and a scroll container that leaves layout
+ * loses its scrollTop — which would defeat the entire point of keeping the
+ * screens alive. visibility keeps the box, keeps the offset, and skips the
+ * paint.
+ */
+.tab-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  visibility: hidden;
+  pointer-events: none;
+  /* Below the active pane and below any pushed screen. */
+  z-index: 0;
+}
+
+.tab-pane.is-active {
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 1;
+}

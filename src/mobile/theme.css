@@ -346,6 +346,9 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  /* Tab panes are absolutely positioned inside this box so all four can be
+     alive at once without stacking vertically — see .tab-pane. */
+  position: relative;
 }
 
 /* Lazy-route loading fallback — quiet centred spinner inside the body. */

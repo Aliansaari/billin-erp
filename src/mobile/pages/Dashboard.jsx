@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useOutletContext } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Toast, PullToRefresh } from 'antd-mobile';
 import { reportAPI, isOfflineSession } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
@@ -17,6 +17,7 @@ import {
   isoDate,
 } from '../utils/format';
 import './Dashboard.css';
+import { useShell } from '../components/ShellContext';
 
 // SVG icons — kept inline to avoid an icon-lib dep and to match the
 // editorial stroke weight.
@@ -77,7 +78,7 @@ function gstr1Due(now = new Date()) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { setPanelOpen } = useOutletContext();
+  const { setPanelOpen } = useShell();
   const user = useAuthStore((s) => s.user);
 
   const [stats, setStats]       = useState(null);

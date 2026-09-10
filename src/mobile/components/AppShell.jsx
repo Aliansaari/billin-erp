@@ -1,6 +1,7 @@
-import React, { Suspense, useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useNavigationType, useOutlet } from 'react-router-dom';
 import TabBar from './TabBar';
+import { ShellContext } from './ShellContext';
 import SidePanel from './SidePanel';
 import PageStage from './PageStage';
 import { refreshCompanyProfile } from '../utils/companyProfile';
@@ -17,6 +18,17 @@ function RouteFallback() {
 
 // Keep the displayed company name in step with Settings → Company Profile,
 // including after a company switch (which reloads the app).
+/* The four bottom-bar destinations. These stay mounted for the life of the
+ * session; everything else is a push.
+ *
+ * '/' is deliberately NOT here even though it is where the app lands. For
+ * every role except salesman it renders <Navigate to="/dashboard">, and a
+ * redirect that is kept mounted re-fires on every render of the shell — so
+ * caching it silently dragged the app back to Home from whichever tab you
+ * pressed. A screen is only safe to keep alive if rendering it again is a
+ * no-op; anything that navigates as a side effect of rendering is not. */
+const TAB_PATHS = new Set(['/dashboard', '/vouchers', '/stock', '/reports']);
+
 function useCompanyProfileSync() {
   useEffect(() => { refreshCompanyProfile().catch(() => {}); }, []);
 }
@@ -72,12 +84,56 @@ export default function AppShell() {
     };
   }, []); // mount once — reads values through refs
 
+  /* ── Tab screens are objects, not functions ─────────────────────────
+   *
+   * A native tab bar does not rebuild a screen when you come back to it: your
+   * scroll position, your filters, your half-typed search are all still there,
+   * and the switch is instantaneous because nothing had to be recreated.
+   *
+   * A route is the opposite. `<Outlet/>` renders only the matched screen, so
+   * Home → Stock → Home destroyed Home and built it again from nothing —
+   * scroll lost, filters cleared, every request re-fired. That single
+   * difference is the loudest "this is a web page" tell in the app, and it is
+   * felt every few seconds.
+   *
+   * So the four tabs are kept mounted and merely hidden. `useOutlet()` hands
+   * back the element for the current route; we keep the ones belonging to tabs
+   * in a map and render them all, in a stable order, so React reconciles each
+   * to the same instance it had before.
+   *
+   * Hidden means `visibility: hidden`, NOT `display: none` — display:none
+   * discards the scroll offset of a scroll container, which is the very thing
+   * this exists to preserve.
+   *
+   * Drill-down screens are not cached: they are pushed on top, they animate,
+   * and coming back should genuinely leave them behind. */
+  const outlet = useOutlet();
+  // Memoised so a shell re-render does not invalidate it for every screen.
+  const shellCtx = useMemo(() => ({ setPanelOpen }), [setPanelOpen]);
+  const isTab  = TAB_PATHS.has(location.pathname);
+  const tabCache = useRef(new Map());
+  if (isTab && outlet) tabCache.current.set(location.pathname, outlet);
+  const tabs = [...tabCache.current.entries()];
+
   return (
     <>
       <div className="app-shell">
+        <ShellContext.Provider value={shellCtx}>
         <div className="app-shell-body">
+          {tabs.map(([path, el]) => (
+            <div
+              key={path}
+              className={`tab-pane${path === location.pathname ? ' is-active' : ''}`}
+              // Inert while hidden, so a stray tap or a focus jump can never
+              // land on a screen the user cannot see.
+              aria-hidden={path !== location.pathname}
+            >
+              <Suspense fallback={<RouteFallback />}>{el}</Suspense>
+            </div>
+          ))}
+
           {/* Keyed on the PATH, never on location.key.
-              
+
               location.key changes on every history entry — including a
               `replace` that only rewrites the query string. Several screens
               (VouchersList, PartyStatement) sync their filters into the URL
@@ -90,15 +146,18 @@ export default function AppShell() {
               Keying on pathname is also simply correct: a transition belongs
               to a NAVIGATION, not to a filter change on the screen you are
               already looking at. */}
-          <PageStage
-            key={location.pathname}
-            direction={navType === 'POP' ? 'back' : 'forward'}
-          >
-            <Suspense fallback={<RouteFallback />}>
-              <Outlet context={{ setPanelOpen }} />
-            </Suspense>
-          </PageStage>
+          {!isTab && (
+            <PageStage
+              key={location.pathname}
+              direction={navType === 'POP' ? 'back' : 'forward'}
+            >
+              <Suspense fallback={<RouteFallback />}>
+                {outlet}
+              </Suspense>
+            </PageStage>
+          )}
         </div>
+        </ShellContext.Provider>
         <TabBar />
       </div>
       <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} />
