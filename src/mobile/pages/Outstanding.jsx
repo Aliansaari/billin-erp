@@ -101,15 +101,25 @@ export default function Outstanding() {
     return () => { cancelled = true; };
   }, [mode]);
 
+  /* Arriving from the home screen's overdue card means one thing: the owner
+   * wants to chase people. `?sort=oldest` puts the longest-owing party first,
+   * because that is the order anyone actually works down a collection list —
+   * biggest balance is a different question and rarely the urgent one. */
+  const sortOldest = urlParams.get('sort') === 'oldest';
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return rows;
     const q = search.trim().toLowerCase();
-    return rows.filter((r) =>
-      (r.party_name || '').toLowerCase().includes(q) ||
-      (r.mobile_1   || '').toLowerCase().includes(q) ||
-      (r.city       || '').toLowerCase().includes(q)
+    const matched = q
+      ? rows.filter((r) =>
+          (r.party_name || '').toLowerCase().includes(q) ||
+          (r.mobile_1   || '').toLowerCase().includes(q) ||
+          (r.city       || '').toLowerCase().includes(q))
+      : rows;
+    if (!sortOldest) return matched;
+    return [...matched].sort(
+      (a, b) => Number(b.oldest_days || b.days || 0) - Number(a.oldest_days || a.days || 0),
     );
-  }, [rows, search]);
+  }, [rows, search, sortOldest]);
 
   const totalOutstanding = useMemo(
     () => filtered.reduce((s, r) => s + Math.abs(Number(r.current_balance || 0)), 0),

@@ -114,8 +114,21 @@ export default function ActivityRow({ entry, onClick, todayImplied = false }) {
         </div>
       </div>
       <div className="act-side">
+        {/* The DR/CR chip is gone from the home screen.
+         *
+         * Every sale is a debit, so on a list of today's sales the chip read
+         * DR on every row — a field that never varies carries no information
+         * and costs the width the amount wanted. The direction is already in
+         * the colour and in the bar down the left edge.
+         *
+         * It stays on the Vouchers tab and the Day Book, where receipts and
+         * payments sit alongside sales and the letter genuinely distinguishes
+         * them — and where the reader is an accountant, not a shopkeeper
+         * glancing at their phone. */}
         <div className={`act-amount ${incoming ? 'in' : 'out'}`}>
-          {side && <span className={`act-side-label ${side === 'Cr' ? 'cr' : 'dr'}`}>{side}</span>}
+          {side && !todayImplied && (
+            <span className={`act-side-label ${side === 'Cr' ? 'cr' : 'dr'}`}>{side}</span>
+          )}
           <span className="act-amount-value">
             <span className="currency">₹</span>{formatINR(amount)}
           </span>

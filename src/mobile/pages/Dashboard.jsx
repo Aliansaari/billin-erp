@@ -7,7 +7,7 @@ import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable, snapshotMatchesSe
 import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import { activeCompanyName } from '../utils/identity';
 import { getCached, setCached } from '../utils/screenCache';
-import { tap as hapticTap, warn as hapticWarn } from '../utils/haptics';
+import { tap as hapticTap, warn as hapticWarn, select as hapticSelect } from '../utils/haptics';
 import useAuthStore from '../../store/authStore';
 import ActivityRow from '../components/ActivityRow';
 import {
@@ -19,6 +19,7 @@ import {
 import './Dashboard.css';
 import { useShell } from '../components/ShellContext';
 import { onAppResumed } from '../utils/nativeShell';
+import Sparkline from '../components/Sparkline';
 
 // SVG icons — kept inline to avoid an icon-lib dep and to match the
 // editorial stroke weight.
@@ -206,6 +207,41 @@ export default function Dashboard() {
   const todaySalesCount  = stats?.today_sales?.count ?? 0;
   const yesterdaySales   = stats?.prior?.today_sales?.total ?? 0;
 
+  /* Today / Week / Month on the one card.
+   *
+   * The month figure was already in the payload and had nowhere to live, so
+   * the home screen could answer "how was today" and nothing else. The week
+   * is summed from the same fourteen-day series the sparkline draws, which
+   * means the three periods can never disagree with each other or with the
+   * line above them. */
+  const [period, setPeriod] = useState('today');
+  const series = useMemo(() => stats?.sales_series || [], [stats]);
+
+  const hero = useMemo(() => {
+    if (period === 'month') {
+      return {
+        label: 'This month',
+        total: stats?.monthly_sales ?? 0,
+        sub: `${stats?.monthly_sales_count ?? 0} bill${(stats?.monthly_sales_count ?? 0) === 1 ? '' : 's'}`,
+      };
+    }
+    if (period === 'week') {
+      const last7 = series.slice(-7);
+      const total = last7.reduce((sum, d) => sum + (Number(d.total) || 0), 0);
+      const days = last7.filter((d) => Number(d.total) > 0).length;
+      return {
+        label: 'Last 7 days',
+        total,
+        sub: `${days} trading day${days === 1 ? '' : 's'}`,
+      };
+    }
+    return {
+      label: "Today's sales",
+      total: todaySales,
+      sub: `${todaySalesCount} transaction${todaySalesCount === 1 ? '' : 's'}`,
+    };
+  }, [period, series, stats, todaySales, todaySalesCount]);
+
   const receiptsTotal    = stats?.today_receipts?.total ?? 0;
   const receiptsCount    = stats?.today_receipts?.count ?? 0;
   const receivablesTotal = stats?.receivables?.total ?? 0;
@@ -252,10 +288,20 @@ export default function Dashboard() {
     navigate(`/day-book?date=${entry?.entry_date || isoDate()}`);
   };
 
-  // ── Notifications (built from attention items) ─────────────────────
+  /* ── Things that need doing ───────────────────────────────────────
+   *
+   * These were already being computed and then fed only into the bell's
+   * dropdown, so the most actionable content on the home screen was a tap
+   * away and invisible. The screen showed you what you had already done and
+   * hid what you had not.
+   *
+   * They are on the screen now, and the bell keeps them too — the same list,
+   * so the badge and the strip can never disagree. Rendered only when there
+   * is something in it: an attention strip that is always present stops being
+   * attention and becomes furniture. */
   const notifications = useMemo(() => {
     const items = [];
-    if (overdueRow) items.push({ key: 'overdue', type: 'danger', icon: I.clock, ...overdueRow, action: () => goVouchers('sales') });
+    if (overdueRow) items.push({ key: 'overdue', type: 'danger', icon: I.clock, ...overdueRow, action: () => navigate('/outstanding?sort=oldest') });
     if (gstr1.days <= 7) items.push({ key: 'gstr1', type: 'info', icon: I.cal, title: 'GSTR-1 filing due', sub: `${gstr1.due.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} · ${gstr1.days} day${gstr1.days === 1 ? '' : 's'} remaining`, action: () => Toast.show({ content: 'GSTR-1 filing — open on desktop' }) });
     if (lowStock) items.push({ key: 'stock', type: 'warn', icon: I.box, ...lowStock, action: () => navigate('/stock') });
     return items;
@@ -381,14 +427,34 @@ export default function Dashboard() {
 
       {/* Hero card */}
       <div className="hero-card">
-        <div className="hero-top" onClick={() => navigate(`/day-book?date=${isoDate()}`)}>
-          <div className="hero-label">Today's sales</div>
+        <div className="hero-head">
+          <div className="hero-top" onClick={() => navigate(`/day-book?date=${isoDate()}`)}>
+            <div className="hero-label">{hero.label}</div>
+          </div>
+          {/* The card's top-right was a gradient and nothing else — the most
+              valuable space on the screen doing no work. Fourteen days of
+              sales, as a shape rather than a verdict. */}
+          <div className="hero-spark"><Sparkline points={series} /></div>
         </div>
         <div className="hero-amount" onClick={() => navigate(`/day-book?date=${isoDate()}`)}>
-          <span className="currency">₹</span>{formatINR(todaySales)}
+          <span className="currency">₹</span>{formatINR(hero.total)}
         </div>
         <div className="hero-sub" onClick={() => navigate(`/day-book?date=${isoDate()}`)}>
-          {todaySalesCount} transaction{todaySalesCount === 1 ? '' : 's'}
+          {hero.sub}
+        </div>
+
+        <div className="hero-periods" role="tablist" aria-label="Sales period">
+          {[['today', 'Today'], ['week', 'Week'], ['month', 'Month']].map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={period === key}
+              className={`hero-period${period === key ? ' active' : ''}`}
+              onClick={() => { hapticSelect(); setPeriod(key); }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         <div className="hero-boxes">
@@ -424,6 +490,26 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {notifications.length > 0 && (
+        <div className="attn-strip">
+          {notifications.map((n) => (
+            <button key={n.key} className={`attn-card attn-${n.type}`} onClick={n.action}>
+              <span className="attn-icon">{n.icon}</span>
+              <span className="attn-text">
+                <span className="attn-title">{n.title}</span>
+                <span className="attn-sub">{n.sub}</span>
+              </span>
+              {n.total > 0 && (
+                <span className="attn-amount">
+                  <span className="currency">₹</span>{formatINR(n.total)}
+                </span>
+              )}
+              <span className="attn-chev" aria-hidden>›</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Quick actions — 4 core entry points. Everything else is in
           the Command Centre (centre tab-bar button). */}

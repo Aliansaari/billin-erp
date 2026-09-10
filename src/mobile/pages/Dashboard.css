@@ -1039,3 +1039,106 @@
 .hero-amount {
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Sparkline in the hero's top-right ───────────────────────────────
+   The card's right side was a gradient and nothing else. The line inherits
+   currentColor from the card's foreground, so it stays legible in every
+   theme without a palette of its own. */
+.hero-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hero-spark {
+  flex: none;
+  color: var(--c-bg-surface);
+  opacity: 0.85;
+  margin-top: -2px;
+  pointer-events: none;
+}
+.hero-spark:empty { display: none; }
+
+/* ── Period switcher ─────────────────────────────────────────────────
+   Text, not a segmented control: inside a dark card a recessed track would be
+   a second box within a box, and the selection only has to be legible, not
+   framed. */
+.hero-periods {
+  display: flex;
+  gap: 4px;
+  margin: 14px 0 2px;
+}
+.hero-period {
+  border: 0;
+  background: transparent;
+  color: rgba(251, 248, 241, 0.5);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 5px 11px;
+  border-radius: 999px;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 140ms ease, background-color 140ms ease;
+}
+.hero-period.active {
+  color: var(--c-bg-surface);
+  background: rgba(251, 248, 241, 0.13);
+}
+
+/* ── Attention strip ─────────────────────────────────────────────────
+   Rendered only when there is something in it, so it never becomes
+   furniture. Left edge carries the severity; the rest stays neutral, because
+   three full-colour alert cards in a row is a siren, not a summary. */
+.attn-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+
+.attn-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 12px 12px 14px;
+  border-radius: 14px;
+  background: var(--c-bg-card);
+  border: 1px solid var(--c-line, var(--c-border));
+  border-left: 3px solid var(--c-text-faint);
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1), background-color 120ms;
+}
+.attn-card:active { transform: scale(0.99); background: var(--c-bg-page); }
+
+.attn-danger { border-left-color: var(--c-warning, #C28534); }
+.attn-warn   { border-left-color: var(--c-warning, #C28534); }
+.attn-info   { border-left-color: var(--c-primary); }
+
+.attn-icon {
+  flex: none;
+  display: flex;
+  color: var(--c-text-mute);
+}
+.attn-danger .attn-icon, .attn-warn .attn-icon { color: var(--c-warning); }
+.attn-info .attn-icon { color: var(--c-primary); }
+
+.attn-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.attn-title {
+  font-size: 13.5px; font-weight: 600; color: var(--c-text);
+  letter-spacing: -0.005em;
+}
+.attn-sub {
+  font-size: 11.5px; color: var(--c-text-mute); line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.attn-amount {
+  flex: none;
+  font-size: 13.5px; font-weight: 700; color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+}
+.attn-chev { flex: none; color: var(--c-text-faint); font-size: 17px; line-height: 1; }

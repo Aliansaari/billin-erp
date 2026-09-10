@@ -424,8 +424,35 @@ exports.dashboardStats = async (req, res) => {
     const priorProfit       = +(priorSalesExGST - priorCOGS - priorAdj).toFixed(2);
     const priorGSTLiability = +(priorSalesGST - priorPurchGST).toFixed(2);
 
+    /* Fourteen days of sales, oldest first, with empty days present as zero.
+     *
+     * The home screen shows one number for today and had no way to say whether
+     * that number is a good day or a bad one. A percentage against yesterday
+     * was tried and removed, correctly — a bare "+12%" is a verdict with no
+     * evidence, and yesterday is an arbitrary thing to be measured against.
+     *
+     * A short series is the evidence instead: the shape says "normal",
+     * "quiet", or "best day this fortnight" without asserting any of them.
+     * generate_series fills the gaps so a closed day is a gap in the line
+     * rather than a missing point that flatters the trend. */
+    const salesSeries = await sequelize.query(
+      `SELECT d::date AS date,
+              COALESCE(SUM(sb.total_amount), 0)::float AS total
+         FROM generate_series(CURRENT_DATE - INTERVAL '13 days', CURRENT_DATE, INTERVAL '1 day') d
+    LEFT JOIN sales_bills sb
+           ON sb.bill_date = d::date
+          AND sb.is_cancelled = false
+        GROUP BY d
+        ORDER BY d ASC`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
     res.json({
       today_sales: { count: parseInt(todaySales[0].count), total: parseFloat(todaySales[0].total) },
+      sales_series: (salesSeries || []).map((r) => ({
+        date: String(r.date).slice(0, 10),
+        total: Number(r.total) || 0,
+      })),
       today_purchases: { count: parseInt(todayPurchases[0].count), total: parseFloat(todayPurchases[0].total) },
       today_receipts: { count: parseInt(todayReceiptsRows[0].count), total: parseFloat(todayReceiptsRows[0].total) },
       // Monthly totals — both gross (invoice) and tax-excluded views are returned
