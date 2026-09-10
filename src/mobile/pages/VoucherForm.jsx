@@ -347,28 +347,10 @@ export default function VoucherForm({ type }) {
     }
   };
 
-  // Lift footer above the iOS keyboard.
-  useEffect(() => {
-    const root = document.documentElement;
-    const setKbd = (px) => root.style.setProperty('--vf-kbd-h', `${Math.max(0, px)}px`);
-    let cleanup = () => {};
-    if (Capacitor.isNativePlatform()) {
-      let showH = null, hideH = null;
-      import('@capacitor/keyboard').then(({ Keyboard }) => {
-        Keyboard.addListener('keyboardWillShow', (info) => setKbd(info.keyboardHeight)).then((h) => { showH = h; });
-        Keyboard.addListener('keyboardWillHide', () => setKbd(0)).then((h) => { hideH = h; });
-      }).catch(() => {});
-      cleanup = () => { showH?.remove?.(); hideH?.remove?.(); setKbd(0); };
-    } else if (window.visualViewport) {
-      const vv = window.visualViewport;
-      const apply = () => setKbd(window.innerHeight - vv.height - vv.offsetTop);
-      apply();
-      vv.addEventListener('resize', apply);
-      vv.addEventListener('scroll', apply);
-      cleanup = () => { vv.removeEventListener('resize', apply); vv.removeEventListener('scroll', apply); setKbd(0); };
-    }
-    return cleanup;
-  }, []);
+  /* The keyboard height now comes from one tracker for the whole app
+   * (utils/nativeShell.startKeyboardTracking), which publishes it as --kb-h
+   * and keeps this screen's legacy variable in step. Three copies of the same
+   * listener meant three chances for them to disagree. */
 
   // Quick pills derived from outstanding balance.
   const quickPills = useMemo(() => {

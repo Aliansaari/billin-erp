@@ -102,3 +102,18 @@
   pointer-events: auto;
   z-index: 1;
 }
+
+/* The tab showing UNDERNEATH a pushed screen. Visible so a back-drag reveals
+   the real list you are returning to, but never interactive — the screen on
+   top owns the touches. */
+.tab-pane.is-beneath {
+  visibility: visible;
+  pointer-events: none;
+}
+
+/* The pushed screen must be opaque, or the pane underneath shows through it
+   before the drag has started. */
+.pt-stage {
+  background: var(--c-bg-app);
+  will-change: auto;
+}

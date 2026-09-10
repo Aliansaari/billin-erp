@@ -1,0 +1,43 @@
+/* Opaque, not translucent, and above everything including portalled sheets:
+   a lock you can read the balance through is decoration. */
+.applock {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  background: var(--c-bg-app);
+  color: var(--c-text);
+  text-align: center;
+  /* No backdrop-filter here even under the Glass theme — see above. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.applock-mark {
+  width: 62px; height: 62px;
+  border-radius: 20px;
+  display: grid; place-items: center;
+  background: var(--c-primary-soft, rgba(190, 78, 40, 0.12));
+  color: var(--c-primary);
+  margin-bottom: 4px;
+}
+
+.applock-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+.applock-sub   { font-size: 13.5px; color: var(--c-text-mute); max-width: 260px; }
+
+.applock-btn {
+  margin-top: 14px;
+  border: 0; border-radius: 12px;
+  padding: 12px 26px;
+  background: var(--c-primary);
+  color: #fff;
+  font-family: inherit; font-size: 15px; font-weight: 700;
+  -webkit-tap-highlight-color: transparent;
+}
+.applock-btn:disabled { opacity: 0.6; }
+.applock-btn:active:not(:disabled) { transform: scale(0.97); }

@@ -84,3 +84,69 @@ export function onAppResumed(fn) {
   window.addEventListener('zehen:resumed', fn);
   return () => window.removeEventListener('zehen:resumed', fn);
 }
+
+/**
+ * Keyboard handling, in one place instead of three.
+ *
+ * The WebView is configured with `resize: 'none'`, so the keyboard slides OVER
+ * the page rather than shrinking it. That is the right call — letting iOS
+ * resize the view makes every fixed header and footer jump — but it means
+ * anything anchored to the bottom ends up underneath the keyboard, which in a
+ * billing app is the paid-amount field you are typing into.
+ *
+ * Three forms had grown their own copy of this listener with their own CSS
+ * variable. One tracker now publishes the height as `--kb-h`, and keeps the
+ * three legacy names in step so their existing CSS is untouched.
+ *
+ * Also turns on the iOS accessory bar. It is off by default in a WebView, and
+ * it is the strip carrying Prev / Next / Done — without it there is no way to
+ * move between fields except tapping each one, which is unmistakably not how
+ * a native form behaves.
+ */
+export function startKeyboardTracking() {
+  const root = document.documentElement;
+  const apply = (px) => {
+    const h = `${Math.max(0, Math.round(px))}px`;
+    for (const name of ['--kb-h', '--bf-kbd-h', '--vf-kbd-h', '--pf-kbd-h']) {
+      root.style.setProperty(name, h);
+    }
+    root.classList.toggle('kb-open', px > 0);
+  };
+  apply(0);
+
+  if (!native()) {
+    // Browser preview: visualViewport shrinks when a soft keyboard opens.
+    const vv = window.visualViewport;
+    if (!vv) return () => {};
+    const onVV = () => apply(window.innerHeight - vv.height - vv.offsetTop);
+    vv.addEventListener('resize', onVV);
+    vv.addEventListener('scroll', onVV);
+    return () => {
+      vv.removeEventListener('resize', onVV);
+      vv.removeEventListener('scroll', onVV);
+      apply(0);
+    };
+  }
+
+  let handles = [];
+  import('@capacitor/keyboard').then(async ({ Keyboard }) => {
+    try { await Keyboard.setAccessoryBarVisible({ isVisible: true }); } catch { /* Android */ }
+    handles = await Promise.all([
+      Keyboard.addListener('keyboardWillShow', (info) => {
+        apply(info.keyboardHeight);
+        // Keep the field you are typing in on screen. The browser's own
+        // scrollIntoView is the only thing that knows where the caret is, and
+        // 'nearest' moves the minimum needed rather than yanking the page.
+        const el = document.activeElement;
+        if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) {
+          setTimeout(() => {
+            try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch { /* detached */ }
+          }, 60);
+        }
+      }),
+      Keyboard.addListener('keyboardWillHide', () => apply(0)),
+    ]);
+  }).catch(() => { /* plugin absent */ });
+
+  return () => { handles.forEach((h) => h.remove?.()); apply(0); };
+}

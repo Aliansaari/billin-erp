@@ -10,6 +10,7 @@ import useThemeStore from '../../store/themeStore';
 import useCompanyStore from '../../store/companyStore';
 import { companyAPI, setServerUrl as saveServerUrl, getServerUrl, getDeviceToken } from '../../api';
 import './SidePanel.css';
+import { biometryInfo, isLockEnabled, setLockEnabled, authenticate } from '../utils/biometric';
 
 const I = {
   swap: (
@@ -201,6 +202,11 @@ export default function SidePanel({ open, onClose }) {
   const fy = fyLabel();
   const firmCount = companyList.length || 1;
 
+  // Face ID / Touch ID, if this device has it at all.
+  const [bio, setBio] = useState({ available: false, label: null });
+  const [lockOn, setLockOn] = useState(isLockEnabled);
+  useEffect(() => { biometryInfo().then(setBio).catch(() => {}); }, []);
+
   const styleOptions = [
     { key: 'classic', label: 'Classic', icon: I.classic },
     { key: 'modern', label: 'Editorial', icon: I.editorial },
@@ -300,6 +306,28 @@ export default function SidePanel({ open, onClose }) {
               </button>
             ))}
           </div>
+
+          {/* Security — only offered on a device that can actually do it,
+              because a toggle that turns nothing on is worse than no toggle. */}
+          {bio.available && (
+            <>
+              <div className="sp-section-label">Security</div>
+              <button
+                className={`sp-nav-row${lockOn ? ' active' : ''}`}
+                onClick={async () => {
+                  if (lockOn) { setLockEnabled(false); setLockOn(false); return; }
+                  // Prove it works before promising it will. Turning the lock
+                  // on without a successful scan is how someone ends up locked
+                  // out of their own books.
+                  const ok = await authenticate(`Turn on ${bio.label} for ZEHEN`);
+                  if (ok) { setLockEnabled(true); setLockOn(true); }
+                }}
+              >
+                <span className="sp-nav-label">Require {bio.label}</span>
+                <span className="sp-nav-value">{lockOn ? 'On' : 'Off'}</span>
+              </button>
+            </>
+          )}
 
           {/* Server connection */}
           <div className="sp-section-label">Connection</div>

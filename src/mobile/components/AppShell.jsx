@@ -6,6 +6,7 @@ import { onResume, bindHardwareBack } from '../utils/nativeShell';
 import SidePanel from './SidePanel';
 import PageStage from './PageStage';
 import { refreshCompanyProfile } from '../utils/companyProfile';
+import { tap as hapticTap } from '../utils/haptics';
 
 // Lightweight fallback shown while a lazily-loaded route chunk arrives.
 // Keeps the tab bar visible and just fills the body with a quiet spinner.
@@ -87,30 +88,149 @@ export default function AppShell() {
     () => navigateRef.current(-1),
   ), []);
 
-  // Capture phase so child stopPropagation can't block us
+  /* ── Back gesture, following the thumb ──────────────────────────────
+   *
+   * This used to be a trigger: touchstart, touchend, "did it travel 50px?",
+   * navigate. Nothing moved while your finger was down, so the screen jumped
+   * only after you let go. People are more attuned to this one gesture than to
+   * any other on iOS, and a binary version of it is the tell that survives
+   * every other polish pass.
+   *
+   * Now the pushed screen tracks the finger, the tab underneath is really
+   * there (see visiblePane above), and releasing below the threshold springs
+   * back — so you can peek at what is behind and change your mind, which is
+   * the part that makes it feel like an object rather than a command.
+   *
+   * Deliberately document-level and capture-phase, so a child calling
+   * stopPropagation cannot silently kill it. Passive: we never preventDefault
+   * — the gesture starts from the screen edge where there is nothing to
+   * scroll, and taking over the touch stream would break scrolling everywhere
+   * else if the drag were ever mis-detected.
+   */
   useEffect(() => {
-    const onStart = (e) => {
-      touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    };
-    const onEnd = (e) => {
-      const dx = e.changedTouches[0].clientX - touchStart.current.x;
-      const dy = Math.abs(e.changedTouches[0].clientY - touchStart.current.y);
-      // Start within 80px of the left edge, travel 50px+ to the right, and
-      // stay mostly horizontal (vertical drift must be under the horizontal
-      // distance). The proportional check lets slightly-diagonal swipes
-      // through, which is why the gesture used to feel flaky.
-      if (touchStart.current.x > 80 || dx < 50 || dy > dx) return;
-      if (isHomeRef.current) {
-        setPanelRef.current(true);
-      } else {
-        navigateRef.current(-1);
+    const EDGE       = 40;   // px from the left edge that arms the gesture
+    const SLOP       = 8;    // px of travel before we commit to dragging
+    const COMMIT     = 0.32; // fraction of the width that counts as "back"
+    const FLICK      = 0.45; // px/ms — a fast flick commits at any distance
+
+    let drag = null;
+
+    const stageEl = () => document.querySelector('.pt-stage');
+
+    const paint = (x, w) => {
+      if (!drag) return;
+      const p = Math.min(1, x / w);
+      drag.stage.style.transform = `translate3d(${x}px,0,0)`;
+      // A shadow that thins as the screen leaves reads as depth rather than
+      // as a rectangle sliding over another rectangle.
+      drag.stage.style.boxShadow = `-14px 0 34px rgba(0,0,0,${(0.22 * (1 - p)).toFixed(3)})`;
+      if (drag.beneath) {
+        // iOS parallax: the screen underneath is already partly moved when the
+        // one on top starts to leave, so they arrive together.
+        drag.beneath.style.transform = `translate3d(${(-0.22 * (1 - p) * w).toFixed(1)}px,0,0)`;
       }
     };
-    document.addEventListener('touchstart', onStart, { capture: true, passive: true });
-    document.addEventListener('touchend',   onEnd,   { capture: true, passive: true });
+
+    const release = (commit) => {
+      if (!drag) return;
+      const { stage, beneath, w } = drag;
+      stage.style.transition = 'transform 0.26s cubic-bezier(0.22,0.9,0.24,1), box-shadow 0.26s linear';
+      if (beneath) beneath.style.transition = 'transform 0.26s cubic-bezier(0.22,0.9,0.24,1)';
+      if (commit) {
+        stage.style.transform = `translate3d(${w}px,0,0)`;
+        stage.style.boxShadow = 'none';
+        if (beneath) beneath.style.transform = 'translate3d(0,0,0)';
+        hapticTap();
+        // Navigate when the screen has actually left, not before — otherwise
+        // the route swaps under a half-moved element and it snaps.
+        setTimeout(() => navigateRef.current(-1), 210);
+      } else {
+        stage.style.transform = 'translate3d(0,0,0)';
+        stage.style.boxShadow = 'none';
+        if (beneath) beneath.style.transform = 'translate3d(0,0,0)';
+        const el = stage;
+        const bn = beneath;
+        setTimeout(() => {
+          el.style.transition = '';
+          el.style.transform = '';
+          el.style.boxShadow = '';
+          if (bn) { bn.style.transition = ''; bn.style.transform = ''; }
+        }, 280);
+      }
+      drag = null;
+    };
+
+    const onStart = (e) => {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      touchStart.current = { x: t.clientX, y: t.clientY };
+      if (t.clientX > EDGE) return;
+      if (isHomeRef.current) return;          // home swipe opens the panel instead
+      const stage = stageEl();
+      if (!stage) return;
+      drag = {
+        stage,
+        beneath: document.querySelector('.tab-pane.is-beneath'),
+        x0: t.clientX,
+        y0: t.clientY,
+        w: window.innerWidth || 390,
+        started: false,
+        lastX: t.clientX,
+        lastT: e.timeStamp,
+        v: 0,
+      };
+      stage.style.transition = 'none';
+      if (drag.beneath) drag.beneath.style.transition = 'none';
+    };
+
+    const onMove = (e) => {
+      if (!drag) return;
+      const t = e.touches[0];
+      const dx = t.clientX - drag.x0;
+      const dy = Math.abs(t.clientY - drag.y0);
+
+      if (!drag.started) {
+        // Vertical intent wins — the user is scrolling, not going back.
+        if (dy > SLOP && dy > Math.abs(dx)) { release(false); return; }
+        if (dx < SLOP) return;
+        drag.started = true;
+      }
+
+      const dt = e.timeStamp - drag.lastT;
+      if (dt > 0) drag.v = (t.clientX - drag.lastX) / dt;
+      drag.lastX = t.clientX;
+      drag.lastT = e.timeStamp;
+
+      paint(Math.max(0, dx), drag.w);
+    };
+
+    const onEnd = (e) => {
+      // Home: the edge swipe opens the side panel. Still a trigger, because
+      // there is nothing underneath to reveal — the panel is its own surface.
+      if (!drag) {
+        const dx = e.changedTouches[0].clientX - touchStart.current.x;
+        const dy = Math.abs(e.changedTouches[0].clientY - touchStart.current.y);
+        if (touchStart.current.x <= 80 && dx >= 50 && dy <= dx && isHomeRef.current) {
+          setPanelRef.current(true);
+        }
+        return;
+      }
+      if (!drag.started) { release(false); return; }
+      const dx = Math.max(0, e.changedTouches[0].clientX - drag.x0);
+      release(dx > drag.w * COMMIT || drag.v > FLICK);
+    };
+
+    const onCancel = () => release(false);
+
+    document.addEventListener('touchstart',  onStart,  { capture: true, passive: true });
+    document.addEventListener('touchmove',   onMove,   { capture: true, passive: true });
+    document.addEventListener('touchend',    onEnd,    { capture: true, passive: true });
+    document.addEventListener('touchcancel', onCancel, { capture: true, passive: true });
     return () => {
-      document.removeEventListener('touchstart', onStart, { capture: true });
-      document.removeEventListener('touchend',   onEnd,   { capture: true });
+      document.removeEventListener('touchstart',  onStart,  { capture: true });
+      document.removeEventListener('touchmove',   onMove,   { capture: true });
+      document.removeEventListener('touchend',    onEnd,    { capture: true });
+      document.removeEventListener('touchcancel', onCancel, { capture: true });
     };
   }, []); // mount once — reads values through refs
 
@@ -145,6 +265,16 @@ export default function AppShell() {
   if (isTab && outlet) tabCache.current.set(location.pathname, outlet);
   const tabs = [...tabCache.current.entries()];
 
+  /* Which pane is showing. While a detail screen is pushed, the tab it was
+   * opened from stays VISIBLE underneath rather than hidden with the rest —
+   * otherwise dragging the pushed screen aside during a back-swipe reveals an
+   * empty shell instead of the list you are going back to, which is the whole
+   * point of the gesture. The pushed screen is opaque, so nothing shows until
+   * the drag actually starts. */
+  const lastTabRef = useRef('/dashboard');
+  if (isTab) lastTabRef.current = location.pathname;
+  const visiblePane = isTab ? location.pathname : lastTabRef.current;
+
   return (
     <>
       <div className="app-shell">
@@ -153,10 +283,11 @@ export default function AppShell() {
           {tabs.map(([path, el]) => (
             <div
               key={path}
-              className={`tab-pane${path === location.pathname ? ' is-active' : ''}`}
-              // Inert while hidden, so a stray tap or a focus jump can never
-              // land on a screen the user cannot see.
-              aria-hidden={path !== location.pathname}
+              className={`tab-pane${path === visiblePane ? ' is-active' : ''}`
+                + (path === visiblePane && !isTab ? ' is-beneath' : '')}
+              // Inert unless it is the screen actually being used, so a stray
+              // tap or a focus jump can never land on a screen behind another.
+              aria-hidden={!isTab || path !== location.pathname}
             >
               <Suspense fallback={<RouteFallback />}>{el}</Suspense>
             </div>

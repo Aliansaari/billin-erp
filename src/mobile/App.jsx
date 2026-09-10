@@ -26,6 +26,7 @@ import Login from './pages/Login';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import { syncStatusBar } from './utils/nativeShell';
+import AppLock from './components/AppLock';
 
 // Lazy — every other screen is code-split into its own chunk, loaded on
 // first visit. This keeps the boot bundle small (the heavy PDF/report pages
@@ -105,6 +106,8 @@ export default function MobileApp() {
   return (
     <ConfigProvider locale={enUS}>
       <MobileThemeSync />
+
+      <AppLock />
       <Routes>
         <Route path="/login" element={<Login />} />
 

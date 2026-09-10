@@ -63,5 +63,7 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>ZEHEN uses Face ID to keep your shop's figures private when the phone is left unattended.</string>
 </dict>
 </plist>
