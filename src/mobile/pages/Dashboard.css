@@ -127,73 +127,21 @@
   pointer-events: none;
 }
 
-.notif-dropdown {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  width: min(340px, calc(100vw - 32px));
-  background: var(--c-bg-surface);
-  border: 1px solid var(--c-border);
-  border-radius: 18px;
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.06),
-    0 16px 44px -12px rgba(0, 0, 0, 0.28);
-  /* Cap the height and scroll inside.
-     With no cap, a shop with several overdue parties produced a panel taller
-     than the screen: the last items were unreachable and the whole page
-     scrolled behind it. */
-  max-height: min(60vh, 440px);
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;   /* don't scroll the dashboard behind it */
-  z-index: 100;
-  animation: notifSlide 0.18s cubic-bezier(0.22, 0.9, 0.24, 1);
-}
+
 @media (prefers-reduced-motion: reduce) {
-  .notif-dropdown { animation: none; }
+
 }
 
 /* Keep the title visible while the list scrolls under it. */
-.notif-dropdown-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--c-bg-surface);
-  border-bottom: 1px solid var(--c-line);
-}
+
 @keyframes notifSlide {
   from { opacity: 0; transform: translateY(-8px) scale(0.97); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-.notif-dropdown-head {
-  padding: 16px 18px 10px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--c-text-mute);
-}
-.notif-dropdown-empty {
-  padding: 20px 18px 24px;
-  font-size: 13.5px;
-  color: var(--c-text-mute);
-  font-style: italic;
-  text-align: center;
-}
-.notif-dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 12px 18px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  text-align: left;
-  font-family: inherit;
-  border-top: 1px solid var(--c-border-soft);
-}
-.notif-dropdown-item:active { background: var(--c-primary-soft); }
+
+
+
+
 
 .dash-avatar {
   width: 38px;
@@ -791,18 +739,11 @@
   border-bottom-color: var(--c-border);
 }
 
-[data-mobile-theme="dark"] .notif-dropdown {
-  background: var(--c-bg-card);
-  border-color: var(--c-border);
-}
 
-[data-mobile-theme="dark"] .notif-dropdown-head {
-  border-bottom-color: var(--c-border);
-}
 
-[data-mobile-theme="dark"] .notif-dropdown-item:active {
-  background: var(--c-primary-soft);
-}
+
+
+
 
 /* ─── Classic theme overrides — teal-cyan v4 ─────────────────────── */
 /* Page atmosphere — replace editorial cream/green radials with teal. */
@@ -987,12 +928,7 @@
 }
 
 /* Invisible tap-catcher behind the notification panel. */
-.notif-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 99;          /* under .notif-dropdown (100), over everything else */
-  background: transparent;
-}
+
 
 /* Header, once the page has scrolled: translucent, blurred, with a hairline.
    This is what makes the chrome feel like it sits ABOVE the content rather
@@ -1117,3 +1053,10 @@
   background-image:
     radial-gradient(120% 50% at 12% -8%, var(--c-hero-glow) 0%, transparent 55%);
 }
+
+
+/* The dropdown that used to hang off the bell is gone — see
+   components/NotificationSheet.css. It was a desktop pattern on a phone:
+   ~260px wide because that is what fits under an icon, opening away from the
+   thumb, and needing a full-screen invisible scrim to catch the taps its own
+   click-outside listener kept missing. */

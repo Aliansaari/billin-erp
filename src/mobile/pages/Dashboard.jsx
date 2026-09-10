@@ -20,7 +20,7 @@ import './Dashboard.css';
 import { useShell } from '../components/ShellContext';
 import { onAppResumed } from '../utils/nativeShell';
 import Sparkline from '../components/Sparkline';
-import AttentionPill from '../components/AttentionPill';
+import NotificationSheet from '../components/NotificationSheet';
 
 // SVG icons — kept inline to avoid an icon-lib dep and to match the
 // editorial stroke weight.
@@ -309,6 +309,8 @@ export default function Dashboard() {
    * so the badge and the strip can never disagree. Rendered only when there
    * is something in it: an attention strip that is always present stops being
    * attention and becomes furniture. */
+  const [notifOpen, setNotifOpen] = useState(false);
+
   const notifications = useMemo(() => {
     const items = [];
     if (overdueRow) items.push({ key: 'overdue', type: 'danger', icon: I.clock, ...overdueRow, action: () => navigate('/outstanding?sort=oldest') });
@@ -368,16 +370,18 @@ export default function Dashboard() {
           <button className="icon-btn" aria-label="search" onClick={() => navigate('/search')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
           </button>
-          {/* The notification bell is gone.
-              Its dropdown rendered the SAME `notifications` array the pill
-              above cycles through — the same two or three items, one of them
-              behind a badge and a tap, the other already on screen and
-              rotating. Two surfaces for one list is not redundancy the user
-              gets to ignore; it is two places to check and two chances for
-              them to disagree.
-              The pill wins because it is visible without being opened, it
-              carries every item rather than a count of them, and tapping it
-              goes to the thing rather than to a list about the thing. */}
+          <div className="notif-wrap">
+            <button
+              className="icon-btn"
+              aria-label={`Needs attention${notifications.length ? `, ${notifications.length} item${notifications.length === 1 ? '' : 's'}` : ''}`}
+              onClick={() => { hapticTap(); setNotifOpen(true); }}
+            >
+              {I.bell}
+              {notifications.length > 0 && (
+                <span className="notif-badge">{notifications.length}</span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -470,13 +474,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* One line that cycles, instead of a stack of cards.
-          The cards were the right information in the wrong form: they
-          duplicated the notification panel, took a third of the screen to say
-          what fits on a line, and three bordered alerts in a row read as an
-          error state rather than as a summary. */}
-      <AttentionPill items={notifications} />
-
       {/* Quick actions — 4 core entry points. Everything else is in
           the Command Centre (centre tab-bar button). */}
       <div className="qa-grid">
@@ -524,7 +521,13 @@ export default function Dashboard() {
         ))}
       </div>
 
+
           </PullToRefresh>
+      <NotificationSheet
+        open={notifOpen}
+        items={notifications}
+        onClose={() => setNotifOpen(false)}
+      />
     </div>
     </div>
   );
