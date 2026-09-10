@@ -532,6 +532,34 @@ exports.dashboardInsights = async (req, res) => {
       { type: sequelize.QueryTypes.SELECT },
     );
 
+    /* How much is actually OVERDUE, in total.
+     *
+     * The two queries above return the worst five parties, which answers
+     * "who" but not "how much" — and on a phone the home screen has room for
+     * one number, not five. For a wholesaler the overdue total is the number
+     * the day turns on: an outstanding balance is normal, an overdue one is
+     * money that should already be in the account. Same predicate as the
+     * top-five queries, so the two can never disagree. */
+    const [overdueReceivable] = await sequelize.query(
+      `SELECT COUNT(*)::int AS count,
+              COALESCE(SUM(balance_amount), 0)::float AS total
+         FROM sales_bills
+        WHERE is_cancelled = false
+          AND balance_amount > 0
+          AND COALESCE(due_date, bill_date) < CURRENT_DATE`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
+    const [overduePayable] = await sequelize.query(
+      `SELECT COUNT(*)::int AS count,
+              COALESCE(SUM(balance_amount), 0)::float AS total
+         FROM purchase_bills
+        WHERE is_cancelled = false
+          AND balance_amount > 0
+          AND COALESCE(due_date, bill_date) < CURRENT_DATE`,
+      { type: sequelize.QueryTypes.SELECT },
+    );
+
     const [billsDueSales] = await sequelize.query(
       `SELECT COUNT(*)::int AS count,
               COALESCE(SUM(balance_amount), 0)::float AS total
@@ -622,6 +650,10 @@ exports.dashboardInsights = async (req, res) => {
     res.json({
       overdue_receivables: top5OverdueCustomers,
       overdue_payables:    top5OverdueSuppliers,
+      overdue_totals: {
+        receivable: overdueReceivable || { count: 0, total: 0 },
+        payable:    overduePayable    || { count: 0, total: 0 },
+      },
       bills_due_soon: {
         sales:    billsDueSales,
         purchase: billsDuePurchase,

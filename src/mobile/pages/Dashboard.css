@@ -663,23 +663,31 @@
 /* WhatsApp share — circular pill, brand-green tint. Sits below the
    amount; tap fires a stop-propagation so the row click (drill into
    bill detail) doesn't also fire. */
+/* Deliberately quiet.
+ *
+ * It was a filled green circle with a tinted border, repeated on every row —
+ * three of them stacked down a three-row list, each one brighter than the
+ * amount beside it. The amount is what the row is for; sharing is what you do
+ * to one row occasionally. Same action, same 28px target, far less voice, and
+ * it comes forward on press so it is still obviously a control. */
 .act-share {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: rgba(37, 211, 102, 0.10);
-  border: 1px solid rgba(37, 211, 102, 0.22);
-  color: #1FA855;
+  background: transparent;
+  border: none;
+  color: var(--c-text-faint);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
-  transition: background 120ms, transform 120ms;
+  transition: background 120ms, color 120ms, transform 120ms;
 }
 .act-share:active {
-  background: rgba(37, 211, 102, 0.20);
+  background: rgba(37, 211, 102, 0.14);
+  color: #1FA855;
   transform: scale(0.94);
 }
 
@@ -985,4 +993,49 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dash-header { transition: none; }
+}
+
+/* The overdue line inside the Outstanding box.
+   Warm, not red: this is a figure to act on, not an error, and an alarm
+   colour on the home screen every single day stops meaning anything. */
+.hero-box-sub--alert {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--c-warning-bright, #E0AE55);
+  font-weight: 600;
+}
+.hero-box-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+/* ── Hero sub-boxes: give them a floor to stand on ───────────────────
+ *
+ * At 6% white on a near-black card they read as smudges rather than as
+ * panels, and their labels at 50% opacity sat just above the point where
+ * small caps stop being legible in daylight. Outstanding is the largest
+ * figure on the screen and it was the dimmest thing on it.
+ *
+ * Raised, not recoloured — the card stays dark and the hierarchy stays the
+ * same, the panels just stop dissolving into it.
+ */
+.hero-box {
+  background: rgba(251, 248, 241, 0.085);
+  border-color: rgba(251, 248, 241, 0.14);
+}
+.hero-box:active { background: rgba(251, 248, 241, 0.14); }
+
+.hero-box-label {
+  font-size: 9.5px;
+  color: rgba(251, 248, 241, 0.62);
+}
+
+/* Tabular figures so the two boxes' digits line up with each other and do not
+   jiggle as the numbers change under a refresh. */
+.hero-box-value,
+.hero-amount {
+  font-variant-numeric: tabular-nums;
 }

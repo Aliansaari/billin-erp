@@ -210,6 +210,10 @@ export default function Dashboard() {
   const receiptsCount    = stats?.today_receipts?.count ?? 0;
   const receivablesTotal = stats?.receivables?.total ?? 0;
   const receivablesCount = stats?.receivables?.count ?? 0;
+  /* The overdue slice of the receivable total. Comes from the insights
+   * endpoint, which computes it with the same predicate as the top-five
+   * overdue list, so the hero and the attention queue can never disagree. */
+  const overdueTotal = Number(insights?.overdue_totals?.receivable?.total || 0);
 
   // ── Attention queue (3 items max) ─────────────────────────────────
   const overdueRow = useMemo(() => {
@@ -402,9 +406,21 @@ export default function Dashboard() {
             <div className="hero-box-value">
               <span className="currency">₹</span>{formatINR(receivablesTotal)}
             </div>
-            <div className="hero-box-sub">
-              {receivablesCount} customer{receivablesCount === 1 ? '' : 's'}
-            </div>
+            {/* "203 customers" is a fact about the list, not about the money.
+                An outstanding balance is normal; an OVERDUE one is money that
+                should already be in the account, and it is the half of this
+                figure a shop can actually act on this afternoon. Falls back to
+                the count when nothing is overdue, which is worth seeing too. */}
+            {overdueTotal > 0 ? (
+              <div className="hero-box-sub hero-box-sub--alert">
+                <span className="hero-box-dot" aria-hidden />
+                <span className="currency">₹</span>{formatINR(overdueTotal)} overdue
+              </div>
+            ) : (
+              <div className="hero-box-sub">
+                {receivablesCount} customer{receivablesCount === 1 ? '' : 's'}
+              </div>
+            )}
           </button>
         </div>
       </div>

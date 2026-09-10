@@ -68,7 +68,12 @@ const WhatsappIcon = () => (
 export default function ActivityRow({ entry, onClick }) {
   const { side, amount } = amountInfo(entry);
   const incoming = isIn(entry.voucher_type);
-  const dateLabel = entry.entry_date ? formatShortDate(entry.entry_date) : '';
+  /* On the home screen almost every row is from today, so printing the date
+   * on each one is the same seven characters repeated down the list — noise
+   * that pushes the voucher number, the thing that differs, off to the side.
+   * Today is implied; only older entries say when. */
+  const isToday = String(entry.entry_date || '').slice(0, 10) === new Date().toISOString().slice(0, 10);
+  const dateLabel = entry.entry_date && !isToday ? formatShortDate(entry.entry_date) : '';
 
   function openWhatsapp(e) {
     // Stop the row's own click so we don't drill INTO the bill while
@@ -107,6 +112,9 @@ export default function ActivityRow({ entry, onClick }) {
             <span className="currency">₹</span>{formatINR(amount)}
           </span>
         </div>
+        {/* Quieter than it was. Three filled green circles down a list of
+            three rows competed with the amounts for attention, and the amount
+            is what the row is for. Same action, same target size, less voice. */}
         <button
           className="act-share"
           onClick={openWhatsapp}
