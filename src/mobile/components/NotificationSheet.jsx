@@ -13,10 +13,15 @@ import './NotificationSheet.css';
  * edge; it opened away from the thumb; and it needed a full-screen invisible
  * scrim to catch the taps its own click-outside listener kept missing.
  *
- * A bottom sheet is what the rest of this app already uses for exactly this
- * job — picking a party, switching a firm, choosing a branch. It opens next
- * to the thumb, it can use the full width, and it dismisses the way every
- * other sheet in the app dismisses.
+ * It drops from the top instead, under the bell that opens it. The app's
+ * other sheets rise from the bottom because they are pickers — summon a list,
+ * choose, dismiss. This one reports on the state of the shop and is opened
+ * from a control in the header, and a panel appearing at the far end of the
+ * screen from the thing you tapped makes you hunt for what you just asked
+ * for.
+ *
+ * Full width regardless: top anchoring and cramped are two separate
+ * decisions, and only the first was worth keeping from the old dropdown.
  *
  * Ordering is severity, not recency. Money that is late outranks a filing
  * deadline outranks a stock level, and a list a shop owner opens twice a day
@@ -38,7 +43,6 @@ export default function NotificationSheet({ open, items = [], onClose }) {
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
     >
       <div className="ns-sheet" role="dialog" aria-label="Needs attention">
-        <div className="ns-grab" aria-hidden />
         <div className="ns-head">
           <h2 className="ns-title">
             Needs attention
@@ -87,6 +91,9 @@ export default function NotificationSheet({ open, items = [], onClose }) {
             ))}
           </div>
         )}
+        {/* Ordered last so it sits on the panel's bottom edge — the side a
+            top sheet is pushed back towards. */}
+        <div className="ns-grab" aria-hidden />
       </div>
     </div>,
     document.body,

@@ -1,33 +1,55 @@
-/* Same shape, timing and dismissal as every other sheet in the app —
-   CompanySwitchSheet, BranchSheet, PartySheet. A panel that behaves like its
-   siblings needs no learning. */
+/* Anchored to the TOP, under the bell that opens it.
+ *
+ * The app's other sheets rise from the bottom because they are pickers — you
+ * summon a list, choose from it, and it leaves. This one is different: it is
+ * a report on the state of the shop, opened from a control in the header, and
+ * a panel that appears at the opposite end of the screen from the thing you
+ * tapped makes you hunt for what you just asked for.
+ *
+ * Full width, though — the corner dropdown this replaced was 260px because
+ * that is what fits under an icon, and party names truncated inside it. Top
+ * anchoring and cramped are two different decisions; only the first is worth
+ * keeping. */
 .ns-backdrop {
   position: fixed; inset: 0; z-index: 3600;
   background: rgba(20, 16, 12, 0.45);
   backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
-  display: flex; align-items: flex-end;
-  animation: ns-fade 0.16s ease both;
+  display: flex; align-items: flex-start;
+  /* No fill-mode. `both` holds the FROM state whenever the animation cannot
+     run — a paused compositor, a reduced-motion setting that stops it
+     mid-flight — which for this panel means an invisible backdrop and a sheet
+     resting 16px above where it belongs. Measured exactly that: top: -16px
+     after the animation should have finished. The natural state is the final
+     state; the keyframes only animate into it. */
+  animation: ns-fade 0.16s ease;
 }
 @keyframes ns-fade { from { opacity: 0; } to { opacity: 1; } }
 
 .ns-sheet {
-  width: 100%; max-height: 76vh;
+  width: 100%; max-height: 78vh;
   display: flex; flex-direction: column;
   background: var(--c-bg-surface, #FBF8F1);
-  border-radius: 22px 22px 0 0;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  animation: ns-up 0.24s cubic-bezier(0.22, 0.9, 0.24, 1) both;
+  border-radius: 0 0 22px 22px;
+  /* Clears the status bar and the notch, since it starts at the very top. */
+  padding-top: env(safe-area-inset-top, 0px);
+  box-shadow: 0 14px 34px -18px rgba(0, 0, 0, 0.45);
+  animation: ns-down 0.26s cubic-bezier(0.22, 0.9, 0.24, 1);
 }
-@keyframes ns-up { from { transform: translateY(14px); } to { transform: none; } }
+@keyframes ns-down { from { transform: translateY(-16px); opacity: 0.6; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ns-backdrop, .ns-sheet { animation: none; } }
 
+/* The grab handle moves to the BOTTOM edge: it marks the side the panel can
+   be pushed back towards, and on a top sheet that is upwards. */
 .ns-grab {
   width: 36px; height: 4px; border-radius: 999px;
-  background: var(--c-line, #E5DDCD); margin: 8px auto 2px;
+  background: var(--c-line, #E5DDCD);
+  margin: 2px auto 8px;
+  order: 99;
+  flex: none;
 }
 .ns-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 18px 10px;
+  padding: 12px 18px 10px;
 }
 .ns-title {
   margin: 0; display: flex; align-items: center; gap: 8px;
@@ -49,7 +71,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.ns-list { overflow-y: auto; padding: 2px 12px 14px; }
+.ns-list { overflow-y: auto; padding: 2px 12px 6px; }
 
 .ns-row {
   display: flex; align-items: center; gap: 12px;
@@ -96,7 +118,7 @@
 
 /* ── Empty state ─────────────────────────────────────────────────── */
 .ns-empty {
-  padding: 26px 28px 40px;
+  padding: 22px 28px 28px;
   display: flex; flex-direction: column; align-items: center; text-align: center;
 }
 .ns-empty-mark {
