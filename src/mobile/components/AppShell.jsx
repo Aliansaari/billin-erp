@@ -281,6 +281,12 @@ export default function AppShell() {
    * the drag actually starts. */
   const lastTabRef = useRef('/dashboard');
   if (isTab) lastTabRef.current = location.pathname;
+  // Remembered so a WebView restart reopens the tab the operator was on rather
+  // than the dashboard — see lastRoute() in main.mobile.jsx.
+  useEffect(() => {
+    if (!isTab) return;
+    try { localStorage.setItem('zehen_last_tab', location.pathname); } catch { /* private mode */ }
+  }, [isTab, location.pathname]);
   const visiblePane = isTab ? location.pathname : lastTabRef.current;
 
   /* Tab changes were a hard cut — one pane's visibility off, the next one's

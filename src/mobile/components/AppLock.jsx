@@ -37,14 +37,28 @@ export default function AppLock() {
   // First arrival.
   useEffect(() => { if (locked) unlock(); /* eslint-disable-next-line */ }, []);
 
-  // Re-lock after being away. A glance at a message should not cost a scan,
-  // so there is a grace period; a phone left on a counter is past it.
+  /* Re-lock after being away.
+   *
+   * `leftAt` is the moment the app actually went to the background, and it is
+   * CLEARED as soon as it has been used. Leaving it set was a real bug: once
+   * you had been away for more than the grace period, that stale timestamp
+   * satisfied the check on every subsequent resume, so the app asked for a
+   * scan again and again — including on resumes it triggers itself, like the
+   * one that follows the Face ID prompt. A lock that fires when you have not
+   * been anywhere is a lock people turn off.
+   *
+   * Only a genuine background counts. Switching tabs, opening a sheet or
+   * bringing up the camera never sets it, so none of them can lock the app. */
   useEffect(() => {
     if (!enabled || !isAuthenticated) return undefined;
-    const onHide = () => { if (document.visibilityState === 'hidden') leftAt.current = Date.now(); };
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') leftAt.current = Date.now();
+    };
     document.addEventListener('visibilitychange', onHide);
     const off = onAppResumed(() => {
-      if (leftAt.current && Date.now() - leftAt.current > RELOCK_AFTER_MS) {
+      const away = leftAt.current;
+      leftAt.current = 0;                       // used — do not fire on it twice
+      if (away && Date.now() - away > RELOCK_AFTER_MS) {
         setLocked(true);
         unlock();
       }

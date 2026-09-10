@@ -22,6 +22,23 @@ body.scan-active .pt-stage {
   background: transparent !important;
 }
 
+/* Tab panes must stay hidden while the camera is up.
+ *
+ * `body.scan-active > *` hides #root, and visibility is inherited — but a
+ * descendant that sets `visibility: visible` re-shows itself and everything
+ * under it. .tab-pane.is-active does exactly that, so the moment tab panes
+ * existed the active one climbed back out over the camera preview and the
+ * scanner looked broken: you got the app instead of the viewfinder.
+ *
+ * Everything the operator needs while scanning lives in .ss-root, which is
+ * portalled to <body> and re-shown above. */
+body.scan-active .tab-pane,
+body.scan-active .tab-pane.is-active,
+body.scan-active .tab-pane.is-beneath,
+body.scan-active .pt-stage {
+  visibility: hidden !important;
+}
+
 .ss-root {
   position: fixed;
   inset: 0;

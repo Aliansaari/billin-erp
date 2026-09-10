@@ -12,6 +12,7 @@ import {
 import { formatINR, isoDate } from '../utils/format';
 import './VouchersList.css';
 import Overlay from '../components/Overlay';
+import { getCached, setCached } from '../utils/screenCache';
 
 const SummaryIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
@@ -89,12 +90,22 @@ export default function VouchersList() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    /* Paint the last view of this exact range immediately, then refresh behind
+     * it. Without this the tab began with a spinner every single time — and
+     * with the screens now kept alive, that spinner was the only thing left
+     * that still made a tab switch feel like a page load. */
+    const cacheKey = `vouchers:${fromDate}:${toDate}`;
+    const cached = getCached(cacheKey);
+    if (cached) { setData(cached); setLoading(false); }
+
     reportAPI.dayBook({ from_date: fromDate, to_date: toDate })
       .then((res) => {
         if (cancelled) return;
         // The day book returns oldest-first; a voucher list should open on the
         // most recent transaction, not on something from the start of the year.
-        setData(sortVouchersNewestFirst(res.data?.data || []));
+        const rows = sortVouchersNewestFirst(res.data?.data || []);
+        setData(rows);
+        setCached(cacheKey, rows);
         setOffline(null);
       })
       .catch(async (e) => {

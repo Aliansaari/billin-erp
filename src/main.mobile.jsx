@@ -40,9 +40,32 @@ try {
   }
 } catch {}
 
+/* Where to open.
+ *
+ * MemoryRouter has no address bar, so it always started at '/' — which means
+ * anything that restarts the WebView (iOS reclaiming memory in the
+ * background, a crash, a live-reload) dropped the operator back on the
+ * dashboard from wherever they were. That reads as the app "going home on its
+ * own", and it is one of the clearest ways a shell gives itself away: a
+ * native app comes back where you left it.
+ *
+ * Only the four tabs are restored. A half-entered bill or a detail screen is
+ * NOT somewhere to reopen cold — the state behind it is gone, and landing on
+ * an empty bill form after a restart would look like lost work.
+ */
+const RESTORE_KEY = 'zehen_last_tab';
+const RESTORABLE = new Set(['/dashboard', '/vouchers', '/stock', '/reports']);
+
+function lastRoute() {
+  try {
+    const p = localStorage.getItem(RESTORE_KEY);
+    return RESTORABLE.has(p) ? p : '/';
+  } catch { return '/'; }
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <MemoryRouter initialEntries={['/']} initialIndex={0}>
+    <MemoryRouter initialEntries={[lastRoute()]} initialIndex={0}>
       <App />
     </MemoryRouter>
   </React.StrictMode>
