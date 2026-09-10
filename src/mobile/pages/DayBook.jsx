@@ -10,6 +10,7 @@ import { formatINR, isoDate } from '../utils/format';
 import { shareViaNative } from '../utils/sharePdf';
 import './DayBook.css';
 import Overlay from '../components/Overlay';
+import { tap as hapticTap } from '../utils/haptics';
 
 // ── Inline icons ──────────────────────────────────────────────────────
 const ChevL = () => (
@@ -289,7 +290,7 @@ export default function DayBook() {
     <div className="db-screen drill-in">
       {/* Topbar */}
       <div className="db-top">
-        <button className="db-icon-btn framed" onClick={() => navigate(-1)} aria-label="Back">
+        <button className="db-icon-btn framed" onClick={() => { hapticTap(); navigate(-1); }} aria-label="Back">
           <ChevL />
         </button>
         <h1 className="db-title">Day <em>book</em></h1>

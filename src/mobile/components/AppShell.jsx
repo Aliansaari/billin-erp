@@ -220,6 +220,9 @@ export default function AppShell() {
         const dx = e.changedTouches[0].clientX - touchStart.current.x;
         const dy = Math.abs(e.changedTouches[0].clientY - touchStart.current.y);
         if (touchStart.current.x > 80 || dx < 50 || dy > dx) return;
+        // The panel arriving and a screen leaving are both navigations; each
+        // gets the same confirmation in the hand that the drag gesture does.
+        hapticTap();
         if (isHomeRef.current) setPanelRef.current(true);
         else navigateRef.current(-1);
         return;

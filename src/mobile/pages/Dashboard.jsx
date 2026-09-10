@@ -359,7 +359,7 @@ export default function Dashboard() {
     <div className="dash-root">
       {/* Header — sticky, sits outside the scroll container */}
       <div className={`dash-header${headerScrolled ? ' is-scrolled' : ''}`}>
-        <button className="dash-avatar" onClick={() => setPanelOpen(true)} aria-label="profile menu">
+        <button className="dash-avatar" onClick={() => { hapticTap(); setPanelOpen(true); }} aria-label="profile menu">
           {initial}
         </button>
         <div className="dash-brand-wrap">

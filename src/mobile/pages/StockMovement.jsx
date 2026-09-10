@@ -6,6 +6,7 @@ import { formatINR, formatShortDate } from '../utils/format';
 import { shareViaNative } from '../utils/sharePdf';
 import './StockMovement.css';
 import './ReportList.css';
+import { tap as hapticTap } from '../utils/haptics';
 
 const ChevL = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
@@ -187,7 +188,7 @@ export default function StockMovement() {
     <div className="sm-screen">
       {/* Header */}
       <div className="sm-top">
-        <button className="sm-back" onClick={() => navigate(-1)} aria-label="Back">
+        <button className="sm-back" onClick={() => { hapticTap(); navigate(-1); }} aria-label="Back">
           <ChevL />
         </button>
         <div className="sm-top-info">

@@ -445,7 +445,7 @@ export default function BillForm({ type }) {
   return (
     <div className="bf-screen">
       <div className="bf-header">
-        <button className="bf-icon-btn" onClick={() => navigate(-1)} aria-label="Back">
+        <button className="bf-icon-btn" onClick={() => { hapticTap(); navigate(-1); }} aria-label="Back">
           <BackIcon />
         </button>
         <div className="bf-title-block">
@@ -717,7 +717,7 @@ export default function BillForm({ type }) {
           </div>
         )}
         <div className="bf-actions">
-          <button className="bf-btn-secondary" onClick={() => navigate(-1)} disabled={saving}>
+          <button className="bf-btn-secondary" onClick={() => { hapticTap(); navigate(-1); }} disabled={saving}>
             Cancel
           </button>
           <button className="bf-btn-primary" onClick={handleSave} disabled={saving}>

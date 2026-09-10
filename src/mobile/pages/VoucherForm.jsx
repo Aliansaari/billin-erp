@@ -15,7 +15,7 @@ import { paymentAPI, bankAPI } from '../../api';
 import { formatINR } from '../utils/format';
 import PartySheet from '../components/PartySheet';
 import './VoucherForm.css';
-import { success as hapticSuccess, warn as hapticWarn } from '../utils/haptics';
+import { success as hapticSuccess, warn as hapticWarn, tap as hapticTap } from '../utils/haptics';
 import { friendlyError } from '../utils/offlineSnapshot';
 
 const BackIcon = () => (
@@ -372,7 +372,7 @@ export default function VoucherForm({ type }) {
     <div className={`vf-screen ${isReceipt ? 'vf-in' : 'vf-out'}`}>
       {/* Header */}
       <div className="vf-header">
-        <button className="vf-icon-btn" onClick={() => navigate(-1)} aria-label="Back">
+        <button className="vf-icon-btn" onClick={() => { hapticTap(); navigate(-1); }} aria-label="Back">
           <BackIcon />
         </button>
         <div className="vf-header-meta">

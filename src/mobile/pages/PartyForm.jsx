@@ -16,7 +16,7 @@ import { Toast } from 'antd-mobile';
 import { Capacitor } from '@capacitor/core';
 import { partyAPI } from '../../api';
 import './PartyForm.css';
-import { success as hapticSuccess, warn as hapticWarn } from '../utils/haptics';
+import { success as hapticSuccess, warn as hapticWarn, tap as hapticTap } from '../utils/haptics';
 import { friendlyError } from '../utils/offlineSnapshot';
 
 const CloseIcon = () => (
@@ -218,7 +218,7 @@ export default function PartyForm({ type }) {
     <div className={`pf-screen ${isCustomer ? 'pf-customer' : 'pf-supplier'}`} ref={formRef}>
       {/* Header */}
       <div className="pf-header">
-        <button className="pf-icon-btn" onClick={() => navigate(-1)} aria-label="Close">
+        <button className="pf-icon-btn" onClick={() => { hapticTap(); navigate(-1); }} aria-label="Close">
           <CloseIcon />
         </button>
         <div className="pf-header-mid">
@@ -335,7 +335,7 @@ export default function PartyForm({ type }) {
       {/* Footer */}
       <div className="pf-footer">
         <div className="pf-actions">
-          <button className="pf-btn-secondary" onClick={() => navigate(-1)} disabled={saving}>
+          <button className="pf-btn-secondary" onClick={() => { hapticTap(); navigate(-1); }} disabled={saving}>
             Cancel
           </button>
           <button className="pf-btn-primary" onClick={handleSave} disabled={saving}>

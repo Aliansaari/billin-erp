@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { tap as hapticTap } from '../utils/haptics';
+import { tap as hapticTap, select as hapticSelect } from '../utils/haptics';
 import { formatINR } from '../utils/format';
 import './NotificationSheet.css';
 
@@ -31,6 +31,52 @@ import './NotificationSheet.css';
 const RANK = { danger: 0, warn: 1, info: 2 };
 
 export default function NotificationSheet({ open, items = [], onClose }) {
+  /* Swipe up to dismiss.
+   *
+   * A sheet you can only close with a button is a dialog wearing a sheet's
+   * clothes. This one hangs from the top, so the way out is upwards — the
+   * direction it came from — and it follows the finger the whole way rather
+   * than waiting for release to decide. Below a quarter of its height it
+   * springs back, so a hesitant drag is a peek and not a mistake.
+   *
+   * Hooks stay above the early return: they must run on every render or React
+   * treats the mount as a different component and throws. */
+  const sheetRef = useRef(null);
+  const drag = useRef(null);
+  const [dy, setDy] = useState(0);
+
+  const finish = useCallback((closing) => {
+    drag.current = null;
+    if (closing) { hapticSelect(); onClose?.(); }
+    setDy(0);
+  }, [onClose]);
+
+  const onTouchStart = (e) => {
+    if (e.touches.length !== 1) return;
+    // Only from the top of a list that is already scrolled up, or the drag
+    // fights the list's own scrolling.
+    const list = sheetRef.current?.querySelector('.ns-list');
+    if (list && list.scrollTop > 0) return;
+    drag.current = { y0: e.touches[0].clientY, t0: e.timeStamp };
+  };
+
+  const onTouchMove = (e) => {
+    if (!drag.current) return;
+    const delta = e.touches[0].clientY - drag.current.y0;
+    // Upward only; pulling down just stretches slightly so the sheet feels
+    // attached rather than ignoring you.
+    setDy(delta < 0 ? delta : delta * 0.18);
+  };
+
+  const onTouchEnd = (e) => {
+    if (!drag.current) return;
+    const delta = e.changedTouches[0].clientY - drag.current.y0;
+    const ms = Math.max(1, e.timeStamp - drag.current.t0);
+    const height = sheetRef.current?.offsetHeight || 320;
+    const flick = -delta / ms > 0.45;
+    finish(-delta > height * 0.25 || flick);
+  };
+
   if (!open) return null;
 
   const sorted = [...items].sort(
@@ -42,7 +88,17 @@ export default function NotificationSheet({ open, items = [], onClose }) {
       className="ns-backdrop"
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
     >
-      <div className="ns-sheet" role="dialog" aria-label="Needs attention">
+      <div
+        className={`ns-sheet${drag.current ? ' is-dragging' : ''}`}
+        ref={sheetRef}
+        role="dialog"
+        aria-label="Needs attention"
+        style={dy ? { transform: `translateY(${dy}px)` } : undefined}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={() => finish(false)}
+      >
         <div className="ns-head">
           <h2 className="ns-title">
             Needs attention
