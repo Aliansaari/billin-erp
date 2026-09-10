@@ -11,8 +11,15 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 48px;
-  margin: 12px 0 2px;
+  min-height: 52px;
+  /* Even above and below. It had 12px of its own on top of the card's 18px
+     margin, and 2px underneath — so it sat hard against the quick actions and
+     floated away from the card. A pill between two blocks has to be
+     equidistant from both or it reads as attached to one.
+     The gap above comes from the hero card's own margin, so this only owns
+     the one below; that way removing the pill leaves the spacing intact
+     rather than collapsing the card onto the buttons. */
+  margin: 0 0 16px;
   padding: 8px 14px 8px 12px;
   border: none;
   border-radius: 999px;

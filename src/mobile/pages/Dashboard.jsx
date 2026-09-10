@@ -316,7 +316,6 @@ export default function Dashboard() {
     if (lowStock) items.push({ key: 'stock', type: 'warn', icon: I.box, ...lowStock, action: () => navigate('/stock') });
     return items;
   }, [overdueRow, gstr1, lowStock]);
-  const [notifOpen, setNotifOpen] = useState(false);
 
   /* Scroll-aware header.
    *
@@ -352,16 +351,7 @@ export default function Dashboard() {
     onScroll();                              // reflect the position it mounts at
     detachScroll.current = () => { el.removeEventListener('scroll', onScroll); };
   }, []);
-  const notifRef = useRef(null);
 
-  useEffect(() => {
-    if (!notifOpen) return;
-    function onTap(e) {
-      if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
-    }
-    document.addEventListener('pointerdown', onTap);
-    return () => document.removeEventListener('pointerdown', onTap);
-  }, [notifOpen]);
 
   return (
     <div className="dash-root">
@@ -378,44 +368,16 @@ export default function Dashboard() {
           <button className="icon-btn" aria-label="search" onClick={() => navigate('/search')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
           </button>
-          <div className="notif-wrap" ref={notifRef}>
-            <button className="icon-btn" aria-label="notifications" onClick={() => setNotifOpen((v) => !v)}>
-              {I.bell}
-              {notifications.length > 0 && (
-                <span className="notif-badge">{notifications.length}</span>
-              )}
-            </button>
-            {/* Full-screen catcher so a tap anywhere closes the panel. The
-                click-outside listener alone missed taps that landed on
-                scrollable children and on the tab bar, so the panel felt
-                stuck open. */}
-            {notifOpen && (
-              <div className="notif-scrim" onClick={() => setNotifOpen(false)} aria-hidden />
-            )}
-            {notifOpen && (
-              <div className="notif-dropdown">
-                <div className="notif-dropdown-head">Notifications</div>
-                {notifications.length === 0 && (
-                  <div className="notif-dropdown-empty">All clear — nothing needs attention.</div>
-                )}
-                {notifications.map((n) => (
-                  <button key={n.key} className="notif-dropdown-item" onClick={() => { setNotifOpen(false); n.action(); }}>
-                    <span className={`att-icon ${n.type}`}>{n.icon}</span>
-                    <span className="att-content">
-                      <span className="att-title">{n.title}</span>
-                      <span className="att-sub">{n.sub}</span>
-                    </span>
-                    {n.total != null && (
-                      <span className="att-amount">
-                        <span className="currency">₹</span>{formatINR(n.total)}
-                      </span>
-                    )}
-                    {n.total == null && <span className="att-chevron">{I.chev}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* The notification bell is gone.
+              Its dropdown rendered the SAME `notifications` array the pill
+              above cycles through — the same two or three items, one of them
+              behind a badge and a tap, the other already on screen and
+              rotating. Two surfaces for one list is not redundancy the user
+              gets to ignore; it is two places to check and two chances for
+              them to disagree.
+              The pill wins because it is visible without being opened, it
+              carries every item rather than a count of them, and tapping it
+              goes to the thing rather than to a list about the thing. */}
         </div>
       </div>
 

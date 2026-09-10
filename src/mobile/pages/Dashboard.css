@@ -52,7 +52,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: calc(env(safe-area-inset-top, 0px) + 8px) var(--pad) 18px 12px;
+  /* Asymmetric on purpose: the avatar is a filled shape and reads as heavier
+     than its box, so it sits closer to the edge than the search button does.
+     Optical alignment, not measured alignment. */
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) var(--pad) 14px 14px;
   gap: 12px;
   background: var(--c-bg-app);
   position: relative;
@@ -69,9 +72,9 @@
 }
 
 .dash-brand {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
   color: var(--c-text);
   white-space: nowrap;
   overflow: hidden;
@@ -79,10 +82,10 @@
 }
 
 .dash-date {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--c-text-mute);
-  letter-spacing: 0.01em;
-  margin-top: 2px;
+  letter-spacing: 0.005em;
+  margin-top: 1px;
 }
 
 .dash-actions { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
@@ -193,9 +196,12 @@
 .notif-dropdown-item:active { background: var(--c-primary-soft); }
 
 .dash-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  /* A squircle, matching the quick-action tiles and the tab bar's centre
+     button. The app's own icon language is rounded squares; a lone circle in
+     the corner belonged to a different app. */
+  border-radius: 12px;
   background: var(--c-text);
   color: var(--c-bg-surface);
   display: flex;
@@ -215,7 +221,7 @@
   color: var(--c-bg-surface);
   border-radius: var(--r-hero);
   padding: 22px 22px 18px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
   position: relative;
   overflow: hidden;
   box-shadow: var(--shadow-hero);
