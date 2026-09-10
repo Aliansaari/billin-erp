@@ -1,0 +1,110 @@
+/* ──────────────────────────────────────────────────────────────────────
+ * AttentionPill
+ *
+ * Dark, so it reads as a sibling of the hero card above it rather than as
+ * another item in the cream list below — the two dark shapes together look
+ * deliberate, where a third bordered card looked like a pile.
+ * ────────────────────────────────────────────────────────────────────── */
+
+.apill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  margin: 12px 0 2px;
+  padding: 8px 14px 8px 12px;
+  border: none;
+  border-radius: 999px;
+  /* Same palette as the hero card, so the two dark shapes read as one
+     family. --c-hero-mid is the middle stop of that card's gradient, which is
+     the tone the pill sits closest to on screen. */
+  background: var(--c-hero-mid, #141210);
+  color: var(--c-bg-surface, #FBF8F1);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 2px 10px -4px rgba(0, 0, 0, 0.35);
+  transition: transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.apill:active { transform: scale(0.985); }
+
+/* The content swap. Up and out, in from below — the motion that makes a
+   capsule read as one surface showing successive things, rather than as a
+   box whose text keeps changing. */
+.apill-inner {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: apill-in 320ms cubic-bezier(0.22, 0.9, 0.24, 1);
+}
+@keyframes apill-in {
+  from { opacity: 0; transform: translateY(9px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .apill-inner { animation: none; }
+}
+
+.apill-icon {
+  flex: none;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(251, 248, 241, 0.10);
+  color: rgba(251, 248, 241, 0.9);
+}
+.apill-icon svg { width: 14px; height: 14px; }
+.apill-danger, .apill-warn { color: var(--c-warning-bright, #E0AE55); }
+.apill-info { color: var(--c-primary-hi, #F06A3A); }
+
+.apill-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.apill-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.apill-sub {
+  font-size: 10.5px;
+  color: rgba(251, 248, 241, 0.55);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.apill-amount {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Which of them you are on. Bars rather than dots: at 3px a circle and a
+   square are the same shape, and a bar shows progress along a row. */
+.apill-dots {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 2px;
+}
+.apill-dot {
+  width: 4px; height: 4px;
+  border-radius: 999px;
+  background: rgba(251, 248, 241, 0.25);
+  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1), background-color 260ms;
+}
+.apill-dot.on {
+  width: 11px;
+  background: rgba(251, 248, 241, 0.75);
+}

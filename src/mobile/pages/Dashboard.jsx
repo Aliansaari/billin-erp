@@ -20,6 +20,7 @@ import './Dashboard.css';
 import { useShell } from '../components/ShellContext';
 import { onAppResumed } from '../utils/nativeShell';
 import Sparkline from '../components/Sparkline';
+import AttentionPill from '../components/AttentionPill';
 
 // SVG icons — kept inline to avoid an icon-lib dep and to match the
 // editorial stroke weight.
@@ -215,7 +216,16 @@ export default function Dashboard() {
    * means the three periods can never disagree with each other or with the
    * line above them. */
   const [period, setPeriod] = useState('today');
+  /* Absent entirely when the shop's server predates this field. The Week tab
+   * is built from it, so without it there is no Week tab — a period that can
+   * only ever report ₹0 is worse than one that is not offered. */
   const series = useMemo(() => stats?.sales_series || [], [stats]);
+
+  // If Week was showing and the series went away (a company switch onto an
+  // older server), fall back rather than sitting on an empty period.
+  useEffect(() => {
+    if (period === 'week' && series.length === 0) setPeriod('today');
+  }, [period, series.length]);
 
   const hero = useMemo(() => {
     if (period === 'month') {
@@ -444,7 +454,7 @@ export default function Dashboard() {
         </div>
 
         <div className="hero-periods" role="tablist" aria-label="Sales period">
-          {[['today', 'Today'], ['week', 'Week'], ['month', 'Month']].map(([key, label]) => (
+          {[['today', 'Today'], ...(series.length ? [['week', 'Week']] : []), ['month', 'Month']].map(([key, label]) => (
             <button
               key={key}
               role="tab"
@@ -491,25 +501,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {notifications.length > 0 && (
-        <div className="attn-strip">
-          {notifications.map((n) => (
-            <button key={n.key} className={`attn-card attn-${n.type}`} onClick={n.action}>
-              <span className="attn-icon">{n.icon}</span>
-              <span className="attn-text">
-                <span className="attn-title">{n.title}</span>
-                <span className="attn-sub">{n.sub}</span>
-              </span>
-              {n.total > 0 && (
-                <span className="attn-amount">
-                  <span className="currency">₹</span>{formatINR(n.total)}
-                </span>
-              )}
-              <span className="attn-chev" aria-hidden>›</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* One line that cycles, instead of a stack of cards.
+          The cards were the right information in the wrong form: they
+          duplicated the notification panel, took a third of the screen to say
+          what fits on a line, and three bordered alerts in a row read as an
+          error state rather than as a summary. */}
+      <AttentionPill items={notifications} />
 
       {/* Quick actions — 4 core entry points. Everything else is in
           the Command Centre (centre tab-bar button). */}
