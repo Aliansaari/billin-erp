@@ -394,11 +394,9 @@
   transition: all 180ms;
 }
 
-.sp-theme-opt.active {
-  background: linear-gradient(155deg, var(--c-accent-from) 0%, var(--c-accent-to) 100%);
-  color: #FFF4EA;
-  box-shadow: 0 2px 6px var(--c-accent-glow), inset 0 1px 0 rgba(255, 200, 160, 0.25);
-}
+/* The saturated slab this used to be is gone — see the segmented-control note
+   further down. Two competing rules for one state is how it ended up
+   depending on parse order in the first place. */
 
 /* ─── Navigation list ─────────────────────────────────────────────── */
 .sp-nav-list {
@@ -762,4 +760,105 @@
   color: var(--c-text-faint);
   max-width: 55%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Panel refinements
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Section labels lose the trailing rule.
+   A line trailing off a heading is a decoration that has to be redrawn in the
+   reader's head every time; the space between groups already separates them,
+   and doing the job twice is what makes a panel look busy rather than
+   organised. */
+.sp-section-label::after { content: none; }
+.sp-section-label {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  margin: 0 0 8px 4px;
+}
+
+/* The accent bar down the left of the firm card read as a clipped element
+   rather than as an accent — a 3px sliver of colour with no other member of
+   its family anywhere on the panel. */
+.sp-firm::before { content: none; }
+
+.sp-firm-meta:empty { display: none; }
+
+/* Dashed borders read as placeholders — "this will be a control later".
+   A solid hairline says the same thing and looks finished. */
+.sp-firm-switch { border-style: solid; }
+
+/* ── Segmented controls ──────────────────────────────────────────────
+ *
+ * These were the loudest thing on the panel: the selected option was a
+ * saturated orange slab with a coloured glow, so "Editorial" and "Light" —
+ * two settings nobody looks at twice — outranked the shop's own name.
+ *
+ * A segmented control is a place-marker, not a call to action. The platform
+ * pattern is right: a recessed track, and the selection is a raised light
+ * pill that looks like it sits ON the track. Colour is not needed to say
+ * which one is chosen — elevation already does, and it does it without
+ * shouting.
+ */
+.sp-theme-seg {
+  background: var(--c-bg-page);
+  border-color: transparent;
+  padding: 3px;
+  gap: 0;
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+
+.sp-theme-opt {
+  height: 36px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--c-text-mute);
+  transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+/* Scoped to the drawer so it beats the original rule outright rather than
+   relying on source order — the two live in the same file and the shorthand
+   `background` in the older one resets background-color, which made the
+   outcome depend on which was parsed last. */
+.sp-drawer .sp-theme-opt.active {
+  background: none;
+  background-color: var(--c-bg-card);
+  color: var(--c-text);
+  font-weight: 600;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.10),
+    0 0 0 0.5px rgba(0, 0, 0, 0.06);
+}
+.sp-drawer .sp-theme-opt:active:not(.active) { color: var(--c-text-2, var(--c-text)); }
+
+/* ── Card rhythm ─────────────────────────────────────────────────────
+   Every block on the panel now shares one radius, one border and one gap.
+   Before, the firm card, the FY card, the connection block and the nav list
+   each had their own — which is why it read as a stack of unrelated boxes
+   rather than as one panel. */
+.sp-firm,
+.sp-fy,
+.sp-conn,
+.sp-nav-list,
+.sp-switch-row {
+  border-radius: 14px;
+  border: 1px solid var(--c-line, var(--c-border));
+  background: var(--c-bg-card);
+}
+.sp-fy   { margin-bottom: 20px; }
+.sp-conn { margin-bottom: 8px; }
+.sp-firm { margin-bottom: 20px; }
+
+/* FY: label, value, then the range beneath it — never beside. */
+.sp-fy { align-items: flex-start; padding: 13px 14px; }
+.sp-fy-icon { margin-top: 2px; }
+.sp-fy-range {
+  max-width: none;
+  text-align: left;
+  font-size: 11px;
+  color: var(--c-text-faint);
+  margin-top: 1px;
 }

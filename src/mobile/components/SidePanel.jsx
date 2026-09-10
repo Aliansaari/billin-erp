@@ -271,9 +271,12 @@ export default function SidePanel({ open, onClose }) {
             <div className="sp-avatar">{userInitial}</div>
             <div className="sp-user-info">
               <div className="sp-user-name">{userName}</div>
+              {/* The contact line falls back to the role when there is no
+                  email on the user, which printed "SUPER ADMIN  Super Admin".
+                  Show it only when it adds something. */}
               <div className="sp-user-meta">
                 <span className="sp-role-pill">{userRole}</span>
-                {userEmail || null}
+                {userEmail && userEmail !== userRole ? userEmail : null}
               </div>
             </div>
             <button className="sp-close-btn" onClick={animateClose} aria-label="Close panel">
@@ -289,7 +292,9 @@ export default function SidePanel({ open, onClose }) {
               <div className="sp-firm-avatar">{companyInitial}</div>
               <div className="sp-firm-info">
                 <div className="sp-firm-name">{companyName}</div>
-                <div className="sp-firm-meta">{firmMeta}</div>
+                {/* firmMeta is GSTIN · city; when a company has neither it was
+                    rendering a lone em-dash, which is worse than nothing. */}
+                {firmMeta && firmMeta !== '—' && <div className="sp-firm-meta">{firmMeta}</div>}
               </div>
             </div>
             {firmCount > 1 && (
@@ -311,8 +316,11 @@ export default function SidePanel({ open, onClose }) {
             <div className="sp-fy-text">
               <span className="sp-fy-label">Financial year</span>
               <span className="sp-fy-value">{fy.label}</span>
+              {/* Under the value, not beside it. On the right of the row it
+                  had nowhere to go and broke across two lines mid-date:
+                  "Apr 1, 2026 — Mar 31, / 2027". */}
+              <span className="sp-fy-range">{fy.range}</span>
             </div>
-            <span className="sp-fy-range">{fy.range}</span>
           </div>
 
           {/* ── Connection ──────────────────────────────────────────────
