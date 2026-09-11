@@ -4,8 +4,9 @@ import { Toast } from 'antd-mobile';
 import { Capacitor } from '@capacitor/core';
 import { productAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
-import { fetchSnapshot, sectionOf, sectionWasTrimmed, sectionIsPartial, snapshotAge, isUnreachable, friendlyError, snapshotMatchesSession } from '../utils/offlineSnapshot';
+import { fetchSnapshot, sectionOf, sectionWasTrimmed, sectionIsPartial, snapshotAge, isUnreachable, friendlyError, snapshotMatchesSession, ageOf } from '../utils/offlineSnapshot';
 import { parseSearch, matchesSearch } from '../utils/searchPrefix';
+import { readProducts } from '../utils/mirrorReads';
 import { getCached, setCached } from '../utils/screenCache';
 import { formatINR } from '../utils/format';
 import { shareViaNative } from '../utils/sharePdf';
@@ -138,6 +139,15 @@ export default function Stock() {
 
   const rowsOf = (res) => (Array.isArray(res.data) ? res.data : (res.data?.data || []));
 
+  /* The mirror first, the shop second.
+   *
+   * readProducts returns null the moment it meets a query it cannot answer
+   * exactly as the server would, so this is never a guess: either the device
+   * can serve the identical result set, or the request goes over the wire as
+   * it always did. That is what makes searching 30,000 items instant without
+   * the answer depending on whether the tunnel happened to be up. */
+  const fetchPage = async (params) => (await readProducts(params)) || productAPI.getAll(params);
+
   const queryParams = (page, { filter: f = 'all', search: q = '' } = {}) => {
     const params = { limit: PAGE_SIZE, page };
     if (f !== 'all') params.stock_status = f;
@@ -170,6 +180,25 @@ export default function Stock() {
 
     const run = async () => {
       const myReq = ++reqIdRef.current;
+
+      /* Paint from the mirror immediately, then still ask the shop.
+       *
+       * Opening a screen is not a request for fresh figures, it is a request
+       * to see the screen — so it must not wait on a round trip through a
+       * tunnel to a PC on home broadband. The live call below replaces this
+       * a moment later when it lands. Pull-to-refresh is the gesture that
+       * means "get me the current numbers", and that one always goes to the
+       * shop. */
+      if (!cachedStock) {
+        const local = await readProducts(queryParams(1));
+        if (local && !cancelled && myReq === reqIdRef.current) {
+          setProducts(rowsOf(local));
+          setTotalCount(Number(local.data?.total ?? 0));
+          setSummary(local.data?.summary || null);
+          setLoading(false);
+        }
+      }
+
       const first = await productAPI.getAll(queryParams(1));
       if (cancelled || myReq !== reqIdRef.current) return;
 
@@ -203,6 +232,28 @@ export default function Stock() {
       .catch(async (e) => {
         if (cancelled) return;
         if (isUnreachable(e)) {
+          /* The mirror outranks the snapshot here, and by a long way.
+           *
+           * The snapshot is capped at 460 KB shared across companies and
+           * sheds the item list first, so on the shops with the most stock it
+           * carries none of it — which is exactly the "I can't see the full
+           * stock when the PC is off" complaint. The mirror is the whole
+           * catalogue and has verified its own checksum. */
+          const local = await readProducts(queryParams(1, { filter, search })).catch(() => null);
+          if (local && !cancelled) {
+            const rows = rowsOf(local);
+            const total = Number(local.data?.total ?? rows.length);
+            bulkRef.current = total <= BULK_LIMIT;
+            setProducts(rows);
+            setTotalCount(total);
+            setSummary(local.data?.summary || null);
+            setNextPage(2);
+            /* Says WHEN, in the same words the snapshot banner uses.
+             * A complete list with no date is still a list someone might
+             * quote from without realising how old it is. */
+            setOffline({ mirror: true, age: ageOf(local.syncedAt) });
+            return;
+          }
           const snap = await fetchSnapshot().catch(() => null);
           const section = sectionOf(snap, 'stock');
           if (!cancelled && section) {
@@ -260,7 +311,7 @@ export default function Stock() {
       const myReq = ++reqIdRef.current;
       setListBusy(true);
       try {
-        const res = await productAPI.getAll(queryParams(1, { filter, search }));
+        const res = await fetchPage(queryParams(1, { filter, search }));
         if (cancelled || myReq !== reqIdRef.current) return;
         setProducts(rowsOf(res));
         setTotalCount(Number(res.data?.total ?? 0));
@@ -282,7 +333,7 @@ export default function Stock() {
     moreRef.current = true;
     const myReq = reqIdRef.current;
     try {
-      const res = await productAPI.getAll(queryParams(nextPage, { filter, search }));
+      const res = await fetchPage(queryParams(nextPage, { filter, search }));
       if (myReq !== reqIdRef.current) return;   // the query changed under us
       const rows = rowsOf(res);
       if (rows.length) {

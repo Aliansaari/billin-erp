@@ -150,9 +150,12 @@ export function sectionIsPartial(snapshot, key) {
   return Array.isArray(partial) && partial.includes(key);
 }
 
-/** Human age of the snapshot, e.g. "12 minutes ago". */
-export function snapshotAge(snapshot) {
-  const ts = snapshot?.snapshot?.generated_at;
+/** Human age of a timestamp, e.g. "12 minutes ago".
+ *
+ * Shared with the on-device mirror so the two never word the same idea
+ * differently — "12 minutes ago" in one place and "synced 12m" in another
+ * reads as two different mechanisms rather than one. */
+export function ageOf(ts) {
   if (!ts) return '';
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
   if (mins < 1)    return 'just now';
@@ -161,6 +164,11 @@ export function snapshotAge(snapshot) {
   if (hrs < 24)    return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
   const days = Math.round(hrs / 24);
   return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/** Human age of the snapshot, e.g. "12 minutes ago". */
+export function snapshotAge(snapshot) {
+  return ageOf(snapshot?.snapshot?.generated_at);
 }
 
 /**
