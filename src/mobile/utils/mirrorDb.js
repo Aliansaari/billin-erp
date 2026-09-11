@@ -38,6 +38,7 @@ import { Capacitor } from '@capacitor/core';
 import { sessionCompanyId } from './offlineSnapshot';
 
 let sqlitePromise = null;   // lazy: never loaded in the browser preview
+let lastOpenError = null;   // kept so the self-test can report the real cause
 let openDb = null;          // the single live connection
 let openName = null;        // which company it belongs to
 
@@ -123,7 +124,8 @@ export async function openMirror() {
     openName = name;
     return db;
   } catch (e) {
-    console.warn('[mirror] open failed:', e?.message || e);
+    lastOpenError = e?.message || String(e);
+    console.warn('[mirror] open failed:', lastOpenError);
     openDb = null;
     openName = null;
     return null;
@@ -179,27 +181,76 @@ export async function setMeta(key, value) {
  * that has to outlast the app being killed.
  */
 export async function selfTest() {
+  /* Staged on purpose.
+   *
+   * The first version reported a bare "fail", which carried exactly as much
+   * information as showing nothing at all — and cost a build, an install and
+   * a round trip to learn that. Each stage below names itself and passes the
+   * underlying error through, so whatever goes wrong is legible from the
+   * screen the first time. */
   if (!mirrorAvailable()) return { ok: false, detail: 'not native' };
+
   const companyId = sessionCompanyId();
   if (!companyId) return { ok: false, detail: 'no company in session' };
 
+  let conn;
+  try {
+    conn = await sqlite();
+  } catch (e) {
+    return { ok: false, detail: `plugin load: ${e?.message || e}` };
+  }
+
+  /* Encryption is a config-time decision on iOS. Asking the plugin directly
+   * separates "capacitor.config is wrong" from "the Keychain refused us",
+   * which look identical from the outside and have completely different
+   * fixes. */
+  let configured = false;
+  try {
+    configured = !!(await conn.isInConfigEncryption())?.result;
+  } catch (e) {
+    return { ok: false, detail: `config check: ${e?.message || e}` };
+  }
+  if (!configured) return { ok: false, detail: 'encryption off in capacitor.config' };
+
+  try {
+    await ensureSecret(conn);
+  } catch (e) {
+    return { ok: false, detail: `keychain: ${e?.message || e}` };
+  }
+
+  const db = await openMirror();
+  if (!db) return { ok: false, detail: `open: ${lastOpenError || 'unknown'}` };
+
   const token = `t${Date.now()}`;
   try {
-    if (!(await setMeta('__selftest', token))) {
-      return { ok: false, detail: 'write failed' };
-    }
-    await closeMirror();
-    const back = await getMeta('__selftest');
-    if (back !== token) return { ok: false, detail: `read back ${back ?? 'null'}` };
-
-    const conn = await sqlite();
-    const enc = await conn.isSecretStored().catch(() => ({ result: false }));
-    return {
-      ok: true,
-      detail: `company ${companyId}, ${enc?.result ? 'encrypted' : 'NOT ENCRYPTED'}`,
-      encrypted: !!enc?.result,
-    };
+    await db.run(
+      'INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;',
+      ['__selftest', token, Date.now()],
+    );
   } catch (e) {
-    return { ok: false, detail: e?.message || String(e) };
+    return { ok: false, detail: `write: ${e?.message || e}` };
   }
+
+  /* Close and reopen before reading. A value that survives only while the
+   * connection is live proves nothing about a database that has to outlast
+   * the app being killed. */
+  try {
+    await closeMirror();
+  } catch (e) {
+    return { ok: false, detail: `close: ${e?.message || e}` };
+  }
+
+  let back;
+  try {
+    const again = await openMirror();
+    if (!again) return { ok: false, detail: `reopen: ${lastOpenError || 'unknown'}` };
+    const r = await again.query('SELECT value FROM meta WHERE key = ?;', ['__selftest']);
+    back = r?.values?.[0]?.value ?? null;
+  } catch (e) {
+    return { ok: false, detail: `read: ${e?.message || e}` };
+  }
+  if (back !== token) return { ok: false, detail: `read back ${back ?? 'null'}` };
+
+  return { ok: true, encrypted: true, detail: `company ${companyId}` };
 }

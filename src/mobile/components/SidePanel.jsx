@@ -498,8 +498,13 @@ export default function SidePanel({ open, onClose }) {
                 {/* Only shown when it has actually happened — a permanent
                     "restarts: 0" would be clutter on every phone that is fine. */}
                 {restarts > 0 && <> <span className="sp-acc">·</span> {restarts} restart{restarts === 1 ? '' : 's'}</>}
+                {/* The detail is the whole point. A bare "fail" says only
+                    that something went wrong, which is what the absence of a
+                    mirror already said. */}
                 {mirror && (
-                  <> <span className="sp-acc">·</span> mirror {mirror.ok ? (mirror.encrypted ? 'ok/enc' : 'ok/PLAIN') : 'fail'}</>
+                  <> <span className="sp-acc">·</span> mirror {mirror.ok
+                    ? (mirror.encrypted ? 'ok/enc' : 'ok/PLAIN')
+                    : `fail: ${mirror.detail}`}</>
                 )}
               </span>
               {/* The connection block above says whether this is live, and it

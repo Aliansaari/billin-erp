@@ -41,6 +41,30 @@ const config = {
     CapacitorHttp: {
       enabled: true,
     },
+    /* The on-device mirror's encrypted store.
+     *
+     * `iosIsEncryption` is NOT optional decoration: the plugin defaults it to
+     * false when the key is absent, and every secret operation then fails
+     * with "No Encryption set in capacitor.config" — which is exactly how
+     * this first shipped. Encryption is a config-time decision on iOS, not a
+     * runtime one, so it has to live here.
+     *
+     * biometricAuth stays false deliberately. Turning it on would make the
+     * PLUGIN demand Face ID before the database opens, which would quietly
+     * override the owner's own choice about the app lock and lock them out
+     * of their books mid-sale if a scan failed. The app lock is a separate,
+     * optional thing (see utils/biometric.js).
+     *
+     * Library/ rather than Documents/ so the file is not exposed through the
+     * Files app when document sharing is enabled. */
+    CapacitorSQLite: {
+      iosIsEncryption: true,
+      iosKeychainPrefix: 'zehen',
+      iosDatabaseLocation: 'Library/CapacitorDatabase',
+      iosBiometric: { biometricAuth: false },
+      androidIsEncryption: true,
+      androidBiometric: { biometricAuth: false },
+    },
   },
 };
 
