@@ -12,6 +12,7 @@ import api, { companyAPI, setServerUrl as saveServerUrl, getServerUrl, getDevice
 import { fetchSnapshot, snapshotAge } from '../utils/offlineSnapshot';
 import './SidePanel.css';
 import { biometryInfo, isLockEnabled, setLockEnabled, authenticate, restartCount } from '../utils/biometric';
+import { selfTest as mirrorSelfTest, mirrorAvailable } from '../utils/mirrorDb';
 import { select as hapticSelect } from '../utils/haptics';
 
 const I = {
@@ -224,6 +225,21 @@ export default function SidePanel({ open, onClose }) {
   const [lockOn, setLockOn] = useState(isLockEnabled);
   const [bioBusy, setBioBusy] = useState(false);
   const restarts = restartCount();
+
+  /* Mirror storage check.
+   *
+   * "The mirror is empty" looks the same whether the plugin failed to load,
+   * the Keychain refused the secret, or the sync has simply not run yet.
+   * Reading the answer off the screen beats inferring it from a build and a
+   * round trip, so the result lands here rather than in a log nobody can
+   * reach from a phone. Runs only while the panel is open. */
+  const [mirror, setMirror] = useState(null);
+  useEffect(() => {
+    if (!open || !mirrorAvailable()) return undefined;
+    let dead = false;
+    mirrorSelfTest().then((r) => { if (!dead) setMirror(r); });
+    return () => { dead = true; };
+  }, [open]);
   useEffect(() => { biometryInfo().then(setBio).catch(() => {}); }, []);
 
   if (!open && !closing) return null;
@@ -482,6 +498,9 @@ export default function SidePanel({ open, onClose }) {
                 {/* Only shown when it has actually happened — a permanent
                     "restarts: 0" would be clutter on every phone that is fine. */}
                 {restarts > 0 && <> <span className="sp-acc">·</span> {restarts} restart{restarts === 1 ? '' : 's'}</>}
+                {mirror && (
+                  <> <span className="sp-acc">·</span> mirror {mirror.ok ? (mirror.encrypted ? 'ok/enc' : 'ok/PLAIN') : 'fail'}</>
+                )}
               </span>
               {/* The connection block above says whether this is live, and it
                   actually checks. A second light down here saying "synced" no

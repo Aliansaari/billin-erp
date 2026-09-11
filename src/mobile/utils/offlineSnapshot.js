@@ -49,7 +49,11 @@ export async function fetchSnapshot(siteId) {
  * Which company is this session signed into?
  * Returns null when it cannot tell, in which case nothing is blocked.
  */
-function sessionCompanyId() {
+/* Exported so the on-device mirror partitions its databases by the SAME
+ * rule this file uses to decide whose figures may be shown. Two copies of
+ * "which company is this session" is precisely how one shop's balances end
+ * up under another shop's name. */
+export function sessionCompanyId() {
   // The JWT is authoritative: the stored `user` object carries the profile,
   // not the company, and after a company switch the token is the thing that
   // changed. Reading the claim is a base64 decode of our own token — no
