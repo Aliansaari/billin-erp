@@ -86,6 +86,22 @@ CREATE TABLE IF NOT EXISTS meta (
   value      TEXT,
   updated_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS parties (
+  party_id      INTEGER PRIMARY KEY,
+  party_name    TEXT,
+  party_type    TEXT,
+  mobile_1      TEXT,
+  credit_limit  REAL,
+  credit_days   INTEGER,
+  -- Money is an INTEGER count of paise, never REAL.
+  --
+  -- SQLite's REAL is a double, so storing rupees in one would reintroduce
+  -- exactly the drift the checksum exists to detect: the device and the shop
+  -- could hold "the same" balance and disagree in the second decimal place.
+  -- Integers are exact, and rupees are produced at the display edge.
+  balance_paise INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS parties_name ON parties(party_name);
 `;
 
 /**

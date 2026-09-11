@@ -228,6 +228,7 @@ app.use('/api/tally/ledger-mapping', require('./routes/tallyMapping'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/remote-access', require('./routes/remoteAccess'));
+app.use('/api/mirror', require('./routes/mirror'));
 app.use('/api/data', require('./routes/importExport'));
 app.use('/api/tally', require('./routes/tally'));
 app.use('/api/backup', require('./routes/backup'));

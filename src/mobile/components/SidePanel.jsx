@@ -13,6 +13,7 @@ import { fetchSnapshot, snapshotAge } from '../utils/offlineSnapshot';
 import './SidePanel.css';
 import { biometryInfo, isLockEnabled, setLockEnabled, authenticate, restartCount } from '../utils/biometric';
 import { selfTest as mirrorSelfTest, mirrorAvailable } from '../utils/mirrorDb';
+import { syncParties } from '../utils/mirrorSync';
 import { select as hapticSelect } from '../utils/haptics';
 
 const I = {
@@ -237,7 +238,17 @@ export default function SidePanel({ open, onClose }) {
   useEffect(() => {
     if (!open || !mirrorAvailable()) return undefined;
     let dead = false;
-    mirrorSelfTest().then((r) => { if (!dead) setMirror(r); });
+    mirrorSelfTest()
+      .then(async (r) => {
+        if (!r.ok || dead) return r;
+        // Storage working is only half of it — pull a real set and prove the
+        // checksum agrees, since that is the property the figures rest on.
+        const s = await syncParties();
+        return s.ok
+          ? { ...r, detail: `${s.count} parties, verified` }
+          : { ...r, ok: false, detail: s.reason };
+      })
+      .then((r) => { if (!dead) setMirror(r); });
     return () => { dead = true; };
   }, [open]);
   useEffect(() => { biometryInfo().then(setBio).catch(() => {}); }, []);
