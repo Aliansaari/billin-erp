@@ -200,3 +200,54 @@ export async function readParties() {
     return null;
   }
 }
+
+/**
+ * Who owes what — the screen a balance actually gets quoted from.
+ *
+ * Replicates reportController.partyOutstanding exactly, including the part
+ * that matters most: the balance is `parties.current_balance` as the server
+ * maintains it, carried across unchanged. Nothing here re-adds ledger rows to
+ * arrive at its own answer. That controller carries a long note about the
+ * last time something did — a bill-derived formula that broke on imported
+ * data, overstated every supplier and flipped the net sign — and a phone
+ * standing in front of a customer is the worst possible place to repeat it.
+ *
+ * Customers are the parties with a positive balance, suppliers the negative
+ * ones, and 'Both' appears under either. Ordered by size, which is the order
+ * the server uses and the order anyone reads a collection list in.
+ */
+export async function readOutstanding(mode) {
+  if (mode !== 'Customer' && mode !== 'Supplier') return null;
+  const { trusted, syncedAt } = await mirrorState('parties');
+  if (!trusted) return null;
+  const db = await openMirror();
+  if (!db) return null;
+
+  const types = mode === 'Customer' ? ['Customer', 'Both'] : ['Supplier', 'Both'];
+  const sign  = mode === 'Customer' ? '> 0' : '< 0';
+
+  try {
+    const r = await db.query(
+      `SELECT * FROM parties
+        WHERE party_type IN (?, ?) AND balance_paise ${sign}
+        ORDER BY ABS(balance_paise) DESC;`,
+      types,
+    );
+    return {
+      rows: (r?.values || []).map((p) => ({
+        party_id: p.party_id,
+        party_name: p.party_name,
+        party_type: p.party_type,
+        mobile_1: p.mobile_1 || null,
+        credit_limit: Number(p.credit_limit || 0),
+        credit_days: Number(p.credit_days || 0),
+        current_balance: Number(p.balance_paise) / 100,
+      })),
+      syncedAt,
+      fromMirror: true,
+    };
+  } catch (e) {
+    console.warn('[mirror] readOutstanding failed:', e?.message || e);
+    return null;
+  }
+}

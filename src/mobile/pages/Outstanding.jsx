@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
-import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable, snapshotMatchesSession, friendlyError } from '../utils/offlineSnapshot';
+import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable, snapshotMatchesSession, friendlyError, ageOf } from '../utils/offlineSnapshot';
+import { readOutstanding } from '../utils/mirrorReads';
 import { formatINR } from '../utils/format';
 import { useBack } from '../utils/useBack';
 import { shareViaNative } from '../utils/sharePdf';
@@ -51,6 +52,7 @@ export default function Outstanding() {
   const [rows,     setRows]    = useState([]);
   const [loading,  setLoading] = useState(true);
   const [offline,  setOffline] = useState(null);
+  const [reloadAt, setReloadAt] = useState(0);   // bumped on resume
   const [searchOn, setSearchOn] = useState(false);
   const [search,   setSearch]  = useState('');
   const [pdfBusy,  setPdfBusy] = useState(false);
@@ -68,6 +70,21 @@ export default function Outstanding() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+
+    /* Paint the mirrored balances at once, then still ask the shop.
+     *
+     * These are the figures that get read out to a customer's face, so the
+     * screen appearing instantly matters less than the number being right —
+     * which is exactly why the device only ever carries `current_balance` as
+     * the server computed it, and never a total it worked out itself. The
+     * live call below replaces this the moment it lands. */
+    readOutstanding(mode).then((local) => {
+      if (!cancelled && local) {
+        setRows(local.rows);
+        setLoading(false);
+      }
+    }).catch(() => {});
+
     reportAPI.getPartyOutstanding({ party_type: mode })
       .then((res) => {
         if (cancelled) return;
@@ -81,6 +98,15 @@ export default function Outstanding() {
         // A 4xx means the server answered and refused: that is a real problem
         // and must not be hidden behind stale numbers.
         if (isUnreachable(err)) {
+          /* The mirror first: it is the whole party list with a checksum it
+           * verified, where the snapshot is a size-capped extract. Both are
+           * last-known figures, but only one can say how complete it is. */
+          const local = await readOutstanding(mode).catch(() => null);
+          if (!cancelled && local) {
+            setRows(local.rows);
+            setOffline({ age: ageOf(local.syncedAt) });
+            return;
+          }
           const snap = await fetchSnapshot().catch(() => null);
           const section = sectionOf(snap, 'outstanding');
           if (!cancelled && section) {
@@ -99,7 +125,21 @@ export default function Outstanding() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [mode]);
+  }, [mode, reloadAt]);
+
+  /* Come back to the app, get current figures.
+   *
+   * This screen is the one people quote from, and a balance that was live
+   * when the screen opened is not live twenty minutes later — but nothing on
+   * screen would say so. Rather than adding a control that asks the operator
+   * to reason about how old the numbers are, the screen simply reloads when
+   * the app wakes. The best version of "is this still right?" is not having
+   * to ask. */
+  useEffect(() => {
+    const again = () => setReloadAt(Date.now());
+    window.addEventListener('zehen:resumed', again);
+    return () => window.removeEventListener('zehen:resumed', again);
+  }, []);
 
   /* Arriving from the home screen's overdue card means one thing: the owner
    * wants to chase people. `?sort=oldest` puts the longest-owing party first,
