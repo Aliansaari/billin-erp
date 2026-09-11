@@ -287,45 +287,49 @@ export default function StockMovement() {
       {/* Product stats card */}
       {product && (
         <div className="sm-stats">
-          {/* The answer first: is there any, and what is it worth.
+          <div className="sm-card">
+            {/* The answer, and what it is worth. Seven tiles of equal weight
+                was a list rather than a hierarchy — the figure you came for
+                sat the same size as the purchase rate, and two of them showed
+                the same number. */}
+            <div className="sm-card-top">
+              <div className="sm-card-lead">
+                <span className="sm-k">In stock</span>
+                <span className="sm-card-big">
+                  {currentStock}<small>{unit}</small>
+                </span>
+              </div>
+              <div className="sm-card-trail">
+                <span className="sm-k">Stock value</span>
+                <span className="sm-card-val">₹{formatINR(stockValue)}</span>
+              </div>
+            </div>
 
-              A two-row grid rather than two stacked columns, so the labels
-              share one line and the figures share the next. Laid out as
-              separate columns they staggered against each other and the band
-              read as two unrelated things that happened to be side by side. */}
-          <div className="sm-hero">
-            <span className="sm-hero-label">In stock</span>
-            <span className="sm-hero-label sm-hero-label-end">Stock value</span>
-            <span className="sm-hero-value">
-              {currentStock}<small>{unit}</small>
-            </span>
-            <span className="sm-hero-side-value">₹{formatINR(stockValue)}</span>
+            {/* Buy, sell, and the gap between them — which is the thing the
+                first two exist to tell you, and was previously left for the
+                reader to subtract. */}
+            <div className="sm-card-strip">
+              <div className="sm-cell">
+                <span className="sm-k">Buy</span>
+                <b>₹{formatINR(purRate)}</b>
+              </div>
+              <div className="sm-cell">
+                <span className="sm-k">Sell</span>
+                <b className="sm-sale">₹{formatINR(saleRate)}</b>
+              </div>
+              <div className="sm-cell">
+                <span className="sm-k">Margin</span>
+                <b className={margin < 0 ? 'sm-loss' : 'sm-gain'}>
+                  {margin < 0 ? '−' : ''}₹{formatINR(Math.abs(margin))}
+                  {marginPct !== null && <em> · {Math.abs(marginPct).toFixed(0)}%</em>}
+                </b>
+              </div>
+            </div>
           </div>
 
-          {/* What it costs, what it sells for, and the gap — which is the
-              thing the first two exist to tell you. */}
-          <div className="sm-rates">
-            <div className="sm-rate">
-              <span className="sm-rate-label">Buy</span>
-              <span className="sm-rate-value">₹{formatINR(purRate)}</span>
-            </div>
-            <span className="sm-rate-arrow" aria-hidden>→</span>
-            <div className="sm-rate">
-              <span className="sm-rate-label">Sell</span>
-              <span className="sm-rate-value sm-sale">₹{formatINR(saleRate)}</span>
-            </div>
-            <div className={`sm-rate sm-rate-margin${margin < 0 ? ' is-loss' : ''}`}>
-              <span className="sm-rate-label">Margin</span>
-              <span className="sm-rate-value">
-                ₹{formatINR(Math.abs(margin))}
-                {marginPct !== null && (
-                  <small>{margin < 0 ? '−' : ''}{Math.abs(marginPct).toFixed(1)}%</small>
-                )}
-              </span>
-            </div>
-          </div>
-
-          {/* Only when the two disagree. Silence is the useful state. */}
+          {/* Only when the movements and the item record disagree. Identical,
+              it was the same number twice; different, the stock ledger has
+              drifted from the product. Silence is the useful state. */}
           {ledgerDrift && (
             <div className="sm-drift">
               Movements total {stats.closing} {unit}, item record says {currentStock}

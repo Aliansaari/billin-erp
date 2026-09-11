@@ -66,96 +66,106 @@
 }
 
 /* ── Stats card ──────────────────────────────────────────────────────── */
+/* ── Product summary ─────────────────────────────────────────────────
+ *
+ * Seven tiles of equal weight is a list, not a hierarchy: the figure anyone
+ * opens this screen for sat the same size as the purchase rate, and two of
+ * them showed the same number. One card, one dominant figure, everything
+ * else supporting it.
+ *
+ * The card sits on the app ground rather than the surface, because a raised
+ * panel needs something to be raised FROM — on matching backgrounds the
+ * shadow reads as a smudge. */
 .sm-stats {
-  padding: 14px;
-  background: var(--c-bg-surface);
+  padding: 12px 14px;
+  background: var(--c-bg-app);
   border-bottom: 1px solid var(--c-border-soft);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-/* ── The answer ──────────────────────────────────────────────────────
- *
- * Seven tiles of equal weight is a list, not a hierarchy: the number you
- * came for sat the same size as the purchase rate, and two of them showed
- * the same figure. One thing is dominant here and the rest support it.
- *
- * A grid, not two flex columns. Laid out as columns the two labels sat at
- * different heights and the pair read as unrelated; on a shared grid the
- * labels share a line and the figures share the next. */
-.sm-hero {
-  display: grid;
-  grid-template-columns: auto auto;
+.sm-card {
+  background: var(--c-bg-surface);
+  /* --c-border, not --c-border-soft. Measured in dark: the card face
+     (#141417) and the page behind it (#0C0C0E) differ by a contrast ratio of
+     1.06 — invisible. A black shadow does nothing on a near-black ground, so
+     the edge is the ONLY thing separating the card from the page there, and
+     it has to actually be visible. */
+  border: 1px solid var(--c-border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 20px -12px rgba(0, 0, 0, 0.14);
+}
+
+.sm-card-top {
+  display: flex;
+  align-items: flex-end;
   justify-content: space-between;
-  align-items: baseline;
-  row-gap: 1px;
-  column-gap: 12px;
+  gap: 12px;
+  padding: 14px 16px 12px;
 }
-.sm-hero-label {
-  font-size: 10.5px; font-weight: 650; letter-spacing: 0.07em;
+.sm-card-lead, .sm-card-trail { display: flex; flex-direction: column; min-width: 0; }
+.sm-card-trail { align-items: flex-end; text-align: right; }
+
+/* One key style for every label on the card, so they cannot drift apart. */
+.sm-k {
+  font-size: 10px; font-weight: 650; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--c-text-soft);
+  white-space: nowrap;
 }
-.sm-hero-label-end { text-align: right; }
-.sm-hero-value {
-  font-size: 30px; font-weight: 700; line-height: 1.1;
-  letter-spacing: -0.022em; color: var(--c-text);
+
+.sm-card-big {
+  margin-top: 4px;
+  font-size: 32px; font-weight: 700; line-height: 1.05;
+  letter-spacing: -0.025em; color: var(--c-text);
   font-variant-numeric: tabular-nums;
 }
-/* Set well down from the figure it qualifies: at the same weight it competed
-   with the quantity instead of labelling it. */
-.sm-hero-value small {
-  font-size: 12.5px; font-weight: 600; margin-left: 4px;
-  color: var(--c-text-soft); letter-spacing: 0.02em;
+/* Set well down from the figure it qualifies: at a similar weight it
+   competed with the quantity instead of labelling it. */
+.sm-card-big small {
+  font-size: 13px; font-weight: 600; margin-left: 4px;
+  color: var(--c-text-soft); letter-spacing: 0;
   text-transform: lowercase;
 }
-.sm-hero-side-value {
-  font-size: 18px; font-weight: 650; color: var(--c-text);
-  text-align: right;
+.sm-card-val {
+  margin-top: 4px;
+  font-size: 17px; font-weight: 650; color: var(--c-text);
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Buy → Sell → Margin ─────────────────────────────────────────────
- *
- * Read as a sentence rather than as three unrelated boxes: the arrow makes
- * the first two a progression, and the margin is set apart because it is the
- * conclusion they lead to. */
-.sm-rates {
-  display: flex; align-items: baseline; gap: 10px;
-  padding: 10px 12px;
+/* Divided cells on the app ground, so the strip reads as the base of the
+   card rather than more of its face. */
+.sm-card-strip {
+  display: flex;
+  border-top: 1px solid var(--c-border-soft);
   background: var(--c-bg-app);
-  border: 1px solid var(--c-border-soft);
-  border-radius: 12px;
 }
-.sm-rate { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.sm-rate-label {
-  font-size: 10px; font-weight: 650; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--c-text-soft);
+.sm-cell {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border-right: 1px solid var(--c-border-soft);
 }
-.sm-rate-value {
-  font-size: 15px; font-weight: 650; color: var(--c-text);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
+.sm-cell:last-child { border-right: 0; }
+.sm-cell b {
+  display: block;
+  margin-top: 2px;
+  font-size: 14.5px; font-weight: 650; color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.sm-rate-value small {
-  font-size: 11px; font-weight: 600; margin-left: 4px; color: var(--c-text-soft);
+.sm-cell b em {
+  font-style: normal; font-weight: 600; font-size: 12.5px;
+  color: var(--c-text-soft);
 }
-/* Dropped to the figures' line rather than the labels'.
-   With the row baseline-aligned, a bare arrow lands on the FIRST baseline —
-   the labels — so it pointed from the word "Buy" to the word "Sell" while
-   the two prices it actually joins sat underneath it. */
-.sm-rate-arrow {
-  color: var(--c-text-soft); font-size: 13px;
-  align-self: flex-end; padding-bottom: 3px;
-}
-.sm-sale { color: var(--c-primary); }
-
-/* Pushed to the right edge so it reads as the result of the two before it. */
-.sm-rate-margin {
-  margin-left: auto; align-items: flex-end; text-align: right;
-  padding-left: 10px; border-left: 1px solid var(--c-border-soft);
-}
-.sm-rate-margin .sm-rate-value { color: var(--c-success); }
-.sm-rate-margin.is-loss .sm-rate-value { color: var(--c-error); }
+/* Scoped to beat `.sm-cell b`, which sets the base colour.
+   Unscoped, .sm-gain (0,1,0) loses to .sm-cell b (0,1,1) and the margin
+   rendered as plain body text in both themes — the one figure on the card
+   whose colour carries meaning. */
+.sm-cell b.sm-sale { color: var(--c-primary); }
+.sm-cell b.sm-gain { color: var(--c-success); }
+.sm-cell b.sm-loss { color: var(--c-danger); }
 
 /* Absent unless it has something to say. */
 .sm-drift {

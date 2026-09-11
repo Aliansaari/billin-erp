@@ -519,27 +519,41 @@ export default function PartyStatement({ partyType = 'Customer' }) {
       )}
 
       {/* ── What it comes to ──
-          One line, above the ledger rather than at the foot of it. The
-          figure led the screen before this and still ends the list; what
-          changed is that reaching it no longer needs a scroll past two
-          hundred entries.
-
-          Opening is NOT repeated here. It has its own row two lines below,
-          where it belongs as the start of the running balance — saying it
-          twice within a thumb's width made the band look like padding. Only
-          the movement it produced is new information. */}
+          Above the ledger rather than at the foot of it. The closing balance
+          and the period totals all lived at the very bottom, which on a
+          two-hundred-entry account is a long scroll to reach the figures the
+          screen was opened for. They still end the list; this is the answer,
+          that is the conclusion. */}
       {partyId && !loading && meta && (
         <div className="ps-summary">
-          <span className="ps-summary-label">Closing balance</span>
-          <div className="ps-summary-line">
-            <span className={`ps-summary-value ${(closingSide || 'Dr').toLowerCase()}`}>
-              {fmtBal(closingBal, closingSide)}
-            </span>
-            {Math.abs(netChange) > 0.004 && (
-              <span className={`ps-summary-delta ${netChange > 0 ? 'up' : 'down'}`}>
-                {netChange > 0 ? '↑' : '↓'} ₹{formatINR(Math.abs(netChange))}
-              </span>
-            )}
+          <div className="ps-sum-card">
+            <div className="ps-sum-head">
+              <div className="ps-sum-lead">
+                <span className="ps-k">Closing balance</span>
+                <span className={`ps-sum-value ${(closingSide || 'Dr').toLowerCase()}`}>
+                  {fmtBal(closingBal, closingSide)}
+                </span>
+              </div>
+              {Math.abs(netChange) > 0.004 && (
+                <span className={`ps-sum-delta ${netChange > 0 ? 'up' : 'down'}`}>
+                  {netChange > 0 ? '↑' : '↓'} ₹{formatINR(Math.abs(netChange))}
+                </span>
+              )}
+            </div>
+            <div className="ps-sum-strip">
+              <div className="ps-sum-cell">
+                <span className="ps-k">Opening</span>
+                <b>{fmtBal(openingBal, meta.opening_side)}</b>
+              </div>
+              <div className="ps-sum-cell">
+                <span className="ps-k">Debit</span>
+                <b className="dr">₹{formatINR(Number(meta.total_debit || 0))}</b>
+              </div>
+              <div className="ps-sum-cell">
+                <span className="ps-k">Credit</span>
+                <b className="cr">₹{formatINR(Number(meta.total_credit || 0))}</b>
+              </div>
+            </div>
           </div>
         </div>
       )}
