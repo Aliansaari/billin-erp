@@ -48,20 +48,14 @@ const UNSCOPED_COLS = ['product_name', 'article_number', 'barcode', 'hsn_code'];
 const STATUS_SQL = {
   out: 'stock_milli <= 0',
   low: 'stock_milli <= min_stock_milli AND min_stock_milli > 0',
+  /* In stock = in hand AND not below a configured reorder level.
+   *
+   * Not simply "stock > 0": the chips are a partition and the count is
+   * computed as total − low − out, so counting a low item as in would put
+   * more rows in the list than the chip above it claims. Verified against the
+   * live endpoint — 105 in + 1 low + 14 out = 120, the whole catalogue. */
+  in:  'stock_milli > 0 AND (min_stock_milli <= 0 OR stock_milli > min_stock_milli)',
 };
-
-/* `in` is deliberately absent, and that is not an oversight.
- *
- * The server implements stock_status for 'low', 'out', 'top' and 'dead' — but
- * NOT 'in', so `stock_status=in` is silently ignored there and the response
- * comes back unfiltered. (Small catalogues hide this because the stock screen
- * filters in memory; a 30,000-item shop goes to the server and the "In stock"
- * chip does nothing. That is a real bug, but it is the LIVE app's bug.)
- *
- * Implementing it correctly here would make the same tap behave differently
- * depending on whether the mirror happened to be trusted, which is exactly
- * the divergence this file exists to prevent. So it falls through, and the
- * chip behaves as it does today until the server is fixed. */
 
 const rowOut = (r) => ({
   product_id: r.product_id,

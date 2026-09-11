@@ -150,6 +150,36 @@ exports.getAll = async (req, res) => {
       where.minimum_stock_level = { [Op.gt]: 0 };
     }
     if (stock_status === 'out') where.current_stock = { [Op.lte]: 0 };
+    /* "In stock" — the branch that was missing.
+     *
+     * Without it `stock_status=in` fell through every check and the response
+     * came back UNFILTERED, so tapping the chip returned the whole catalogue
+     * including the out-of-stock rows. It went unnoticed because a small
+     * catalogue is filtered in memory by the stock screen and never asks the
+     * server; only shops past that threshold actually sent this parameter,
+     * and they are the ones least able to spot 30,000 rows being wrong.
+     *
+     * The definition has to be the complement of the other two, because the
+     * chip COUNT is computed as total − low − out (see the summary below).
+     * "current_stock > 0" alone would not do: it counts low items as in, so
+     * the list would hold more rows than the chip above it claims. In stock
+     * therefore means in hand AND not below a configured reorder level. */
+    if (stock_status === 'in') {
+      where.current_stock = { [Op.gt]: 0 };
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        /* require()d inline, like the 'top' and 'dead' branches below, and
+         * for the same reason: a `const { literal }` further down this same
+         * function shadows the module-level import and puts it in a temporal
+         * dead zone, so calling literal() up here throws "Cannot access
+         * 'literal' before initialization". */
+        require('sequelize').literal(
+          '("Product"."minimum_stock_level" IS NULL' +
+          ' OR "Product"."minimum_stock_level" <= 0' +
+          ' OR "Product"."current_stock" > "Product"."minimum_stock_level")',
+        ),
+      ];
+    }
     // Top Selling: any product that has at least one Sales row in
     // stock_ledger. Correlated subquery — relies on the standard
     // (product_id, transaction_type) index for speed.
