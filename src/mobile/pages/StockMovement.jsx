@@ -7,6 +7,9 @@ import { shareViaNative } from '../utils/sharePdf';
 import './StockMovement.css';
 import './ReportList.css';
 import { tap as hapticTap } from '../utils/haptics';
+import { isUnreachable, ageOf } from '../utils/offlineSnapshot';
+import { cacheKey as mirrorKey, putCached as putMirrored, getCached as getMirrored } from '../utils/mirrorCache';
+import OfflineBanner from '../components/OfflineBanner';
 
 const ChevL = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
@@ -58,30 +61,72 @@ export default function StockMovement() {
   const [filter, setFilter] = useState('all');
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfUrl,  setPdfUrl]  = useState(null);
+  const [offline, setOffline] = useState(null);
   const pdfUrlRef = useRef(null);
+
+  /* One transform for both paths.
+   *
+   * The running balance is worked out here, on the phone, exactly as it
+   * always was — and that is fine precisely BECAUSE it is the same code on
+   * the same rows whether they came from the shop or from storage. What is
+   * cached is the raw movement list, never the computed balance: derive it
+   * twice from one input and the two can never disagree; store the derived
+   * figure and they eventually will. */
+  const applyMovements = (raw) => {
+    const rows = Array.isArray(raw) ? raw : (raw?.data || []);
+    rows.sort((a, b) => new Date(a.transaction_date) - new Date(b.transaction_date));
+    let bal = 0;
+    for (const r of rows) {
+      bal += Number(r.quantity_in || 0) - Number(r.quantity_out || 0);
+      r._balance = bal;
+    }
+    setMovements(rows.reverse());
+  };
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    const CK = mirrorKey('movement', { product: id });
+
+    // The stored copy first, so the screen is there before the tunnel answers.
+    getMirrored(CK).then((hit) => {
+      if (cancelled || !hit?.data) return;
+      if (hit.data.product) setProduct(hit.data.product);
+      applyMovements(hit.data.movements);
+      setLoading(false);
+    }).catch(() => {});
+
     Promise.allSettled([
       productAPI.getById(id),
       productAPI.getStockMovement(id),
     ]).then(([pRes, mRes]) => {
       if (cancelled) return;
+      let prod = null;
       if (pRes.status === 'fulfilled') {
         const d = pRes.value.data;
-        setProduct(d?.data || d);
+        prod = d?.data || d;
+        setProduct(prod);
       }
       if (mRes.status === 'fulfilled') {
         const raw = mRes.value.data;
-        const rows = Array.isArray(raw) ? raw : (raw?.data || []);
-        rows.sort((a, b) => new Date(a.transaction_date) - new Date(b.transaction_date));
-        let bal = 0;
-        for (const r of rows) {
-          bal += Number(r.quantity_in || 0) - Number(r.quantity_out || 0);
-          r._balance = bal;
-        }
-        setMovements(rows.reverse());
+        applyMovements(raw);
+        setOffline(null);
+        // Keep the RAW rows — the balance above is derived from them.
+        putMirrored(CK, { product: prod, movements: Array.isArray(raw) ? raw : (raw?.data || []) });
+      } else if (isUnreachable(mRes.reason)) {
+        /* This screen had no offline path at all, so an unreachable shop
+         * showed an empty movement history — which reads as "this item has
+         * never moved", a statement about the stock rather than about the
+         * connection. */
+        getMirrored(CK).then((hit) => {
+          if (cancelled || !hit?.data) {
+            if (!cancelled) Toast.show({ icon: 'fail', content: 'Could not load movements' });
+            return;
+          }
+          if (hit.data.product) setProduct(hit.data.product);
+          applyMovements(hit.data.movements);
+          setOffline({ age: ageOf(hit.syncedAt) });
+        }).catch(() => {});
       } else {
         Toast.show({ icon: 'fail', content: 'Could not load movements' });
       }
@@ -214,6 +259,14 @@ export default function StockMovement() {
           <ShareIcon />
         </button>
       </div>
+
+      {/* Says when. A movement history with no date on it is the one thing
+          someone checks before telling a customer an item is in stock. */}
+      {offline && (
+        <div className="offline-slot">
+          <OfflineBanner age={offline.age} onRetry={() => window.location.reload()} />
+        </div>
+      )}
 
       {/* Product stats card */}
       {product && (
