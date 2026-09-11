@@ -124,6 +124,26 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE INDEX IF NOT EXISTS products_name    ON products(product_name);
 CREATE INDEX IF NOT EXISTS products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS products_article ON products(article_number);
+/* Statements are stored as the server's own response, verbatim.
+ *
+ * Unlike parties and products there is nothing to gain from splitting this
+ * into columns and plenty to lose: a statement is read back whole, rendered
+ * by the same component either way, and every field mapping is a chance for
+ * the offline copy to differ from the live one. Storing the answer exactly as
+ * it arrived removes that class of bug entirely.
+ *
+ * Keyed by date range too, because a statement is only meaningful for the
+ * period it was asked for — the opening balance is computed for that range
+ * and cannot be reused for another. */
+CREATE TABLE IF NOT EXISTS statements (
+  party_id   INTEGER NOT NULL,
+  from_date  TEXT NOT NULL,
+  to_date    TEXT NOT NULL,
+  payload    TEXT NOT NULL,
+  synced_at  INTEGER NOT NULL,
+  PRIMARY KEY (party_id, from_date, to_date)
+);
+CREATE INDEX IF NOT EXISTS statements_synced ON statements(synced_at);
 `;
 
 /**

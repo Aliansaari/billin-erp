@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { saveStatement, readStatement } from '../utils/mirrorStatements';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { partyAPI, ledgerAPI, settingsAPI } from '../../api';
@@ -9,7 +10,8 @@ import { shareViaNative } from '../utils/sharePdf';
 import useKeyboardInset from '../hooks/useKeyboardInset';
 import './ReportList.css';
 import Overlay from '../components/Overlay';
-import { friendlyError } from '../utils/offlineSnapshot';
+import { friendlyError, isUnreachable, ageOf } from '../utils/offlineSnapshot';
+import OfflineBanner from '../components/OfflineBanner';
 
 // ── Icons ──────────────────────────────────────────────────────────────
 const ChevL = () => (
@@ -129,6 +131,7 @@ export default function PartyStatement({ partyType = 'Customer' }) {
   const [entries,     setEntries]     = useState([]);
   const [meta,        setMeta]        = useState(null);
   const [loading,     setLoading]     = useState(false);
+  const [offline,     setOffline]     = useState(null);
   const [listLoad,    setListLoad]    = useState(true);
   const [sheetOpen,   setSheetOpen]   = useState(false);
   const [sheetSearch, setSheetSearch] = useState('');
@@ -203,22 +206,50 @@ export default function PartyStatement({ partyType = 'Customer' }) {
     if (!partyId) return;
     let cancelled = false;
     setLoading(true);
+    const apply = (d) => {
+      setEntries(d?.entries || []);
+      setMeta({
+        opening_balance: d?.opening_balance,
+        closing_balance: d?.closing_balance,
+        opening_side:    d?.opening_side,
+        closing_side:    d?.closing_side,
+        total_debit:     d?.total_debit,
+        total_credit:    d?.total_credit,
+      });
+    };
+
+    /* Show the stored copy at once if there is one, then still ask the shop.
+     *
+     * A statement is the document you open in front of the person it is
+     * about, so waiting on a tunnel round trip before anything appears is the
+     * wrong default. The live answer replaces this when it lands. */
+    readStatement(partyId, fromDate, toDate).then((cached) => {
+      if (!cancelled && cached) { apply(cached.data); setOffline(null); setLoading(false); }
+    }).catch(() => {});
+
     ledgerAPI.statementByParty(partyId, { from_date: fromDate, to_date: toDate })
       .then((res) => {
         if (cancelled) return;
         const d = res.data?.data || res.data;
-        setEntries(d?.entries || []);
-        setMeta({
-          opening_balance: d?.opening_balance,
-          closing_balance: d?.closing_balance,
-          opening_side:    d?.opening_side,
-          closing_side:    d?.closing_side,
-          total_debit:     d?.total_debit,
-          total_credit:    d?.total_credit,
-        });
+        apply(d);
+        setOffline(null);
+        // Keep it. The statements someone opens are the ones they are likely
+        // to need again, often with the party standing in front of them.
+        saveStatement(partyId, fromDate, toDate, d);
       })
-      .catch((e) => {
+      .catch(async (e) => {
         if (cancelled) return;
+        /* This screen had no offline path at all: an unreachable shop emptied
+         * it, so "I can't see the statement when the PC is off" was literally
+         * what the code did. */
+        if (isUnreachable(e)) {
+          const cached = await readStatement(partyId, fromDate, toDate).catch(() => null);
+          if (!cancelled && cached) {
+            apply(cached.data);
+            setOffline({ age: ageOf(cached.syncedAt) });
+            return;
+          }
+        }
         Toast.show({ icon: 'fail', content: friendlyError(e, 'Could not load statement') });
         setEntries([]);
         setMeta(null);
@@ -416,6 +447,16 @@ export default function PartyStatement({ partyType = 'Customer' }) {
           </button>
         )}
       </div>
+
+      {/* Says when, because a statement is the document people read numbers
+          off in front of the party it concerns. Complete and dated beats
+          complete and undated; both beat the empty screen this used to show
+          when the shop was unreachable. */}
+      {offline && (
+        <div className="offline-slot">
+          <OfflineBanner age={offline.age} onRetry={() => window.location.reload()} />
+        </div>
+      )}
 
       {/* ── Party picker ── */}
       <button className="rl-account-btn" onClick={() => setSheetOpen(true)} disabled={listLoad}>
