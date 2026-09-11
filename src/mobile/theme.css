@@ -11,6 +11,11 @@
   --c-bg-surface:   #FBF8F1;
   --c-bg-card:      #FFFFFF;
   --c-bg-elev:      #FFFFFF;
+  /* Card elevation. In light this is an ordinary drop shadow.
+   *
+   * See the dark override for why the two cannot be the same declaration. */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 20px -12px rgba(0, 0, 0, 0.14);
+
   --c-bg-layout:    var(--c-bg-app);
 
   --c-text:         #1A1612;
@@ -100,11 +105,46 @@
    * glow — rationed, so it reads as a deliberate brand note rather than a
    * wash over the entire screen. Same correction already applied to the
    * sign-in screen. */
-  --c-bg-page:      #08080A;
-  --c-bg-app:       #0C0C0E;
-  --c-bg-surface:   #141417;
-  --c-bg-card:      #17171B;
-  --c-bg-elev:      #1D1D22;
+  /* Layer separation, measured rather than eyeballed.
+   *
+   * The old chain stepped 1.024 / 1.063 / 1.029 / 1.065 between grounds,
+   * against light's 1.137 / 1.101 / 1.061 — roughly half the separation, and
+   * surface→card at 1.029 was effectively no step at all. That is why dark
+   * read flat and sheet-like while light read layered: nothing lifted off
+   * anything.
+   *
+   * Now 1.049 / 1.086 / 1.082 / 1.122. Deliberately NOT matched to light's
+   * ratios: hitting 1.13 down here needs jumps to #1A1918 and above, which
+   * turns the app ground grey and throws away the deep-dark character. Text
+   * still lands between 12.7:1 and 17.6:1 on every one of these.
+   *
+   * Still neutral. The sepia this replaced (#0A0806 … #221E19) tinted every
+   * surface and read muddy; warmth stays rationed to the terracotta accent
+   * and the hero glow. The single point of red over blue below is a bias,
+   * not a wash. */
+  --c-bg-page:      #0A0A0B;
+  --c-bg-app:       #111112;
+  --c-bg-surface:   #1A1A1C;
+  --c-bg-card:      #212124;
+  --c-bg-elev:      #2A2A2D;
+  /* Card elevation, dark.
+   *
+   * A drop shadow is nearly useless here: black on a near-black ground has
+   * almost nothing to darken, which is why raising the layer separation
+   * above helps but still leaves surfaces looking like flat sheets laid on
+   * flat sheets.
+   *
+   * The inset hairline along the top edge is what supplies the missing cue.
+   * It reads as light falling from above catching the card's lip, which is
+   * how a physical raised edge behaves — and it is the reason well-made dark
+   * interfaces look moulded rather than printed. The drop shadow underneath
+   * still earns its place now that the card is meaningfully lighter than the
+   * ground behind it. */
+  --elev-1:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 1px 2px rgba(0, 0, 0, 0.55),
+    0 14px 30px -18px rgba(0, 0, 0, 0.85);
+
   --c-bg-layout:    var(--c-bg-app);
 
   --c-text:         #F4F1EC;
@@ -116,9 +156,9 @@
   /* Slightly stronger than before: at these darker grounds the old 6%/8%
      hairlines were effectively invisible, which is why cards and rows ran
      into each other. */
-  --c-line:         rgba(255, 255, 255, 0.075);
-  --c-line-2:       rgba(255, 255, 255, 0.05);
-  --c-border:       rgba(255, 255, 255, 0.10);
+  --c-line:         rgba(255, 255, 255, 0.09);
+  --c-line-2:       rgba(255, 255, 255, 0.06);
+  --c-border:       rgba(255, 255, 255, 0.12);
   --c-border-soft:  rgba(255, 255, 255, 0.06);
 
   --c-primary:      #DD5527;

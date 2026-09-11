@@ -352,6 +352,9 @@
   scroll-snap-align: start;
 }
 
+  /* Shared elevation. Light: a drop shadow. Dark: an inset hairline along
+     the top edge, which reads as light catching a raised lip — the cue a
+     black shadow cannot give on a near-black ground. See --elev-1. */
 .qa-btn {
   background: var(--c-bg-surface);
   border: 1px solid var(--c-border);
@@ -365,6 +368,7 @@
   font-family: inherit;
   -webkit-tap-highlight-color: transparent;
   transition: transform 120ms, background 120ms;
+  box-shadow: var(--elev-1);
 }
 .qa-btn:active { transform: scale(0.96); background: var(--c-primary-soft); }
 
@@ -442,6 +446,9 @@
   margin-bottom: 24px;
 }
 
+  /* Shared elevation. Light: a drop shadow. Dark: an inset hairline along
+     the top edge, which reads as light catching a raised lip — the cue a
+     black shadow cannot give on a near-black ground. See --elev-1. */
 .att-card {
   background: var(--c-bg-surface);
   border: 1px solid var(--c-border);
@@ -456,6 +463,7 @@
   width: 100%;
   color: inherit;
   transition: transform 120ms, background 120ms;
+  box-shadow: var(--elev-1);
 }
 .att-card:active { transform: scale(0.99); background: var(--c-primary-soft); }
 
@@ -514,12 +522,16 @@
    Two-line left side (party name / meta), two-stack right side (Cr-Dr +
    amount on top, WhatsApp share button below). The same component is
    reused so both surfaces stay in sync visually. */
+  /* Shared elevation. Light: a drop shadow. Dark: an inset hairline along
+     the top edge, which reads as light catching a raised lip — the cue a
+     black shadow cannot give on a near-black ground. See --elev-1. */
 .act-list {
   background: var(--c-bg-surface);
   border: 1px solid var(--c-border);
   border-radius: 20px;
   padding: 4px 0;
   overflow: hidden;
+  box-shadow: var(--elev-1);
 }
 
 .act-row {

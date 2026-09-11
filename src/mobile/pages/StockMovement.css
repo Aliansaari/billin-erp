@@ -89,6 +89,9 @@
   gap: 10px;
 }
 
+  /* Shared elevation. Light: a drop shadow. Dark: an inset hairline along
+     the top edge, which reads as light catching a raised lip — the cue a
+     black shadow cannot give on a near-black ground. See --elev-1. */
 .sm-card {
   background: var(--c-bg-surface);
   /* --c-border, not --c-border-soft. Measured in dark: the card face
@@ -99,7 +102,7 @@
   border: 1px solid var(--c-border);
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 20px -12px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--elev-1);
 }
 
 .sm-card-top {

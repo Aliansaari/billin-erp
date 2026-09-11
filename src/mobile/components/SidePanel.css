@@ -190,6 +190,9 @@
 }
 
 /* ─── Firm card ───────────────────────────────────────────────────── */
+  /* Shared elevation. Light: a drop shadow. Dark: an inset hairline along
+     the top edge, which reads as light catching a raised lip — the cue a
+     black shadow cannot give on a near-black ground. See --elev-1. */
 .sp-firm {
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
@@ -198,6 +201,7 @@
   margin-bottom: 22px;
   position: relative;
   overflow: hidden;
+  box-shadow: var(--elev-1);
 }
 
 .sp-firm::before {
@@ -301,6 +305,9 @@
 }
 
 /* ─── Context cards (FY / Period) ─────────────────────────────────── */
+  /* Shared elevation. Light: a drop shadow. Dark: an inset hairline along
+     the top edge, which reads as light catching a raised lip — the cue a
+     black shadow cannot give on a near-black ground. See --elev-1. */
 .sp-ctx-card {
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
@@ -316,6 +323,7 @@
   cursor: pointer;
   text-align: left;
   -webkit-tap-highlight-color: transparent;
+  box-shadow: var(--elev-1);
 }
 .sp-ctx-card:active {
   opacity: 0.7;
@@ -361,6 +369,9 @@
 .sp-ctx-chev { color: var(--c-text-mute); flex-shrink: 0; }
 
 /* ─── Theme segmented control ─────────────────────────────────────── */
+  /* Shared elevation. Light: a drop shadow. Dark: an inset hairline along
+     the top edge, which reads as light catching a raised lip — the cue a
+     black shadow cannot give on a near-black ground. See --elev-1. */
 .sp-theme-seg {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -370,6 +381,7 @@
   padding: 4px;
   gap: 2px;
   margin-bottom: 22px;
+  box-shadow: var(--elev-1);
 }
 
 .sp-theme-seg-2 {
@@ -399,12 +411,16 @@
    depending on parse order in the first place. */
 
 /* ─── Navigation list ─────────────────────────────────────────────── */
+  /* Shared elevation. Light: a drop shadow. Dark: an inset hairline along
+     the top edge, which reads as light catching a raised lip — the cue a
+     black shadow cannot give on a near-black ground. See --elev-1. */
 .sp-nav-list {
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
   border-radius: 13px;
   overflow: hidden;
   margin-bottom: 22px;
+  box-shadow: var(--elev-1);
 }
 
 .sp-nav-row {
@@ -684,6 +700,9 @@
 /* ── Financial year: context, not a control ──────────────────────────
    No chevron, no press state. It reads as a fact about the data, which is
    what it is — every figure in the app is scoped to this period. */
+  /* Shared elevation. Light: a drop shadow. Dark: an inset hairline along
+     the top edge, which reads as light catching a raised lip — the cue a
+     black shadow cannot give on a near-black ground. See --elev-1. */
 .sp-fy {
   display: flex;
   align-items: center;
@@ -693,6 +712,7 @@
   background: var(--c-bg-elev);
   border: 1px solid var(--c-line);
   margin-bottom: 4px;
+  box-shadow: var(--elev-1);
 }
 .sp-fy-icon { flex: none; color: var(--c-text-mute); display: flex; }
 .sp-fy-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -709,6 +729,9 @@
 /* ── Connection: a status light that can be wrong ────────────────────
    Colour carries the state, and the state is checked when the panel opens.
    The old version was a green dot and the word "synced", hardcoded. */
+  /* Shared elevation. Light: a drop shadow. Dark: an inset hairline along
+     the top edge, which reads as light catching a raised lip — the cue a
+     black shadow cannot give on a near-black ground. See --elev-1. */
 .sp-conn {
   display: flex;
   align-items: center;
@@ -717,6 +740,7 @@
   border-radius: 14px;
   background: var(--c-bg-elev);
   border: 1px solid var(--c-line);
+  box-shadow: var(--elev-1);
 }
 .sp-conn-dot {
   flex: none;
