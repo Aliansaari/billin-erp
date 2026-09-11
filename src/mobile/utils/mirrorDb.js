@@ -35,7 +35,7 @@
  * company's rows, because they are not in the file that gets opened.
  */
 import { Capacitor } from '@capacitor/core';
-import { sessionCompanyId } from './offlineSnapshot';
+import { sessionScope } from './offlineSnapshot';
 
 let sqlitePromise = null;   // lazy: never loaded in the browser preview
 let lastOpenError = null;   // kept so the self-test can report the real cause
@@ -72,7 +72,33 @@ async function ensureSecret(conn) {
   await conn.setEncryptionSecret(newPassphrase());
 }
 
-const dbNameFor = (companyId) => `zehen_mirror_${companyId}`;
+const dbNameFor = (scope) => `zehen_mirror_${scope}`;
+
+/* The name this used to use.
+ *
+ * It was `zehen_mirror_<company_id>`, which collides across shops: company
+ * ids are per install, so the first company on every ZEHEN is #1 and two
+ * different businesses shared one database on a phone signed into both.
+ * Deleted rather than orphaned — it holds real figures for a shop, and a
+ * file nothing reads is a file nobody checks. */
+const LEGACY_PREFIX = 'zehen_mirror_';
+let legacyCleaned = false;
+
+async function dropLegacy(conn, companyId) {
+  if (legacyCleaned || !companyId) return;
+  legacyCleaned = true;
+  const name = `${LEGACY_PREFIX}${companyId}`;
+  try {
+    const exists = await conn.isDatabase(name);
+    if (exists?.result) {
+      await conn.closeConnection(name, false).catch(() => {});
+      await conn.createConnection(name, true, 'secret', 1, false).catch(() => {});
+      const db = await conn.retrieveConnection(name, false).catch(() => null);
+      if (db) { await db.open().catch(() => {}); await db.delete().catch(() => {}); }
+      await conn.closeConnection(name, false).catch(() => {});
+    }
+  } catch { /* best effort — a leftover file must never block opening the real one */ }
+}
 
 /* Schema.
  *
@@ -151,16 +177,20 @@ DROP TABLE IF EXISTS statements;
  */
 export async function openMirror() {
   if (!mirrorAvailable()) return null;
-  const companyId = sessionCompanyId();
-  if (!companyId) return null;
+  /* Null scope means the session cannot be identified — no company, or no
+   * server. Nothing is opened: storing figures we cannot attribute is how
+   * one shop's balances end up under another shop's name. */
+  const scope = sessionScope();
+  if (!scope) return null;
 
-  const name = dbNameFor(companyId);
+  const name = dbNameFor(scope);
   if (openDb && openName === name) return openDb;
   if (openDb) await closeMirror();
 
   try {
     const conn = await sqlite();
     await ensureSecret(conn);
+    await dropLegacy(conn, Number(scope.split('__').pop()));
 
     /* The plugin can be left holding a connection record for a database it
      * no longer has open — an app killed mid-write, for instance. Opening
@@ -246,8 +276,8 @@ export async function selfTest() {
    * screen the first time. */
   if (!mirrorAvailable()) return { ok: false, detail: 'not native' };
 
-  const companyId = sessionCompanyId();
-  if (!companyId) return { ok: false, detail: 'no company in session' };
+  const scope = sessionScope();
+  if (!scope) return { ok: false, detail: 'no company/server in session' };
 
   let conn;
   try {
@@ -308,5 +338,15 @@ export async function selfTest() {
   }
   if (back !== token) return { ok: false, detail: `read back ${back ?? 'null'}` };
 
-  return { ok: true, encrypted: true, detail: `company ${companyId}` };
+  return { ok: true, encrypted: true, detail: scope };
 }
+
+/* On a session change, let go of the open database.
+ *
+ * openMirror caches the live connection and the name it belongs to, so
+ * without this the next read after signing into a different shop would be
+ * served from the previous shop's file — the connection having been opened
+ * before the scope changed. Closing forces the name to be resolved again. */
+try {
+  window.addEventListener('zehen:session-changed', () => { closeMirror(); });
+} catch { /* no window */ }

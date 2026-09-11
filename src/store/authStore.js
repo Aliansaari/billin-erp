@@ -32,6 +32,30 @@ function readUser() {
  */
 const readOffline = () => localStorage.getItem('zehen_offline_mode') === '1';
 
+
+/* Anything cached under the previous session has to go.
+ *
+ * Screen caches, the offline snapshot and the mirror are all keyed to whoever
+ * was signed in when they were written. A phone that signs into a second shop
+ * would otherwise repaint the first shop's figures under the second's name on
+ * the very first screen after login.
+ *
+ * Announced as an event rather than imported, for two reasons: this store is
+ * shared with the desktop app and must not drag mobile modules into that
+ * bundle, and the caches keep in-memory copies that clearing localStorage
+ * alone would not touch. Listeners do their own clearing.
+ */
+function announceSessionChange() {
+  try {
+    localStorage.removeItem('zehen_screen_cache');
+    localStorage.removeItem('zehen_screen_cache_scope');
+    localStorage.removeItem('zehen_snapshot_cache');
+  } catch { /* private mode */ }
+  try {
+    window.dispatchEvent(new CustomEvent('zehen:session-changed'));
+  } catch { /* no window (tests) */ }
+}
+
 const useAuthStore = create((set) => ({
   user: readUser(),
   token: localStorage.getItem('token') || null,
@@ -50,6 +74,8 @@ const useAuthStore = create((set) => ({
     localStorage.removeItem('zehen_company_profile');
     if (mustChangePassword) localStorage.setItem('must_change_password', '1');
     else localStorage.removeItem('must_change_password');
+    // Before the first screen paints, not after.
+    announceSessionChange();
     set({ user, token, isAuthenticated: true, offline: false, mustChangePassword: !!mustChangePassword });
   },
 
@@ -82,6 +108,7 @@ const useAuthStore = create((set) => ({
     // The cached company profile belongs to the session that just ended.
     localStorage.removeItem('zehen_company_profile');
     try { localStorage.removeItem('fy_start_v1'); localStorage.removeItem('fy_end_v1'); } catch {}
+    announceSessionChange();
     set({ user: null, token: null, isAuthenticated: false, offline: false, mustChangePassword: false });
   },
 

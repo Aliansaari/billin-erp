@@ -11,7 +11,7 @@
  * an invoice needs the live number series, live stock and a live credit
  * limit, none of which a snapshot can provide.
  */
-import { getDeviceToken } from '../../api';
+import { getDeviceToken, getServerUrl } from '../../api';
 import { controlPlaneUrl } from './controlPlane';
 
 
@@ -49,6 +49,35 @@ export async function fetchSnapshot(siteId) {
  * Which company is this session signed into?
  * Returns null when it cannot tell, in which case nothing is blocked.
  */
+/**
+ * Which SHOP and company is this session?
+ *
+ * Company id alone is not an identity. Ids are assigned per install, so the
+ * first company on every ZEHEN is #1 — the shop on one PC and the shop on
+ * another are both company 1, and anything keyed on that number alone treats
+ * two different businesses as the same one. On a phone that signs into both,
+ * that means one shop's books stored under the other's name.
+ *
+ * The server the phone is talking to is what distinguishes them: each shop
+ * has its own tunnel hostname. Scope is therefore host + company, and
+ * everything the device keeps — mirrored tables, stored answers, screen
+ * caches — is namespaced by it.
+ *
+ * Returns null when it cannot be determined, and callers must treat that as
+ * "keep nothing" rather than picking a default. A wrong scope is worse than
+ * no cache.
+ */
+export function sessionScope() {
+  const company = sessionCompanyId();
+  if (!company) return null;
+  const host = String(getServerUrl() || '')
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '');
+  // Sanitised because this becomes part of a database filename.
+  const safe = (host || 'direct').replace(/[^A-Za-z0-9]+/g, '_').slice(0, 48);
+  return `${safe}__${company}`;
+}
+
 /* Exported so the on-device mirror partitions its databases by the SAME
  * rule this file uses to decide whose figures may be shown. Two copies of
  * "which company is this session" is precisely how one shop's balances end

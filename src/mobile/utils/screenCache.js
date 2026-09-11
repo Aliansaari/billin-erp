@@ -25,7 +25,16 @@
  * caveat on a number is not something anyone reads mid-sale.
  */
 
+import { sessionScope } from './offlineSnapshot';
+
 const store = new Map();
+
+/* Called rather than captured, so the answer reflects the session signed in
+ * at that moment: the token and server URL are written by the login flow,
+ * which runs long after these modules are evaluated. */
+function currentScope() {
+  try { return sessionScope(); } catch { return null; }
+}
 
 // Long enough to make back-and-forth navigation instant, short enough that a
 // bill entered on the desktop shows up on the next visit rather than the one
@@ -39,6 +48,19 @@ const REHYDRATE_MS = 10 * 60_000;
 
 const PERSIST_KEY = 'zehen_screen_cache';
 
+/* The scope the persisted copies belong to.
+ *
+ * Keys here are screen names — 'dashboard', 'stock' — with nothing in them
+ * about WHOSE dashboard. That was fine while a phone only ever saw one shop.
+ * Signing into a second one repainted the first one's figures under the
+ * second one's name, on the first screen after login, which is the worst
+ * possible moment for it.
+ *
+ * Company id alone would not fix it either: ids are per install, so the first
+ * company on every ZEHEN is #1. The scope is host + company (sessionScope).
+ */
+const SCOPE_KEY = 'zehen_screen_cache_scope';
+
 /* A 30,000-row catalogue is not going in localStorage. Anything past this is
  * cached in memory only — the screens that hold that much data are the ones
  * that page from the server anyway. */
@@ -49,6 +71,19 @@ const MAX_PERSIST_BYTES = 192 * 1024;
   try {
     const raw = localStorage.getItem(PERSIST_KEY);
     if (!raw) return;
+    /* Restored only for the scope that wrote them.
+     *
+     * Checked at read time rather than trusting logout to have cleared them:
+     * a logout that never ran — the app killed, storage cleared by iOS,
+     * a token expiring — must not be able to leak one shop's figures into
+     * another's screens. Belt as well as braces, because the cost of the
+     * brace failing is showing a customer someone else's numbers. */
+    const scope = currentScope();
+    if (!scope || localStorage.getItem(SCOPE_KEY) !== scope) {
+      localStorage.removeItem(PERSIST_KEY);
+      localStorage.removeItem(SCOPE_KEY);
+      return;
+    }
     const saved = JSON.parse(raw);
     const now = Date.now();
     for (const [k, hit] of Object.entries(saved || {})) {
@@ -72,7 +107,10 @@ function schedulePersist() {
         const json = JSON.stringify(hit);
         if (json.length <= MAX_PERSIST_BYTES) out[k] = hit;
       }
+      const scope = currentScope();
+      if (!scope) return;            // unattributable figures are not kept
       localStorage.setItem(PERSIST_KEY, JSON.stringify(out));
+      localStorage.setItem(SCOPE_KEY, scope);
     } catch { /* quota or private mode — memory cache still works */ }
   }, 800);
 }
@@ -96,9 +134,32 @@ export function setCached(key, value) {
   return value;
 }
 
+/**
+ * Forget everything, in memory and on disk.
+ *
+ * Called when the session changes — sign out, sign in, switch company —
+ * because every key here belongs to whoever was signed in when it was
+ * written.
+ */
+export function clearAllCaches() {
+  store.clear();
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  try {
+    localStorage.removeItem(PERSIST_KEY);
+    localStorage.removeItem(SCOPE_KEY);
+  } catch { /* private mode */ }
+}
+
 /** Drop cached data — call after any write, so the next read is authoritative. */
 export function invalidateCache(prefix) {
   if (!prefix) { store.clear(); } 
   else { for (const k of [...store.keys()]) if (k.startsWith(prefix)) store.delete(k); }
   schedulePersist();
 }
+
+/* The session changed — sign in, sign out, switch company. Everything held
+ * here belonged to the previous one. Listening rather than being called keeps
+ * authStore free of mobile imports; see announceSessionChange there. */
+try {
+  window.addEventListener('zehen:session-changed', clearAllCaches);
+} catch { /* no window */ }
