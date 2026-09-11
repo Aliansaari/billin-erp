@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { syncTick } from '../utils/mirrorAutoSync';
 import { useNavigate } from 'react-router-dom';
 import { Toast, PullToRefresh } from 'antd-mobile';
 import { reportAPI, isOfflineSession } from '../../api';
@@ -391,7 +392,14 @@ export default function Dashboard() {
           way to retry — previously the only way to refresh was to leave the
           tab and come back. */}
       <PullToRefresh
-        onRefresh={async () => { hapticTap(); await loadDashboard(); }}
+        /* Pull-to-refresh means "get me the current numbers", so it refreshes
+           BOTH: the live figures on screen and the mirror behind them. Forced,
+           so it skips the cheap checksum and any backoff — the operator has
+           asked, which outranks the loop's opinion about timing. */
+        onRefresh={async () => {
+          hapticTap();
+          await Promise.all([loadDashboard(), syncTick({ force: true })]);
+        }}
         pullingText="Pull to refresh"
         canReleaseText="Release to refresh"
         refreshingText="Refreshing…"

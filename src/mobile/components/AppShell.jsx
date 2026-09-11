@@ -1,4 +1,5 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { startAutoSync } from '../utils/mirrorAutoSync';
 import { useLocation, useNavigate, useNavigationType, useOutlet } from 'react-router-dom';
 import TabBar from './TabBar';
 import { ShellContext } from './ShellContext';
@@ -80,6 +81,13 @@ export default function AppShell() {
       window.dispatchEvent(new CustomEvent('zehen:resumed'));
     });
   }, []);
+
+  /* Keep the mirror current for as long as there is a session.
+   *
+   * Mounted here rather than at app start because there is nothing to mirror
+   * until a company is known, and syncing on the login screen would be a
+   * request for data belonging to whoever was signed in last. */
+  useEffect(() => startAutoSync(), []);
 
   /* Android's hardware back button. Unhandled it closes the app from
    * anywhere — including from the middle of a half-entered bill. It should

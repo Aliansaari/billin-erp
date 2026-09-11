@@ -9,11 +9,11 @@ import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import useCompanyStore from '../../store/companyStore';
 import api, { companyAPI, setServerUrl as saveServerUrl, getServerUrl, getDeviceToken } from '../../api';
-import { fetchSnapshot, snapshotAge } from '../utils/offlineSnapshot';
+import { ageOf, fetchSnapshot, snapshotAge } from '../utils/offlineSnapshot';
 import './SidePanel.css';
 import { biometryInfo, isLockEnabled, setLockEnabled, authenticate, restartCount } from '../utils/biometric';
-import { selfTest as mirrorSelfTest, mirrorAvailable } from '../utils/mirrorDb';
-import { syncAll } from '../utils/mirrorSync';
+import { mirrorAvailable } from '../utils/mirrorDb';
+import { mirrorState } from '../utils/mirrorSync';
 import { select as hapticSelect } from '../utils/haptics';
 
 const I = {
@@ -227,31 +227,27 @@ export default function SidePanel({ open, onClose }) {
   const [bioBusy, setBioBusy] = useState(false);
   const restarts = restartCount();
 
-  /* Mirror storage check.
+  /* What the mirror currently holds.
    *
-   * "The mirror is empty" looks the same whether the plugin failed to load,
-   * the Keychain refused the secret, or the sync has simply not run yet.
-   * Reading the answer off the screen beats inferring it from a build and a
-   * round trip, so the result lands here rather than in a log nobody can
-   * reach from a phone. Runs only while the panel is open. */
+   * Reads state only — opening a drawer must not cause network traffic. The
+   * background loop (mirrorAutoSync) is what keeps this current; this just
+   * reports it, so the footer answers "is the mirror working and how old is
+   * it" without being the thing that makes it work. */
   const [mirror, setMirror] = useState(null);
   useEffect(() => {
     if (!open || !mirrorAvailable()) return undefined;
     let dead = false;
-    mirrorSelfTest()
-      .then(async (r) => {
-        if (!r.ok || dead) return r;
-        // Storage working is only half of it — pull a real set and prove the
-        // checksum agrees, since that is the property the figures rest on.
-        const all = await syncAll();
-        const bad = Object.entries(all).find(([, v]) => !v.ok);
-        if (bad) return { ...r, ok: false, detail: `${bad[0]}: ${bad[1].reason}` };
-        const summary = Object.entries(all)
-          .map(([name, v]) => `${v.count} ${name}`)
-          .join(', ');
-        return { ...r, detail: `${summary}, verified` };
-      })
-      .then((r) => { if (!dead) setMirror(r); });
+    (async () => {
+      const st = {};
+      for (const set of ['parties', 'products']) st[set] = await mirrorState(set);
+      if (dead) return;
+      const stale = Object.values(st).some((x) => !x.trusted);
+      const newest = Math.max(0, ...Object.values(st).map((x) => x.syncedAt || 0));
+      setMirror({
+        ok: !stale,
+        detail: stale ? 'not synced' : (ageOf(newest) || 'just now'),
+      });
+    })();
     return () => { dead = true; };
   }, [open]);
   useEffect(() => { biometryInfo().then(setBio).catch(() => {}); }, []);
@@ -516,9 +512,7 @@ export default function SidePanel({ open, onClose }) {
                     that something went wrong, which is what the absence of a
                     mirror already said. */}
                 {mirror && (
-                  <> <span className="sp-acc">·</span> mirror {mirror.ok
-                    ? `${mirror.encrypted ? 'enc' : 'PLAIN'} · ${mirror.detail}`
-                    : `fail: ${mirror.detail}`}</>
+                  <> <span className="sp-acc">·</span> synced {mirror.detail}</>
                 )}
               </span>
               {/* The connection block above says whether this is live, and it
