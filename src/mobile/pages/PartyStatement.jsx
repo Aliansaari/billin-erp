@@ -518,46 +518,6 @@ export default function PartyStatement({ partyType = 'Customer' }) {
         </div>
       )}
 
-      {/* ── What it comes to ──
-          Above the ledger rather than at the foot of it. The closing balance
-          and the period totals all lived at the very bottom, which on a
-          two-hundred-entry account is a long scroll to reach the figures the
-          screen was opened for. They still end the list; this is the answer,
-          that is the conclusion. */}
-      {partyId && !loading && meta && (
-        <div className="ps-summary">
-          <div className="ps-sum-card">
-            <div className="ps-sum-head">
-              <div className="ps-sum-lead">
-                <span className="ps-k">Closing balance</span>
-                <span className={`ps-sum-value ${(closingSide || 'Dr').toLowerCase()}`}>
-                  {fmtBal(closingBal, closingSide)}
-                </span>
-              </div>
-              {Math.abs(netChange) > 0.004 && (
-                <span className={`ps-sum-delta ${netChange > 0 ? 'up' : 'down'}`}>
-                  {netChange > 0 ? '↑' : '↓'} ₹{formatINR(Math.abs(netChange))}
-                </span>
-              )}
-            </div>
-            <div className="ps-sum-strip">
-              <div className="ps-sum-cell">
-                <span className="ps-k">Opening</span>
-                <b>{fmtBal(openingBal, meta.opening_side)}</b>
-              </div>
-              <div className="ps-sum-cell">
-                <span className="ps-k">Debit</span>
-                <b className="dr">₹{formatINR(Number(meta.total_debit || 0))}</b>
-              </div>
-              <div className="ps-sum-cell">
-                <span className="ps-k">Credit</span>
-                <b className="cr">₹{formatINR(Number(meta.total_credit || 0))}</b>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Column header ── */}
       {partyId && (
         <div className="ps-col-header">
@@ -615,9 +575,18 @@ export default function PartyStatement({ partyType = 'Customer' }) {
             <span className="ps-col-bal" />
           </div>
           <div className="ps-stmt-footer-row ps-stmt-footer-closing">
-            <span className="ps-stmt-footer-label ps-stmt-closing-lbl">Closing Balance</span>
-            <span className="ps-col-dr ps-special-dash">—</span>
-            <span className="ps-col-cr ps-special-dash">—</span>
+            <span className="ps-stmt-footer-label ps-stmt-closing-lbl">
+              Closing Balance
+              {/* How the balance moved over the period — the one figure this
+                  statement did not already state somewhere. It rides in the
+                  row that is already pinned here, in the space two dead "—"
+                  placeholders were occupying, so it costs no height. */}
+              {Math.abs(netChange) > 0.004 && (
+                <span className={`ps-stmt-delta ${netChange > 0 ? 'up' : 'down'}`}>
+                  {netChange > 0 ? '↑' : '↓'} ₹{formatINR(Math.abs(netChange))}
+                </span>
+              )}
+            </span>
             <span className={`ps-col-bal ps-stmt-closing-val ${closingSide.toLowerCase()}`}>
               {fmtBal(closingBal, closingSide)}
             </span>

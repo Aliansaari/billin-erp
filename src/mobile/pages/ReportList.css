@@ -1150,95 +1150,31 @@
   display: block;
 }
 
-/* ── Statement summary ───────────────────────────────────────────────
+/* ── Closing-balance change ──────────────────────────────────────────
  *
- * The closing balance and the period totals all lived at the very foot of
- * the list, which on a two-hundred-entry account is a long scroll to reach
- * the figures the screen exists to give. They lead now and still end the
- * list.
+ * There was briefly a summary card above the ledger here, and it was a
+ * mistake worth recording. .ps-stmt-footer is `position: fixed` — the TOTAL
+ * and Closing Balance rows are pinned to the bottom of the screen and never
+ * scroll away. So the closing balance was never below the fold, and a card
+ * restating it, the opening balance and both period totals repeated four
+ * figures that were already on screen at the same moment, for about 300px.
  *
- * On the app ground rather than the surface: a raised panel needs something
- * to be raised from, and on matching backgrounds the shadow reads as a
- * smudge rather than a lift. */
-.ps-summary {
-  padding: 12px 14px;
-  background: var(--c-bg-app);
-  border-bottom: 1px solid var(--c-border-soft);
-}
-.ps-sum-card {
-  background: var(--c-bg-surface);
-  /* --c-border, not --c-border-soft: in dark the card face and the page
-     behind it are within a 1.06 contrast ratio, and a black shadow adds
-     nothing on a near-black ground. The edge is all that separates them. */
-  border: 1px solid var(--c-border);
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 20px -12px rgba(0, 0, 0, 0.14);
-}
-
-.ps-sum-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 13px 16px 11px;
-}
-.ps-sum-lead { display: flex; flex-direction: column; min-width: 0; }
-
-/* One key style for every label on the card, so they cannot drift apart. */
-.ps-k {
-  font-size: 10px; font-weight: 650; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--c-text-soft);
-  white-space: nowrap;
-}
-
-.ps-sum-value {
-  margin-top: 4px;
-  font-size: 28px; font-weight: 700; line-height: 1.08;
-  letter-spacing: -0.025em;
+ * All that was genuinely missing is how the balance MOVED. It rides in the
+ * pinned row instead, in the space two dead "—" placeholders were taking, so
+ * it costs nothing.
+ *
+ * Deliberately NOT green-good / red-bad: a rising customer balance is more
+ * owed to you, a rising supplier balance is more owed by you. The colour
+ * states direction only. */
+.ps-stmt-delta {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
-  color: var(--c-text);
-}
-/* The same variable the Balance column below uses. --c-error is the brand
-   terracotta in light, and colouring debits with the primary makes money
-   look tappable. */
-.ps-sum-value.dr { color: var(--c-danger); }
-.ps-sum-value.cr { color: var(--c-success); }
-
-.ps-sum-delta {
-  font-size: 12.5px; font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  padding: 3px 9px; border-radius: 999px;
+  padding: 2px 7px;
+  border-radius: 999px;
   white-space: nowrap;
+  vertical-align: 1px;
 }
-/* Deliberately NOT green-good / red-bad. A rising customer balance is more
-   owed to you; a rising supplier balance is more owed by you. The colour
-   states direction, and nothing about whether it is welcome. */
-.ps-sum-delta.up   { color: var(--c-danger);  background: var(--c-error-soft); }
-.ps-sum-delta.down { color: var(--c-success); background: var(--c-success-soft); }
-
-/* Divided cells on the app ground, so the strip reads as the base of the
-   card rather than more of its face. */
-.ps-sum-strip {
-  display: flex;
-  border-top: 1px solid var(--c-border-soft);
-  background: var(--c-bg-app);
-}
-.ps-sum-cell {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 14px;
-  border-right: 1px solid var(--c-border-soft);
-}
-.ps-sum-cell:last-child { border-right: 0; }
-.ps-sum-cell b {
-  display: block;
-  margin-top: 3px;
-  font-size: 14px; font-weight: 650; color: var(--c-text);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ps-sum-cell b.dr { color: var(--c-danger); }
-.ps-sum-cell b.cr { color: var(--c-success); }
+.ps-stmt-delta.up   { color: var(--c-danger);  background: var(--c-error-soft); }
+.ps-stmt-delta.down { color: var(--c-success); background: var(--c-success-soft); }
