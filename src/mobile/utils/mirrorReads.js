@@ -188,6 +188,10 @@ export async function readParties() {
         party_name: p.party_name,
         party_type: p.party_type,
         mobile_1: p.mobile_1 || null,
+        mobile_2: p.mobile_2 || null,
+        email: p.email || null,
+        city: p.city || null,
+        gstin: p.gstin || null,
         credit_limit: Number(p.credit_limit || 0),
         credit_days: Number(p.credit_days || 0),
         current_balance: Number(p.balance_paise) / 100,
@@ -239,6 +243,10 @@ export async function readOutstanding(mode) {
         party_name: p.party_name,
         party_type: p.party_type,
         mobile_1: p.mobile_1 || null,
+        mobile_2: p.mobile_2 || null,
+        email: p.email || null,
+        city: p.city || null,
+        gstin: p.gstin || null,
         credit_limit: Number(p.credit_limit || 0),
         credit_days: Number(p.credit_days || 0),
         current_balance: Number(p.balance_paise) / 100,
@@ -248,6 +256,58 @@ export async function readOutstanding(mode) {
     };
   } catch (e) {
     console.warn('[mirror] readOutstanding failed:', e?.message || e);
+    return null;
+  }
+}
+
+/**
+ * Party search, offline.
+ *
+ * Matches the same four fields the server does — name, both mobiles, email
+ * (partyController.getAll) — because a search that finds fewer parties when
+ * the PC is off is a search that quietly lies about who you deal with. The
+ * user has no way to tell "no such party" from "not searchable right now".
+ *
+ * Returns null when the set is not trusted, which means fall through.
+ */
+export async function searchParties(term, limit = 12) {
+  const t = String(term || '').trim();
+  if (!t) return null;
+  const { trusted, syncedAt } = await mirrorState('parties');
+  if (!trusted) return null;
+  const db = await openMirror();
+  if (!db) return null;
+
+  // Escaped like the server's escapeLike, so a search for "%" matches a
+  // literal percent rather than everything.
+  const esc = `%${t.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+  try {
+    const r = await db.query(
+      `SELECT * FROM parties
+        WHERE party_name LIKE ? ESCAPE '\\'
+           OR mobile_1   LIKE ? ESCAPE '\\'
+           OR mobile_2   LIKE ? ESCAPE '\\'
+           OR email      LIKE ? ESCAPE '\\'
+        ORDER BY party_name LIMIT ?;`,
+      [esc, esc, esc, esc, limit],
+    );
+    return {
+      rows: (r?.values || []).map((p) => ({
+        party_id: p.party_id,
+        party_name: p.party_name,
+        party_type: p.party_type,
+        mobile_1: p.mobile_1 || null,
+        mobile_2: p.mobile_2 || null,
+        email: p.email || null,
+        city: p.city || null,
+        gstin: p.gstin || null,
+        current_balance: Number(p.balance_paise) / 100,
+      })),
+      syncedAt,
+      fromMirror: true,
+    };
+  } catch (e) {
+    console.warn('[mirror] searchParties failed:', e?.message || e);
     return null;
   }
 }

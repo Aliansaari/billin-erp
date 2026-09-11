@@ -69,6 +69,13 @@ const SETS = {
               p.party_name,
               p.party_type,
               p.mobile_1,
+              -- Searched by the server on name + both mobiles + email, and
+              -- the result rows show city and GSTIN. Carried so an offline
+              -- search matches the same parties and renders the same row.
+              p.mobile_2,
+              p.email,
+              p.city,
+              p.gstin,
               COALESCE(p.credit_limit, 0)::float                       AS credit_limit,
               COALESCE(p.credit_days, 0)::int                          AS credit_days,
               ROUND(COALESCE(p.current_balance, 0)::numeric, 2)::float AS current_balance

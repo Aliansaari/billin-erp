@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { searchParties, readProducts } from '../utils/mirrorReads';
 import { useNavigate } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import api, { partyAPI, productAPI } from '../../api';
@@ -193,6 +194,9 @@ export default function Search() {
   const [products, setProducts] = useState([]);
   const [vouchers, setVouchers] = useState([]);
   const [loading, setLoading]   = useState(false);
+  /* Set when results came from the device rather than the shop, so the
+   * screen can say so — and say which parts it could not answer at all. */
+  const [offlineNote, setOfflineNote] = useState(null);
   const [pins, setPins]         = useState(() => readPins());
   const [recent]                = useState(() => readRecent());
 
@@ -217,14 +221,14 @@ export default function Search() {
   useEffect(() => {
     const term = q.trim();
     if (term.length < 2) {
-      setParties([]); setProducts([]); setVouchers([]); setLoading(false);
+      setParties([]); setProducts([]); setVouchers([]); setLoading(false); setOfflineNote(null);
       return;
     }
     const wantParties  = scope === 'all' || scope === 'parties';
     const wantProducts = scope === 'all' || scope === 'products';
     const wantVouchers = (scope === 'all') && looksLikeVoucher(term);
     if (!wantParties && !wantProducts && !wantVouchers) {
-      setParties([]); setProducts([]); setVouchers([]); setLoading(false);
+      setParties([]); setProducts([]); setVouchers([]); setLoading(false); setOfflineNote(null);
       return;
     }
     let cancelled = false;
@@ -248,17 +252,50 @@ export default function Search() {
         wantVouchers ? api.get('/sales',     { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
         wantVouchers ? api.get('/purchases', { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
         wantVouchers ? api.get('/payments',  { params: { search: voucherTerm, limit: 5 } }) : Promise.resolve(null),
-      ]).then(([p, pr, s, pu, pay]) => {
+      ]).then(async ([p, pr, s, pu, pay]) => {
         if (cancelled) return;
         const pick = (r) => {
           if (!r || r.status !== 'fulfilled' || !r.value) return [];
           const d = r.value.data?.data ?? r.value.data ?? [];
           return Array.isArray(d) ? d : [];
         };
-        setParties(wantParties  ? pick(p).slice(0, 12)  : []);
+
+        /* Offline every one of these rejects, and allSettled swallows it —
+         * so the screen showed nothing, with no error and no explanation.
+         * An empty result reads as a statement about the shop ("no such
+         * party", "no such item") rather than about the connection, which
+         * is the worst available way to be wrong.
+         *
+         * Parties and products are mirrored and can still be answered.
+         * Vouchers are not, so they are reported as unavailable rather than
+         * quietly returned empty. */
+        const localParties = (wantParties && p?.status === 'rejected')
+          ? await searchParties(term, 12).catch(() => null)
+          : null;
+        const localProducts = (wantProducts && pr?.status === 'rejected')
+          ? await readProducts({
+              limit: parsedProduct.extra.length ? 80 : 12,
+              search: productTerm,
+              ...(parsedProduct.scope ? { search_field: parsedProduct.scope } : {}),
+            }).catch(() => null)
+          : null;
+        if (cancelled) return;
+
+        const vouchersDown = wantVouchers && s?.status === 'rejected';
+        setOfflineNote(
+          (localParties || localProducts || vouchersDown)
+            ? (vouchersDown ? 'Shop computer offline — bills are not searchable' : 'Shop computer offline')
+            : null,
+        );
+
+        setParties(wantParties
+          ? (localParties ? localParties.rows.slice(0, 12) : pick(p).slice(0, 12))
+          : []);
         // The server matched the scoped term; apply the remaining words here
         // so "a: 668 plazo" ends up as article-668 AND plazo.
-        const prodRows = wantProducts ? pick(pr) : [];
+        const prodRows = wantProducts
+          ? (localProducts ? (localProducts.data?.data || []) : pick(pr))
+          : [];
         setProducts(
           (parsedProduct.extra.length
             ? prodRows.filter((row) => matchesSearch(row, parsedProduct))
@@ -614,6 +651,15 @@ export default function Search() {
             <div className="search-card">
               {quickStart.map((a) => renderRow(a, choose, { icon: <BookIcon /> }))}
             </div>
+          </div>
+        )}
+
+        {/* Why these results are what they are.
+            Without it, a shop with the PC off looks like a shop with no such
+            party — the same empty list, and no way to tell which. */}
+        {offlineNote && !loading && (
+          <div className="search-section">
+            <div className="search-section-head"><span>{offlineNote}</span></div>
           </div>
         )}
 

@@ -66,9 +66,11 @@ const SETS = {
     table: 'parties',
     insert:
       'INSERT INTO parties (party_id, party_name, party_type, mobile_1, ' +
-      'credit_limit, credit_days, balance_paise) VALUES (?,?,?,?,?,?,?);',
+      'mobile_2, email, city, gstin, credit_limit, credit_days, balance_paise) ' +
+      'VALUES (?,?,?,?,?,?,?,?,?,?,?);',
     map: (r) => [
       r.party_id, str(r.party_name), str(r.party_type), str(r.mobile_1),
+      str(r.mobile_2), str(r.email), str(r.city), str(r.gstin),
       num(r.credit_limit), num(r.credit_days), scaled(r.current_balance, 100),
     ],
     verify: { current_balance: 'COALESCE(SUM(balance_paise),0)' },

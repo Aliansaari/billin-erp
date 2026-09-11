@@ -106,6 +106,19 @@ async function dropLegacy(conn, companyId) {
  * and what the server said the money totalled. A figure without a sync time
  * cannot be shown honestly, so the time is stored beside the data rather
  * than inferred later. */
+/* Bumped whenever a mirrored TABLE's columns change.
+ *
+ * `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists,
+ * so a new column would simply never appear on a phone that had synced
+ * before — and the failure is silent: inserts naming the new column throw at
+ * runtime, long after the build looked fine. On a rebuildable mirror the
+ * honest response is to drop the typed tables and resync them.
+ *
+ * response_cache is deliberately NOT dropped: its shape is a key and a blob,
+ * it does not change, and it holds statements and movement histories that
+ * would otherwise have to be re-visited one screen at a time to come back. */
+const SCHEMA_VERSION = 2;
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
   key        TEXT PRIMARY KEY,
@@ -117,6 +130,14 @@ CREATE TABLE IF NOT EXISTS parties (
   party_name    TEXT,
   party_type    TEXT,
   mobile_1      TEXT,
+  -- Carried so offline search matches on the same fields the server does
+  -- (name, both mobiles, email) and the result rows render the same columns.
+  -- A search that finds fewer parties offline is a search that quietly lies
+  -- about who you deal with.
+  mobile_2      TEXT,
+  email         TEXT,
+  city          TEXT,
+  gstin         TEXT,
   credit_limit  REAL,
   credit_days   INTEGER,
   -- Money is an INTEGER count of paise, never REAL.
@@ -171,6 +192,41 @@ DROP TABLE IF EXISTS statements;
 `;
 
 /**
+ * Drop the typed tables when their shape has changed.
+ *
+ * Runs BEFORE the schema is applied, so the CREATE statements that follow
+ * build the current shape. Anything dropped here resyncs on the next tick;
+ * nothing is lost that the shop cannot hand back.
+ */
+async function migrate(db) {
+  let have = 0;
+  try {
+    // meta itself has never changed shape, so it can be read before the
+    // schema is (re)applied — but on a brand-new database it does not exist
+    // yet, which is what the catch is for.
+    const r = await db.query("SELECT value FROM meta WHERE key = 'schema_version';");
+    have = Number(r?.values?.[0]?.value) || 0;
+  } catch { have = 0; }
+
+  if (have === SCHEMA_VERSION) return;
+  try {
+    await db.execute('DROP TABLE IF EXISTS parties; DROP TABLE IF EXISTS products;');
+    // Both sets must resync before anything may be served from them.
+    await db.execute(
+      "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);" +
+      "DELETE FROM meta WHERE key LIKE '%_trusted' OR key LIKE '%_checksum' OR key LIKE '%_synced_at';",
+    );
+    await db.run(
+      'INSERT INTO meta (key, value, updated_at) VALUES (?,?,?) ' +
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;',
+      ['schema_version', String(SCHEMA_VERSION), Date.now()],
+    );
+  } catch (e) {
+    console.warn('[mirror] migrate failed:', e?.message || e);
+  }
+}
+
+/**
  * Open (creating if needed) the encrypted mirror for the signed-in company.
  * Returns null when there is no mirror to open — the browser preview, or a
  * session whose company cannot be determined. Never throws at the caller.
@@ -204,6 +260,7 @@ export async function openMirror() {
       : await conn.createConnection(name, true, 'secret', 1, false);
 
     await db.open();
+    await migrate(db);
     await db.execute(SCHEMA);
 
     openDb = db;
