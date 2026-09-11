@@ -16,6 +16,11 @@
    * See the dark override for why the two cannot be the same declaration. */
   --elev-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 20px -12px rgba(0, 0, 0, 0.14);
 
+  /* Icon wells. In light a plain recess in the page is right: the cream
+     ground already reads as a material. */
+  --c-icon-well:    var(--c-bg-app);
+  --c-icon-ink:     var(--c-text);
+
   --c-bg-layout:    var(--c-bg-app);
 
   --c-text:         #1A1612;
@@ -105,60 +110,68 @@
    * glow — rationed, so it reads as a deliberate brand note rather than a
    * wash over the entire screen. Same correction already applied to the
    * sign-in screen. */
-  /* Layer separation, measured rather than eyeballed.
+  /* Warm grounds, with the warmth EARNED rather than sprayed.
    *
-   * The old chain stepped 1.024 / 1.063 / 1.029 / 1.065 between grounds,
-   * against light's 1.137 / 1.101 / 1.061 — roughly half the separation, and
-   * surface→card at 1.029 was effectively no step at all. That is why dark
-   * read flat and sheet-like while light read layered: nothing lifted off
-   * anything.
+   * A previous pass replaced a sepia palette (#0A0806 … #221E19) with
+   * neutrals because it "tinted every surface and read muddy and dated".
+   * That judgement was right about bare warm greys — but the fix went too
+   * far the other way and the theme became flat and characterless, which is
+   * what was reported.
    *
-   * Now 1.049 / 1.086 / 1.082 / 1.122. Deliberately NOT matched to light's
-   * ratios: hitting 1.13 down here needs jumps to #1A1918 and above, which
-   * turns the app ground grey and throws away the deep-dark character. Text
-   * still lands between 12.7:1 and 17.6:1 on every one of these.
+   * The difference now is structure, not just hue: raised surfaces carry a
+   * warm tint AND terracotta-tinted edges, a warm top highlight, and
+   * accent-tinted icon wells. Warmth reads as a designed material rather
+   * than a wash, because it lands on the things that are meant to look
+   * raised and nowhere else.
    *
-   * Still neutral. The sepia this replaced (#0A0806 … #221E19) tinted every
-   * surface and read muddy; warmth stays rationed to the terracotta accent
-   * and the hero glow. The single point of red over blue below is a bias,
-   * not a wash. */
-  --c-bg-page:      #0A0A0B;
-  --c-bg-app:       #111112;
-  --c-bg-surface:   #1A1A1C;
-  --c-bg-card:      #212124;
-  --c-bg-elev:      #2A2A2D;
-  /* Card elevation, dark.
+   * Layer steps also matter more than the last attempt assumed. Moving
+   * surface→card from a 1.029 ratio to 1.082 sounded like doubling, but at
+   * these luminances that is 6-10 points of RGB and the eye cannot see it.
+   * These are real steps. */
+  --c-bg-page:      #070605;
+  --c-bg-app:       #0B0907;
+  --c-bg-surface:   #141110;
+  --c-bg-card:      #191411;
+  --c-bg-elev:      #221B16;
+
+  /* Card elevation, dark. Restored — an earlier edit sliced across it.
    *
    * A drop shadow is nearly useless here: black on a near-black ground has
-   * almost nothing to darken, which is why raising the layer separation
-   * above helps but still leaves surfaces looking like flat sheets laid on
-   * flat sheets.
-   *
-   * The inset hairline along the top edge is what supplies the missing cue.
-   * It reads as light falling from above catching the card's lip, which is
-   * how a physical raised edge behaves — and it is the reason well-made dark
-   * interfaces look moulded rather than printed. The drop shadow underneath
-   * still earns its place now that the card is meaningfully lighter than the
-   * ground behind it. */
+   * almost nothing to darken. The inset hairline along the top edge is the
+   * cue that does the work — it reads as light catching the card's raised
+   * lip, which is why well-made dark interfaces look moulded rather than
+   * printed. Warm-tinted, so it belongs to these surfaces. */
   --elev-1:
-    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    inset 0 1px 0 rgba(255, 213, 190, 0.055),
     0 1px 2px rgba(0, 0, 0, 0.55),
-    0 14px 30px -18px rgba(0, 0, 0, 0.85);
+    0 16px 34px -20px rgba(0, 0, 0, 0.9);
+
+  /* Icon wells, dark. A near-black recess inside a near-black card is
+     invisible — which is how the quick actions came to read as four empty
+     squares. An accent-tinted well gives each a lit centre, and is most of
+     what separates a dark theme with character from one that is merely
+     dark. */
+  --c-icon-well:    rgba(221, 85, 39, 0.14);
+  --c-icon-ink:     #E8845C;
 
   --c-bg-layout:    var(--c-bg-app);
 
-  --c-text:         #F4F1EC;
-  --c-text-2:       #C4BEB6;
-  --c-text-soft:    #99938B;
-  --c-text-mute:    #736D66;
-  --c-text-faint:   #524D47;
+  --c-text:         #F6F1EA;
+  --c-text-2:       #C8C0B6;
+  --c-text-soft:    #9B8F84;
+  --c-text-mute:    #776C62;
+  --c-text-faint:   #554C44;
 
   /* Slightly stronger than before: at these darker grounds the old 6%/8%
      hairlines were effectively invisible, which is why cards and rows ran
      into each other. */
-  --c-line:         rgba(255, 255, 255, 0.09);
-  --c-line-2:       rgba(255, 255, 255, 0.06);
-  --c-border:       rgba(255, 255, 255, 0.12);
+  /* Warm-tinted rather than pure white: a neutral hairline on a warm surface
+     reads as a seam, not an edge of the same material. */
+  --c-line:         rgba(255, 232, 214, 0.085);
+  --c-line-2:       rgba(255, 232, 214, 0.055);
+  --c-border:       rgba(255, 232, 214, 0.11);
+  /* For surfaces that should read as brand-lit rather than merely raised. */
+  --c-border-warm:  rgba(221, 85, 39, 0.22);
   --c-border-soft:  rgba(255, 255, 255, 0.06);
 
   --c-primary:      #DD5527;

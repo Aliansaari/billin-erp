@@ -376,11 +376,13 @@
   width: 34px;
   height: 34px;
   border-radius: 11px;
-  background: var(--c-bg-app);
+  /* Theme-dependent: a recess in light, an accent-lit well in dark. See
+     --c-icon-well. */
+  background: var(--c-icon-well);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--c-text);
+  color: var(--c-icon-ink);
   border: 1px solid var(--c-border-soft);
 }
 
@@ -692,7 +694,10 @@
 
 [data-mobile-theme="dark"] .hero-card {
   background: linear-gradient(160deg, var(--c-hero-from) 0%, var(--c-hero-mid) 60%, var(--c-hero-to) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  /* Brand-lit edge rather than a neutral one. A white hairline on a warm
+     gradient reads as a seam between two materials; this reads as the same
+     material catching light. */
+  border: 1px solid var(--c-border-warm);
   box-shadow: 0 20px 40px -20px rgba(0, 0, 0, 0.5),
               0 0 0 1px var(--c-primary-soft);
 }
