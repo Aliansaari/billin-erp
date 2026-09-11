@@ -408,6 +408,20 @@ export default function PartyStatement({ partyType = 'Customer' }) {
   const closingBal  = meta?.closing_balance ?? 0;
   const closingSide = meta?.closing_side || 'Dr';
 
+  /* How the balance MOVED over the period.
+   *
+   * A statement answers two questions and the screen only answered one. What
+   * do they owe now was at the very bottom, below every entry — on a busy
+   * account that is a long scroll to reach the single number the screen was
+   * opened for. And whether that is better or worse than when the period
+   * started was not answered at all, though both figures were present.
+   *
+   * Signed throughout: fmtBal already derives Dr/Cr from the sign when the
+   * server does not name a side, so the subtraction is the same arithmetic
+   * the rows below already do. */
+  const openingBal = Number(meta?.opening_balance ?? 0);
+  const netChange  = Number(closingBal) - openingBal;
+
   return (
     <div className="rl-screen drill-in">
 
@@ -501,6 +515,33 @@ export default function PartyStatement({ partyType = 'Customer' }) {
           <input ref={searchRef} placeholder="Voucher no, type…" value={search}
             onChange={(e) => setSearch(e.target.value)}
             autoCorrect="off" autoCapitalize="none" spellCheck="false" />
+        </div>
+      )}
+
+      {/* ── What it comes to ──
+          Placed before the ledger, not after it: this is the sentence the
+          statement exists to say, and it should not require scrolling past
+          two hundred entries to hear. */}
+      {partyId && !loading && meta && (
+        <div className="ps-summary">
+          <div className="ps-summary-main">
+            <span className="ps-summary-label">
+              Balance as on {prettyDate(toDate)}
+            </span>
+            <span className={`ps-summary-value ${(closingSide || 'Dr').toLowerCase()}`}>
+              {fmtBal(closingBal, closingSide)}
+            </span>
+          </div>
+          <div className="ps-summary-meta">
+            <span className="ps-summary-open">
+              Opened {fmtBal(openingBal, meta.opening_side)}
+            </span>
+            {Math.abs(netChange) > 0.004 && (
+              <span className={`ps-summary-delta ${netChange > 0 ? 'up' : 'down'}`}>
+                {netChange > 0 ? '↑' : '↓'} ₹{formatINR(Math.abs(netChange))}
+              </span>
+            )}
+          </div>
         </div>
       )}
 

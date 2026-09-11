@@ -67,97 +67,113 @@
 
 /* ── Stats card ──────────────────────────────────────────────────────── */
 .sm-stats {
-  padding: 12px 14px;
+  padding: 14px;
   background: var(--c-bg-surface);
   border-bottom: 1px solid var(--c-border-soft);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
-.sm-stat-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+
+/* ── The answer ──────────────────────────────────────────────────────
+ *
+ * Seven tiles of equal weight is a list, not a hierarchy: the number you
+ * came for sat the same size as the purchase rate, and two of them showed
+ * the same figure. One thing is dominant here, and everything else is
+ * support. */
+.sm-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
 }
-.sm-stat-row-3 { grid-template-columns: 1fr 1fr 1fr; }
-.sm-stat {
+.sm-hero-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sm-hero-label {
+  font-size: 11px; font-weight: 650; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--c-text-soft);
+}
+.sm-hero-value {
+  font-size: 34px; font-weight: 700; line-height: 1.05;
+  letter-spacing: -0.02em; color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+}
+.sm-hero-value small {
+  font-size: 14px; font-weight: 600; margin-left: 5px;
+  color: var(--c-text-soft); letter-spacing: 0;
+}
+.sm-hero-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.sm-hero-side-label {
+  font-size: 10.5px; font-weight: 650; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--c-text-soft);
+}
+.sm-hero-side-value {
+  font-size: 17px; font-weight: 650; color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Buy → Sell → Margin ─────────────────────────────────────────────
+ *
+ * Read as a sentence rather than as three unrelated boxes: the arrow makes
+ * the first two a progression, and the margin is set apart because it is the
+ * conclusion they lead to. */
+.sm-rates {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
   background: var(--c-bg-app);
   border: 1px solid var(--c-border-soft);
-  border-radius: 10px;
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  border-radius: 12px;
 }
-.sm-stat-label {
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--c-text-mute);
+.sm-rate { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sm-rate-label {
+  font-size: 10px; font-weight: 650; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--c-text-soft);
 }
-.sm-stat-value {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--c-text);
-  letter-spacing: -0.02em;
+.sm-rate-value {
+  font-size: 15px; font-weight: 650; color: var(--c-text);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-.sm-stat-value small {
-  font-size: 10px;
-  font-weight: 500;
-  opacity: 0.5;
-  text-transform: lowercase;
+.sm-rate-value small {
+  font-size: 11px; font-weight: 600; margin-left: 4px; color: var(--c-text-soft);
 }
-.sm-stat-value.sm-in  { color: var(--c-success); }
-.sm-stat-value.sm-out { color: var(--c-error); }
-.sm-stat-value.sm-pur { color: var(--c-text-soft); }
-.sm-stat-value.sm-sale { color: var(--c-primary); }
+.sm-rate-arrow { color: var(--c-text-soft); font-size: 13px; margin: 10px 0 0; }
+.sm-sale { color: var(--c-primary); }
 
-/* ── Filter chips ────────────────────────────────────────────────────── */
-.sm-chips {
+/* Pushed to the right edge so it reads as the result of the two before it. */
+.sm-rate-margin {
+  margin-left: auto; align-items: flex-end; text-align: right;
+  padding-left: 10px; border-left: 1px solid var(--c-border-soft);
+}
+.sm-rate-margin .sm-rate-value { color: var(--c-success); }
+.sm-rate-margin.is-loss .sm-rate-value { color: var(--c-error); }
+
+/* Absent unless it has something to say. */
+.sm-drift {
+  font-size: 12px; line-height: 1.35;
+  padding: 8px 10px; border-radius: 10px;
+  background: var(--c-warning-soft);
+  color: var(--c-warning);
+}
+
+/* Was display:none, which left every row showing three bare numbers —
+   "— 11 1" — with nothing anywhere on the screen to say which was in, which
+   was out, and which was the running balance. The statement screen has had
+   these headers all along. */
+.sm-thead {
   display: flex;
-  gap: 6px;
-  padding: 10px 14px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
   background: var(--c-bg-app);
   border-bottom: 1px solid var(--c-border-soft);
 }
-.sm-chips::-webkit-scrollbar { display: none; }
-
-.sm-chip {
-  flex-shrink: 0;
-  padding: 6px 12px;
-  background: var(--c-bg-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-pill);
-  font-weight: 500;
-  font-size: 12px;
-  color: var(--c-text-soft);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 120ms;
-  font-family: inherit;
+.sm-th {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--c-text-soft);
 }
-.sm-chip:active { transform: scale(0.97); }
-.sm-chip.active {
-  background: var(--c-primary);
-  color: #fff;
-  border-color: var(--c-primary);
-}
-
-/* ── Ledger list ─────────────────────────────────────────────────────── */
-.sm-list-wrap {
-  flex: 1;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  background: var(--c-bg-surface);
-  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
-}
-
-.sm-thead {
-  display: none;
+.sm-th-date { flex: 1; }
+.sm-th-type { display: none; }
+.sm-th-qty, .sm-th-bal {
+  width: 52px; text-align: right; flex: none;
 }
 
 .sm-row {
@@ -224,19 +240,26 @@
   font-weight: 400;
 }
 
+/* Widths and gap are the same as .sm-thead's on purpose. A header whose
+   columns do not sit over the figures they name is worse than no header:
+   it looks authoritative and points at the wrong number. */
 .sm-row-nums {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .sm-num {
   font-size: 13px;
   font-weight: 600;
-  min-width: 28px;
+  width: 52px;
+  flex: none;
   text-align: right;
   letter-spacing: -0.01em;
+  /* Digits the same width, so the column reads down cleanly rather than
+     jittering between 1 and 240. */
+  font-variant-numeric: tabular-nums;
 }
 .sm-num.in   { color: var(--c-success); }
 .sm-num.out  { color: var(--c-error); }

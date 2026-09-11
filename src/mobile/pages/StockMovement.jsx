@@ -224,6 +224,22 @@ export default function StockMovement() {
   const saleRate = Number(product?.sale_rate ?? product?.sale_price ?? 0);
   const currentStock = Number(product?.current_stock ?? 0);
   const stockValue = Number(product?.display_stock_value ?? 0);
+
+  /* Margin, worked out here rather than left to the reader.
+   *
+   * Both inputs were already on screen as separate tiles, so anyone wanting
+   * the one number that matters — what this item actually earns — had to do
+   * the subtraction themselves. Showing the inputs and withholding the
+   * conclusion is the most common way a dense screen manages to say nothing. */
+  const margin = saleRate - purRate;
+  const marginPct = purRate > 0 ? (margin / purRate) * 100 : null;
+
+  /* Closing is the balance the MOVEMENTS add up to; currentStock is what the
+   * product record says. They should agree, and when they do, showing both is
+   * the same number twice. When they do NOT agree the stock ledger has
+   * drifted from the item — which is worth knowing and was previously buried
+   * as one tile among seven, saying nothing to distinguish it. */
+  const ledgerDrift = product && Math.abs(Number(stats.closing) - currentStock) > 0.001;
   const barcode = product?.barcode || '';
   const hsn = product?.hsn_code || '';
   const size = product?.size_value || '';
@@ -271,40 +287,49 @@ export default function StockMovement() {
       {/* Product stats card */}
       {product && (
         <div className="sm-stats">
-          <div className="sm-stat-row">
-            <div className="sm-stat">
-              <span className="sm-stat-label">Current stock</span>
-              <span className="sm-stat-value">{currentStock} <small>{unit}</small></span>
+          {/* The answer first: is there any, and what is it worth. */}
+          <div className="sm-hero">
+            <div className="sm-hero-main">
+              <span className="sm-hero-label">In stock</span>
+              <span className="sm-hero-value">
+                {currentStock}<small>{unit}</small>
+              </span>
             </div>
-            <div className="sm-stat">
-              <span className="sm-stat-label">Stock value</span>
-              <span className="sm-stat-value">₹{formatINR(stockValue)}</span>
-            </div>
-          </div>
-          <div className="sm-stat-row">
-            <div className="sm-stat">
-              <span className="sm-stat-label">Purchase rate</span>
-              <span className="sm-stat-value sm-pur">₹{formatINR(purRate)}</span>
-            </div>
-            <div className="sm-stat">
-              <span className="sm-stat-label">Sale rate</span>
-              <span className="sm-stat-value sm-sale">₹{formatINR(saleRate)}</span>
+            <div className="sm-hero-side">
+              <span className="sm-hero-side-label">Stock value</span>
+              <span className="sm-hero-side-value">₹{formatINR(stockValue)}</span>
             </div>
           </div>
-          <div className="sm-stat-row sm-stat-row-3">
-            <div className="sm-stat">
-              <span className="sm-stat-label">Total in</span>
-              <span className="sm-stat-value sm-in">{stats.totalIn}</span>
+
+          {/* What it costs, what it sells for, and the gap — which is the
+              thing the first two exist to tell you. */}
+          <div className="sm-rates">
+            <div className="sm-rate">
+              <span className="sm-rate-label">Buy</span>
+              <span className="sm-rate-value">₹{formatINR(purRate)}</span>
             </div>
-            <div className="sm-stat">
-              <span className="sm-stat-label">Total out</span>
-              <span className="sm-stat-value sm-out">{stats.totalOut}</span>
+            <span className="sm-rate-arrow" aria-hidden>→</span>
+            <div className="sm-rate">
+              <span className="sm-rate-label">Sell</span>
+              <span className="sm-rate-value sm-sale">₹{formatINR(saleRate)}</span>
             </div>
-            <div className="sm-stat">
-              <span className="sm-stat-label">Closing</span>
-              <span className="sm-stat-value">{stats.closing}</span>
+            <div className={`sm-rate sm-rate-margin${margin < 0 ? ' is-loss' : ''}`}>
+              <span className="sm-rate-label">Margin</span>
+              <span className="sm-rate-value">
+                ₹{formatINR(Math.abs(margin))}
+                {marginPct !== null && (
+                  <small>{margin < 0 ? '−' : ''}{Math.abs(marginPct).toFixed(1)}%</small>
+                )}
+              </span>
             </div>
           </div>
+
+          {/* Only when the two disagree. Silence is the useful state. */}
+          {ledgerDrift && (
+            <div className="sm-drift">
+              Movements total {stats.closing} {unit}, item record says {currentStock}
+            </div>
+          )}
         </div>
       )}
 
