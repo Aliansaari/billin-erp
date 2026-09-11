@@ -150,6 +150,7 @@ export function startAutoSync() {
   if (!mirrorAvailable()) return () => {};
   if (timer) return stop;
 
+  failures = 0; nextAllowedAt = 0; lastReason = null;
   // At once on start: the first thing after opening the app is usually
   // looking at something, and that should not be the moment a stale figure
   // is read out.
@@ -163,11 +164,21 @@ export function startAutoSync() {
    * throttling or suspending timers the whole time, so the interval cannot
    * be relied on to have run — but the app is alive again now, and the
    * operator is about to look at something. */
-  const onResumed = () => { syncTick(); };
+  /* Coming back clears the backoff before retrying.
+   *
+   * The backoff exists so a switched-off PC is not hammered on a fixed beat,
+   * and it grows to ten minutes. But it also outlives the thing it was
+   * waiting for: fix the shop — update it, turn it on, plug the router back
+   * in — and the app would sit out the rest of the delay still reporting the
+   * old failure, which reads as the fix not having worked. Someone opening
+   * the app is the best signal available that circumstances changed. */
+  const retryNow = () => { failures = 0; nextAllowedAt = 0; lastReason = null; syncTick(); };
+
+  const onResumed = retryNow;
   window.addEventListener('zehen:resumed', onResumed);
 
   const onVisible = () => {
-    if (document.visibilityState === 'visible') syncTick();
+    if (document.visibilityState === 'visible') retryNow();
   };
   document.addEventListener('visibilitychange', onVisible);
 

@@ -79,6 +79,39 @@ export function setServerUrl(url) {
     if (url) localStorage.setItem(SERVER_URL_KEY, String(url).replace(/\/+$/, ''));
     else     localStorage.removeItem(SERVER_URL_KEY);
   } catch { /* swallow private-mode errors */ }
+  applyApiBaseUrl();
+}
+
+/**
+ * Point the live axios instance at whatever the stored server URL now says.
+ *
+ * ── THE BUG THIS EXISTS TO FIX ──
+ *
+ * baseURL was resolved exactly once, when this module was evaluated, and
+ * setServerUrl only wrote to localStorage. So changing shops left every
+ * request going to the PREVIOUS shop's base — or, on a phone that had not
+ * picked a server yet, to resolveApiBaseUrl()'s same-origin fallback, which
+ * under Capacitor means capacitor://localhost/api and a 404 for everything.
+ *
+ * Signing into a second shop therefore loaded no data at all until the app
+ * was reloaded, because a reload is the only thing that re-evaluated this
+ * module — which is precisely why the side panel's Retry button (a
+ * window.location.reload) appeared to fix it.
+ *
+ * It also produced a misleading diagnosis downstream: the mirror saw 404s
+ * and reported "shop PC is on an older build", which is what a 404 there
+ * usually means and was not the cause here at all.
+ *
+ * Declared as a function so hoisting keeps it callable from setServerUrl
+ * above, and guarded because `api` is a const declared further down this
+ * file: during module evaluation it is still in its temporal dead zone.
+ */
+function applyApiBaseUrl() {
+  try {
+    if (typeof api !== 'undefined' && api?.defaults) {
+      api.defaults.baseURL = resolveApiBaseUrl();
+    }
+  } catch { /* called before `api` exists — the initial value is already correct */ }
 }
 
 /** Read back what the user picked, without the /api suffix. */
@@ -146,6 +179,17 @@ const api = axios.create({
   baseURL: resolveApiBaseUrl(),
   timeout: 30000,
 });
+
+/* Re-read the server URL on demand.
+ *
+ * Exported for the paths that change which shop is being talked to without
+ * going through setServerUrl — signing in, switching shop, restoring a
+ * session. Cheap, idempotent, and far better than the alternative of every
+ * such path remembering to reload the page. */
+export function refreshApiBaseUrl() {
+  api.defaults.baseURL = resolveApiBaseUrl();
+  return api.defaults.baseURL;
+}
 
 /* ── Company switch in progress ─────────────────────────────────────────
  *
