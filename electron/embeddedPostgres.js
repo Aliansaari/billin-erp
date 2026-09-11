@@ -21,7 +21,16 @@
 // configured with deleteAppDataOnUninstall:false, so the database
 // survives uninstall → reinstall.
 
-const { app } = require('electron');
+// In the normal Electron main process this is the app object and we use
+// `app.isPackaged` to tell a real install from `npm run` dev. When this
+// module is loaded by the HEADLESS SERVICE (started with
+// ELECTRON_RUN_AS_NODE=1), `require('electron')` returns the binary path
+// STRING instead of the module object, so `app` is undefined. Every use
+// of `app` below is guarded, and the service passes `serviceMode:true`
+// to bypass the dev gate explicitly. Wrapped in try/catch so the module
+// also loads under plain Node without throwing.
+let app;
+try { ({ app } = require('electron')); } catch { /* plain node / run-as-node */ }
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -42,7 +51,14 @@ function warn(...a) { try { console.warn('[embedded-pg]', ...a); } catch {} }
 function resolveBinDir() {
   // Packaged: electron-builder extraResources {from:'vendor/pgsql', to:'pgsql'}
   const p = path.join(process.resourcesPath || '', 'pgsql', 'bin');
-  return fs.existsSync(path.join(p, 'pg_ctl.exe')) ? p : null;
+  if (fs.existsSync(path.join(p, 'pg_ctl.exe'))) return p;
+  // Fallback for running from the source tree (e.g. the headless service in
+  // dev/test, where process.resourcesPath points at Electron's own resources
+  // rather than our bundled engine): the binaries live at <repo>/vendor/pgsql.
+  // __dirname is <repo>/electron here, so one level up + vendor/pgsql/bin.
+  const dev = path.join(__dirname, '..', 'vendor', 'pgsql', 'bin');
+  if (fs.existsSync(path.join(dev, 'pg_ctl.exe'))) return dev;
+  return null;
 }
 
 function readJson(file) {
@@ -220,10 +236,15 @@ function ensureDefaultDatabase(port, password) {
  * Start the bundled Postgres. Returns { used:boolean, port?, reason? }.
  * NEVER throws — a false result just means "fall back to manual setup".
  */
-async function startEmbeddedPostgres({ clientMode } = {}) {
+async function startEmbeddedPostgres({ clientMode, serviceMode } = {}) {
   try {
-    if (!app.isPackaged) return { used: false, reason: 'dev' };
-    if (clientMode)      return { used: false, reason: 'client' };
+    // `serviceMode` is set by the headless Windows service, where there's
+    // no Electron `app` to inspect — it always means "act as a packaged
+    // install". Otherwise fall back to the normal app.isPackaged gate so
+    // `npm run` dev keeps skipping the embedded engine exactly as before.
+    const packaged = serviceMode === true || !!(app && app.isPackaged);
+    if (!packaged)  return { used: false, reason: 'dev' };
+    if (clientMode) return { used: false, reason: 'client' };
 
     binDir = resolveBinDir();
     if (!binDir) { warn('bundled binaries not found — manual Postgres setup remains available'); return { used: false, reason: 'no-binaries' }; }

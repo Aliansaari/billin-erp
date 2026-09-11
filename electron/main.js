@@ -44,6 +44,28 @@ const CLIENT_MODE = isDev ? process.env.CLIENT_MODE === '1' : !!_appPkg.clientMo
 // other ~/.zehen sidecars so it survives reinstalls.
 const CLIENT_CFG_PATH = path.join(os.homedir(), '.zehen', 'client-config.json');
 
+// ── Always-on server service mode ───────────────────────────────────
+//
+// When the shop has installed ZEHEN as a background Windows service (the
+// "always-on server" option), the service installer drops this marker.
+// Its presence means a separate process ALREADY owns the database and the
+// API on this PC. This app instance must therefore NOT:
+//   • start its own embedded Postgres  — a second postgres against the
+//     same data directory can corrupt the cluster, AND
+//   • start its own Express server     — it would just fail on the busy
+//     port 3001.
+// Instead the app behaves like a local client: it waits for the service's
+// API on 127.0.0.1:3001 and loads it. Set ZEHEN_FORCE_INAPP_SERVER=1 to
+// override (e.g. for debugging with the service stopped).
+const SERVER_SERVICE_MARKER = path.join(os.homedir(), '.zehen', '.server-service.json');
+function isServerServiceMode() {
+  try {
+    if (process.env.ZEHEN_FORCE_INAPP_SERVER === '1') return false;
+    return fs.existsSync(SERVER_SERVICE_MARKER);
+  } catch { return false; }
+}
+const SERVER_SERVICE_MODE = isServerServiceMode();
+
 // ── UI-settings sidecar ─────────────────────────────────────────────
 //
 // The home/dashboard layout, theme and barcode-label preferences live in
@@ -234,6 +256,10 @@ setupFileLogging();
 // `app.isPackaged` is the canonical "are we shipped as an .exe?"
 // check. Don't use NODE_ENV — that varies by how the user launched.
 function bootstrapServer() {
+  if (SERVER_SERVICE_MODE) {
+    console.log('[main] SERVER_SERVICE_MODE — background Windows service owns the API + DB; not starting them in-app');
+    return;
+  }
   if (CLIENT_MODE) {
     console.log('[main] CLIENT_MODE — thin LAN client, not starting a local server/DB');
     return;
@@ -850,13 +876,20 @@ app.whenReady().then(async () => {
   // time postgres is starting up (which can take 30-75 s on machines
   // where Windows Defender scans the binaries on first exec).
   let pgResult = null;
-  try {
-    const pgStart = Date.now();
-    pgResult = await startEmbeddedPostgres({ clientMode: CLIENT_MODE });
-    console.log(`[perf] postgres ready +${Date.now() - bootStart}ms (pg took ${Date.now() - pgStart}ms)`);
-    console.log('[main] embedded postgres:', JSON.stringify(pgResult));
-  } catch (e) {
-    console.error('[main] startEmbeddedPostgres threw (continuing):', e);
+  if (SERVER_SERVICE_MODE) {
+    // The background service already started (or will start) Postgres against
+    // the shared data dir. Touching it from here risks a second writer, so we
+    // stay hands-off and simply connect to the service's API below.
+    console.log('[main] SERVER_SERVICE_MODE — skipping in-app embedded Postgres (service owns the data dir)');
+  } else {
+    try {
+      const pgStart = Date.now();
+      pgResult = await startEmbeddedPostgres({ clientMode: CLIENT_MODE });
+      console.log(`[perf] postgres ready +${Date.now() - bootStart}ms (pg took ${Date.now() - pgStart}ms)`);
+      console.log('[main] embedded postgres:', JSON.stringify(pgResult));
+    } catch (e) {
+      console.error('[main] startEmbeddedPostgres threw (continuing):', e);
+    }
   }
 
   // ── 2b. Port conflict: a DIFFERENT database program holds our port ───
@@ -918,6 +951,17 @@ app.whenReady().then(async () => {
     console.log(`[perf] waitForServer done +${Date.now() - bootStart}ms (ok=${ok})`);
     if (!ok) {
       if (mainWindow && !mainWindow.isDestroyed()) {
+        // On a service-mode PC the fix is "start the ZEHEN Server service",
+        // not "run npm run server" — show the right instructions for each.
+        const recoverySteps = SERVER_SERVICE_MODE
+          ? `<li>Press <code style="background:#1e293b;padding:2px 6px;border-radius:4px">Win + R</code>, type <code style="background:#1e293b;padding:2px 6px;border-radius:4px">services.msc</code>, press Enter.</li>
+      <li>Find <b>ZEHEN Server</b> in the list.</li>
+      <li>Right-click it → <b>Start</b> (or <b>Restart</b>). Wait a few seconds.</li>
+      <li>Click Retry below.</li>`
+          : `<li>Open Command Prompt in the ZEHEN folder.</li>
+      <li>Run <code style="background:#1e293b;padding:2px 6px;border-radius:4px">npm run server</code>.</li>
+      <li>Wait until you see "Database connected successfully".</li>
+      <li>Click Retry below.</li>`;
         const html = `<!doctype html><meta charset="utf-8"><title>ZEHEN — server unreachable</title>
 <body style="margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px">
   <div style="max-width:560px">
@@ -928,10 +972,7 @@ app.whenReady().then(async () => {
       but no response came back from <code>/api/health</code> in 30 s.
     </p>
     <ol style="text-align:left;margin:0 auto 22px;color:#cbd5e1;font-size:14px;line-height:1.7;max-width:420px">
-      <li>Open Command Prompt in the ZEHEN folder.</li>
-      <li>Run <code style="background:#1e293b;padding:2px 6px;border-radius:4px">npm run server</code>.</li>
-      <li>Wait until you see "Database connected successfully".</li>
-      <li>Click Retry below.</li>
+      ${recoverySteps}
     </ol>
     <button onclick="location.reload()" style="background:#B1472F;color:#0f172a;border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Retry</button>
     <p style="margin:18px 0 0;color:#64748b;font-size:12px">Or set <code>BILLING_ERP_SERVER_URL</code> to point at a server on your LAN.</p>
