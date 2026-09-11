@@ -102,6 +102,28 @@ CREATE TABLE IF NOT EXISTS parties (
   balance_paise INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS parties_name ON parties(party_name);
+CREATE TABLE IF NOT EXISTS products (
+  product_id          INTEGER PRIMARY KEY,
+  product_name        TEXT,
+  article_number      TEXT,
+  barcode             TEXT,
+  hsn_code            TEXT,
+  size_value          TEXT,
+  unit_of_measurement TEXT,
+  category_name       TEXT,
+  -- Quantities in thousandths, money in paise. Same reason as above: SQLite
+  -- REAL is a double, and a stock figure that drifts is a stock figure that
+  -- disagrees with the shop.
+  stock_milli         INTEGER NOT NULL DEFAULT 0,
+  min_stock_milli     INTEGER NOT NULL DEFAULT 0,
+  sale_rate_paise     INTEGER NOT NULL DEFAULT 0,
+  purchase_rate_paise INTEGER NOT NULL DEFAULT 0
+);
+-- The point of holding 30,000 items locally is that searching them is
+-- instant. Without these it is a full scan per keystroke.
+CREATE INDEX IF NOT EXISTS products_name    ON products(product_name);
+CREATE INDEX IF NOT EXISTS products_barcode ON products(barcode);
+CREATE INDEX IF NOT EXISTS products_article ON products(article_number);
 `;
 
 /**

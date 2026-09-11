@@ -13,7 +13,7 @@ import { fetchSnapshot, snapshotAge } from '../utils/offlineSnapshot';
 import './SidePanel.css';
 import { biometryInfo, isLockEnabled, setLockEnabled, authenticate, restartCount } from '../utils/biometric';
 import { selfTest as mirrorSelfTest, mirrorAvailable } from '../utils/mirrorDb';
-import { syncParties } from '../utils/mirrorSync';
+import { syncAll } from '../utils/mirrorSync';
 import { select as hapticSelect } from '../utils/haptics';
 
 const I = {
@@ -243,10 +243,13 @@ export default function SidePanel({ open, onClose }) {
         if (!r.ok || dead) return r;
         // Storage working is only half of it — pull a real set and prove the
         // checksum agrees, since that is the property the figures rest on.
-        const s = await syncParties();
-        return s.ok
-          ? { ...r, detail: `${s.count} parties, verified` }
-          : { ...r, ok: false, detail: s.reason };
+        const all = await syncAll();
+        const bad = Object.entries(all).find(([, v]) => !v.ok);
+        if (bad) return { ...r, ok: false, detail: `${bad[0]}: ${bad[1].reason}` };
+        const summary = Object.entries(all)
+          .map(([name, v]) => `${v.count} ${name}`)
+          .join(', ');
+        return { ...r, detail: `${summary}, verified` };
       })
       .then((r) => { if (!dead) setMirror(r); });
     return () => { dead = true; };
@@ -514,7 +517,7 @@ export default function SidePanel({ open, onClose }) {
                     mirror already said. */}
                 {mirror && (
                   <> <span className="sp-acc">·</span> mirror {mirror.ok
-                    ? (mirror.encrypted ? 'ok/enc' : 'ok/PLAIN')
+                    ? `${mirror.encrypted ? 'enc' : 'PLAIN'} · ${mirror.detail}`
                     : `fail: ${mirror.detail}`}</>
                 )}
               </span>
