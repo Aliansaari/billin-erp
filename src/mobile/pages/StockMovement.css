@@ -77,6 +77,10 @@
  * panel needs something to be raised FROM — on matching backgrounds the
  * shadow reads as a smudge. */
 .sm-stats {
+  /* Never give up height to the scroller below. Flex children shrink by
+     default, which is how a taller card came to crush the chips rather than
+     simply pushing the list down. */
+  flex: none;
   padding: 12px 14px;
   background: var(--c-bg-app);
   border-bottom: 1px solid var(--c-border-soft);
@@ -182,6 +186,7 @@
  * left edge. */
 .sm-chips {
   display: flex;
+  flex: none;
   gap: 6px;
   padding: 10px 14px;
   overflow-x: auto;
@@ -211,6 +216,25 @@
   background: var(--c-primary);
   color: #fff;
   border-color: var(--c-primary);
+}
+
+/* ── Ledger list ─────────────────────────────────────────────────────
+ *
+ * Restored. Rewriting the stats block replaced everything up to .sm-thead,
+ * and this lived in between — so the one element carrying `flex: 1;
+ * overflow-y: auto` vanished. .sm-screen is a column flexbox with
+ * overflow:hidden, so with nothing claiming the leftover height and nothing
+ * scrolling, the list simply ran past the bottom of the screen and the rows
+ * above it were squeezed instead. That is both reported symptoms — the list
+ * would not scroll, and the filter chips were crushed to slivers — from one
+ * deletion. */
+.sm-list-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--c-bg-surface);
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
 }
 
 /* Was display:none, which left every row showing three bare numbers —
