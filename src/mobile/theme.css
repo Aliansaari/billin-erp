@@ -75,6 +75,19 @@
      resolves if a different fontsource version is swapped in. */
   --adm-color-primary: var(--c-primary);
   --adm-font-family:   'Source Sans 3 Variable', 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Debit red for ledgers and statements.
+   *
+   * Thirteen call sites across the report screens already said
+   * var(--c-danger, #dc2626) and it was never defined anywhere, so every one
+   * of them fell back to the same hardcoded hex in BOTH themes — which is
+   * why debit figures rendered full-saturation red on a near-black ground,
+   * exactly the "status LED" look the semantic palette below was
+   * deliberately pulled back from.
+   *
+   * Light keeps the value already being rendered, so nothing shifts here. It
+   * is deliberately NOT --c-error: that is the brand terracotta #B5421C in
+   * light, and colouring debits with the primary makes money look tappable. */
+  --c-danger:       #DC2626;
 }
 
 /* ─── Dark mode ───────────────────────────────────────────────────── */
@@ -127,6 +140,9 @@
   --c-warning:      #E0AE55;
   --c-warning-soft: rgba(224, 174, 85, 0.13);
   --c-error:        #E4796B;
+  /* Dark gets the desaturated coral the rest of this block uses, rather
+     than the light theme's red burning on near-black. */
+  --c-danger:       #E4796B;
   --c-error-soft:   rgba(228, 121, 107, 0.13);
   --c-info:         #7FA8D9;
   --c-info-soft:    rgba(127, 168, 217, 0.13);

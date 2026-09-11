@@ -519,22 +519,21 @@ export default function PartyStatement({ partyType = 'Customer' }) {
       )}
 
       {/* ── What it comes to ──
-          Placed before the ledger, not after it: this is the sentence the
-          statement exists to say, and it should not require scrolling past
-          two hundred entries to hear. */}
+          One line, above the ledger rather than at the foot of it. The
+          figure led the screen before this and still ends the list; what
+          changed is that reaching it no longer needs a scroll past two
+          hundred entries.
+
+          Opening is NOT repeated here. It has its own row two lines below,
+          where it belongs as the start of the running balance — saying it
+          twice within a thumb's width made the band look like padding. Only
+          the movement it produced is new information. */}
       {partyId && !loading && meta && (
         <div className="ps-summary">
-          <div className="ps-summary-main">
-            <span className="ps-summary-label">
-              Balance as on {prettyDate(toDate)}
-            </span>
+          <span className="ps-summary-label">Closing balance</span>
+          <div className="ps-summary-line">
             <span className={`ps-summary-value ${(closingSide || 'Dr').toLowerCase()}`}>
               {fmtBal(closingBal, closingSide)}
-            </span>
-          </div>
-          <div className="ps-summary-meta">
-            <span className="ps-summary-open">
-              Opened {fmtBal(openingBal, meta.opening_side)}
             </span>
             {Math.abs(netChange) > 0.004 && (
               <span className={`ps-summary-delta ${netChange > 0 ? 'up' : 'down'}`}>

@@ -79,35 +79,39 @@
  *
  * Seven tiles of equal weight is a list, not a hierarchy: the number you
  * came for sat the same size as the purchase rate, and two of them showed
- * the same figure. One thing is dominant here, and everything else is
- * support. */
+ * the same figure. One thing is dominant here and the rest support it.
+ *
+ * A grid, not two flex columns. Laid out as columns the two labels sat at
+ * different heights and the pair read as unrelated; on a shared grid the
+ * labels share a line and the figures share the next. */
 .sm-hero {
-  display: flex;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: auto auto;
   justify-content: space-between;
-  gap: 12px;
+  align-items: baseline;
+  row-gap: 1px;
+  column-gap: 12px;
 }
-.sm-hero-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sm-hero-label {
-  font-size: 11px; font-weight: 650; letter-spacing: 0.07em;
+  font-size: 10.5px; font-weight: 650; letter-spacing: 0.07em;
   text-transform: uppercase; color: var(--c-text-soft);
 }
+.sm-hero-label-end { text-align: right; }
 .sm-hero-value {
-  font-size: 34px; font-weight: 700; line-height: 1.05;
-  letter-spacing: -0.02em; color: var(--c-text);
+  font-size: 30px; font-weight: 700; line-height: 1.1;
+  letter-spacing: -0.022em; color: var(--c-text);
   font-variant-numeric: tabular-nums;
 }
+/* Set well down from the figure it qualifies: at the same weight it competed
+   with the quantity instead of labelling it. */
 .sm-hero-value small {
-  font-size: 14px; font-weight: 600; margin-left: 5px;
-  color: var(--c-text-soft); letter-spacing: 0;
-}
-.sm-hero-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-.sm-hero-side-label {
-  font-size: 10.5px; font-weight: 650; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--c-text-soft);
+  font-size: 12.5px; font-weight: 600; margin-left: 4px;
+  color: var(--c-text-soft); letter-spacing: 0.02em;
+  text-transform: lowercase;
 }
 .sm-hero-side-value {
-  font-size: 17px; font-weight: 650; color: var(--c-text);
+  font-size: 18px; font-weight: 650; color: var(--c-text);
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
@@ -117,7 +121,7 @@
  * the first two a progression, and the margin is set apart because it is the
  * conclusion they lead to. */
 .sm-rates {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: baseline; gap: 10px;
   padding: 10px 12px;
   background: var(--c-bg-app);
   border: 1px solid var(--c-border-soft);
@@ -135,7 +139,14 @@
 .sm-rate-value small {
   font-size: 11px; font-weight: 600; margin-left: 4px; color: var(--c-text-soft);
 }
-.sm-rate-arrow { color: var(--c-text-soft); font-size: 13px; margin: 10px 0 0; }
+/* Dropped to the figures' line rather than the labels'.
+   With the row baseline-aligned, a bare arrow lands on the FIRST baseline —
+   the labels — so it pointed from the word "Buy" to the word "Sell" while
+   the two prices it actually joins sat underneath it. */
+.sm-rate-arrow {
+  color: var(--c-text-soft); font-size: 13px;
+  align-self: flex-end; padding-bottom: 3px;
+}
 .sm-sale { color: var(--c-primary); }
 
 /* Pushed to the right edge so it reads as the result of the two before it. */
@@ -152,6 +163,44 @@
   padding: 8px 10px; border-radius: 10px;
   background: var(--c-warning-soft);
   color: var(--c-warning);
+}
+
+/* ── Filter chips ───────────────────────────────────────────────────
+ * Restored verbatim. Rewriting the stats block above replaced
+ * everything up to .sm-thead, and these lived in between — which is
+ * why the chips collapsed into an unpadded, clipped row against the
+ * left edge. */
+.sm-chips {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  background: var(--c-bg-app);
+  border-bottom: 1px solid var(--c-border-soft);
+}
+.sm-chips::-webkit-scrollbar { display: none; }
+
+.sm-chip {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--c-text-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 120ms;
+  font-family: inherit;
+}
+.sm-chip:active { transform: scale(0.97); }
+.sm-chip.active {
+  background: var(--c-primary);
+  color: #fff;
+  border-color: var(--c-primary);
 }
 
 /* Was display:none, which left every row showing three bare numbers —

@@ -1152,51 +1152,42 @@
 
 /* ── Statement summary ───────────────────────────────────────────────
  *
- * The closing balance used to live only at the foot of the list. On an
- * account with two hundred entries that is a long scroll to reach the single
- * figure the screen was opened for, and the top of the phone is where anyone
- * looks first. It still ends the list too — this is the answer, that is the
- * conclusion.
+ * The closing balance used to appear only at the foot of the list, which on
+ * a two-hundred-entry account is a long scroll to the one figure the screen
+ * was opened for. It leads now and still ends the list.
  *
- * The period's movement is new. Both figures were already present, opening
- * at the top and closing at the bottom, and the difference between them —
- * the whole story of the account — was left to be worked out across a
- * scroll. */
+ * Compact on purpose. A first attempt gave this a tall band with a 30px
+ * number and the opening balance restated inside it — which pushed the
+ * ledger further down the screen than before and repeated a figure sitting
+ * two rows below. The screen's real problem is how much sits above the data,
+ * so anything added here has to be worth its height.
+ */
 .ps-summary {
-  padding: 14px 16px 13px;
+  padding: 10px 16px 11px;
   background: var(--c-bg-surface);
   border-bottom: 1px solid var(--c-border-soft);
 }
-.ps-summary-main { display: flex; flex-direction: column; gap: 3px; }
 .ps-summary-label {
-  font-size: 10.5px; font-weight: 650; letter-spacing: 0.07em;
+  display: block;
+  font-size: 10px; font-weight: 650; letter-spacing: 0.07em;
   text-transform: uppercase; color: var(--c-text-soft);
+  margin-bottom: 2px;
+}
+.ps-summary-line {
+  display: flex; align-items: baseline; gap: 10px;
 }
 .ps-summary-value {
-  font-size: 30px; font-weight: 700; line-height: 1.08;
-  letter-spacing: -0.022em;
+  font-size: 24px; font-weight: 700; line-height: 1.15;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   color: var(--c-text);
 }
-/* Dr and Cr are opposite facts about who owes whom, and reading the wrong
-   one out to a customer is the mistake this screen most needs to prevent. */
-/* Exactly the expressions the Balance column below uses
-   (.ps-running-bal.dr / .cr). --c-error is the brand terracotta #B5421C,
-   which would have put a subtly different red in the hero from the one in
-   the column right beneath it — the kind of mismatch that reads as sloppy
-   without anyone being able to say why. */
+/* The same expressions the Balance column below uses. --c-error is the brand
+   terracotta #B5421C, which would put a subtly different red in the heading
+   from the one in the column directly beneath it. */
 .ps-summary-value.dr { color: var(--c-danger, #dc2626); }
 .ps-summary-value.cr { color: var(--c-success, #16a34a); }
 
-.ps-summary-meta {
-  display: flex; align-items: center; gap: 10px;
-  margin-top: 9px; padding-top: 9px;
-  border-top: 1px solid var(--c-border-soft);
-}
-.ps-summary-open {
-  font-size: 12.5px; color: var(--c-text-soft);
-  font-variant-numeric: tabular-nums;
-}
 .ps-summary-delta {
   margin-left: auto;
   font-size: 12.5px; font-weight: 650;
@@ -1205,6 +1196,6 @@
 }
 /* Deliberately NOT green-good / red-bad. A rising customer balance is more
    owed to you; a rising supplier balance is more owed by you. The colour
-   states direction only, and says nothing about whether it is welcome. */
+   states direction, and nothing about whether it is welcome. */
 .ps-summary-delta.up   { color: var(--c-danger, #dc2626);  background: var(--c-error-soft); }
 .ps-summary-delta.down { color: var(--c-success, #16a34a); background: var(--c-success-soft); }

@@ -287,18 +287,19 @@ export default function StockMovement() {
       {/* Product stats card */}
       {product && (
         <div className="sm-stats">
-          {/* The answer first: is there any, and what is it worth. */}
+          {/* The answer first: is there any, and what is it worth.
+
+              A two-row grid rather than two stacked columns, so the labels
+              share one line and the figures share the next. Laid out as
+              separate columns they staggered against each other and the band
+              read as two unrelated things that happened to be side by side. */}
           <div className="sm-hero">
-            <div className="sm-hero-main">
-              <span className="sm-hero-label">In stock</span>
-              <span className="sm-hero-value">
-                {currentStock}<small>{unit}</small>
-              </span>
-            </div>
-            <div className="sm-hero-side">
-              <span className="sm-hero-side-label">Stock value</span>
-              <span className="sm-hero-side-value">₹{formatINR(stockValue)}</span>
-            </div>
+            <span className="sm-hero-label">In stock</span>
+            <span className="sm-hero-label sm-hero-label-end">Stock value</span>
+            <span className="sm-hero-value">
+              {currentStock}<small>{unit}</small>
+            </span>
+            <span className="sm-hero-side-value">₹{formatINR(stockValue)}</span>
           </div>
 
           {/* What it costs, what it sells for, and the gap — which is the
