@@ -14,7 +14,7 @@ import './SidePanel.css';
 import { biometryInfo, isLockEnabled, setLockEnabled, authenticate, restartCount } from '../utils/biometric';
 import { mirrorAvailable } from '../utils/mirrorDb';
 import { mirrorState } from '../utils/mirrorSync';
-import { isSyncing, onMirrorUpdated } from '../utils/mirrorAutoSync';
+import { isSyncing, onMirrorUpdated, lastSyncProblem } from '../utils/mirrorAutoSync';
 import { select as hapticSelect } from '../utils/haptics';
 
 const I = {
@@ -245,9 +245,14 @@ export default function SidePanel({ open, onClose }) {
       if (dead) return;
       const stale = Object.values(st).some((x) => !x.trusted);
       const newest = Math.max(0, ...Object.values(st).map((x) => x.syncedAt || 0));
+      /* When it is not synced, say WHY. "Not synced" is the symptom of at
+       * least three different problems — the PC is off, the PC is on an
+       * older build, the login lacks permission — and they are told apart
+       * from here or not at all. */
+      const why = lastSyncProblem();
       setMirror({
         ok: !stale,
-        detail: stale ? 'not synced' : (ageOf(newest) || 'just now'),
+        detail: stale ? (why || 'not synced') : (ageOf(newest) || 'just now'),
       });
     };
     read();

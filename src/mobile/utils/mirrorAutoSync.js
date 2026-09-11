@@ -58,6 +58,12 @@ const notify = () => { listeners.forEach((f) => { try { f(); } catch {} }); };
  * true and reads as broken. "Syncing" is the same fact told usefully. */
 export const isSyncing = () => running;
 
+/* Why the last pass failed, or null. Surfaced in the side panel because the
+ * two likeliest causes — the PC is off, the PC is on an older build — look
+ * identical from the outside and have completely different remedies. */
+let lastReason = null;
+export const lastSyncProblem = () => lastReason;
+
 /** Subscribe to "the mirror changed" so a screen can refresh itself. */
 export function onMirrorUpdated(fn) {
   listeners.push(fn);
@@ -100,6 +106,13 @@ export async function syncTick({ force = false } = {}) {
       const c = await confirmSet(set);
       if (c.state === 'current') { result[set] = { ok: true, unchanged: true }; continue; }
       if (c.state === 'unreachable') { result[set] = { ok: false, reason: 'shop unreachable' }; unreachable = true; continue; }
+      if (c.state === 'unsupported') {
+        // The desktop predates the mirror endpoints. Pulling would 404 too,
+        // so back off rather than spending a request proving it again.
+        result[set] = { ok: false, reason: 'shop PC is on an older build' };
+        unreachable = true;
+        continue;
+      }
 
       // 'changed' or 'unknown' — the hundred-byte check says the device and
       // the shop disagree, so now the transfer is worth its cost.
@@ -112,6 +125,8 @@ export async function syncTick({ force = false } = {}) {
     running = false;
     notify();
   }
+
+  lastReason = Object.values(result).find((r) => r && r.ok === false)?.reason || null;
 
   if (unreachable) {
     nextAllowedAt = Date.now() + BACKOFF_MS[Math.min(failures, BACKOFF_MS.length - 1)];

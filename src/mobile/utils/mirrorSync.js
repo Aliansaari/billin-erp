@@ -35,6 +35,7 @@
  */
 import api from '../../api';
 import { openMirror, setMeta, getMeta } from './mirrorDb';
+import { isUnreachable } from './offlineSnapshot';
 
 const scaled = (v, scale) => Math.round(Number(v || 0) * scale);
 const num = (v) => Number(v || 0);
@@ -125,11 +126,26 @@ export async function syncSet(setName) {
   try {
     const res = await api.get('/mirror/pull', { params: { set: setName } });
     body = res?.data;
-  } catch {
-    /* The shop is unreachable. Not a corruption — whatever is stored stays
-     * exactly as trustworthy as it was a moment ago, so the trusted flag is
-     * deliberately left alone. */
-    return { ok: false, reason: 'shop unreachable' };
+  } catch (e) {
+    /* Nothing was stored, so whatever is already on the device stays exactly
+     * as trustworthy as it was a moment ago — the trusted flag is
+     * deliberately left alone in every branch here.
+     *
+     * The branches exist because these failures have completely different
+     * fixes and only one of them is about the network. A shop PC running an
+     * older build answers /mirror/pull with 404: the shop is reachable, the
+     * tunnel is fine, and the phone is perfectly healthy — it is the desktop
+     * that needs updating. Reporting that as "unreachable" sends someone to
+     * check their broadband over a problem no amount of signal will fix. */
+    const status = e?.response?.status;
+    if (status === 404) {
+      return { ok: false, reason: 'shop PC is on an older build (no mirror endpoint)' };
+    }
+    if (status === 401 || status === 403) {
+      return { ok: false, reason: `not permitted (${status})` };
+    }
+    if (isUnreachable(e)) return { ok: false, reason: 'shop unreachable' };
+    return { ok: false, reason: `pull failed${status ? ` (${status})` : ''}` };
   }
 
   const rows = Array.isArray(body?.rows) ? body.rows : null;
@@ -227,7 +243,9 @@ export async function confirmSet(setName) {
     return fingerprint(c) === held
       ? { state: 'current', at: res.data.generated_at }
       : { state: 'changed', at: res.data.generated_at };
-  } catch {
+  } catch (e) {
+    // Same distinction as syncSet: an older desktop is not a dead one.
+    if (e?.response?.status === 404) return { state: 'unsupported' };
     return { state: 'unreachable' };
   }
 }
