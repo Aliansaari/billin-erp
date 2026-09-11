@@ -27,63 +27,26 @@
  * matters. The opening and closing figures ARE the server's, carried across
  * untouched.
  */
-import { openMirror } from './mirrorDb';
+import { cacheKey, putCached, getCached } from './mirrorCache';
 
-/* Enough to cover the parties anyone actually works with, bounded so a year
- * of browsing cannot quietly fill the phone. Evicted oldest-first. */
-const KEEP = 200;
+const keyFor = (partyId, from, to) =>
+  cacheKey('statement', { party: Number(partyId), from, to });
 
-const key = (partyId, from, to) => [Number(partyId), String(from), String(to)];
-
-/** Store a statement exactly as served. Never throws — failing to cache must
- *  not break the screen that just loaded successfully. */
+/** Store a statement exactly as served. */
 export async function saveStatement(partyId, from, to, payload) {
   if (!partyId || !from || !to || !payload) return false;
-  const db = await openMirror();
-  if (!db) return false;
-  try {
-    await db.run(
-      'INSERT INTO statements (party_id, from_date, to_date, payload, synced_at) ' +
-      'VALUES (?,?,?,?,?) ON CONFLICT(party_id, from_date, to_date) ' +
-      'DO UPDATE SET payload = excluded.payload, synced_at = excluded.synced_at;',
-      [...key(partyId, from, to), JSON.stringify(payload), Date.now()],
-    );
-    // Evict oldest beyond the cap, in the same pass rather than on a timer —
-    // the only moment the table can grow is right here.
-    await db.run(
-      `DELETE FROM statements WHERE rowid NOT IN (
-         SELECT rowid FROM statements ORDER BY synced_at DESC LIMIT ?);`,
-      [KEEP],
-    );
-    return true;
-  } catch (e) {
-    console.warn('[mirror] saveStatement failed:', e?.message || e);
-    return false;
-  }
+  return putCached(keyFor(partyId, from, to), payload);
 }
 
 /**
  * The stored statement for exactly this party and period, or null.
  *
- * Deliberately an exact match on the range. Serving a statement for a
- * different period than the one asked for would produce a correct-looking
- * document with the wrong opening balance, which is worse than showing
- * nothing.
+ * The period is part of the key, so a statement can never be served for a
+ * range it was not computed for. Doing so would produce a correct-looking
+ * document with the wrong opening balance — worse than showing nothing,
+ * because nothing about it would look wrong.
  */
 export async function readStatement(partyId, from, to) {
   if (!partyId || !from || !to) return null;
-  const db = await openMirror();
-  if (!db) return null;
-  try {
-    const r = await db.query(
-      'SELECT payload, synced_at FROM statements WHERE party_id = ? AND from_date = ? AND to_date = ?;',
-      key(partyId, from, to),
-    );
-    const row = r?.values?.[0];
-    if (!row?.payload) return null;
-    return { data: JSON.parse(row.payload), syncedAt: Number(row.synced_at) || null };
-  } catch (e) {
-    console.warn('[mirror] readStatement failed:', e?.message || e);
-    return null;
-  }
+  return getCached(keyFor(partyId, from, to));
 }

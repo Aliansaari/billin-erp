@@ -124,26 +124,24 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE INDEX IF NOT EXISTS products_name    ON products(product_name);
 CREATE INDEX IF NOT EXISTS products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS products_article ON products(article_number);
-/* Statements are stored as the server's own response, verbatim.
+/* Stored answers for the screens whose data is not a bounded set — a
+ * statement, a day book, a dashboard. See utils/mirrorCache.js.
  *
- * Unlike parties and products there is nothing to gain from splitting this
- * into columns and plenty to lose: a statement is read back whole, rendered
- * by the same component either way, and every field mapping is a chance for
- * the offline copy to differ from the live one. Storing the answer exactly as
- * it arrived removes that class of bug entirely.
+ * One generic table rather than one per screen: they all want the same thing
+ * (keep the server's answer, hand it back later, evict the oldest), and three
+ * near-identical tables would be three places for that logic to drift.
  *
- * Keyed by date range too, because a statement is only meaningful for the
- * period it was asked for — the opening balance is computed for that range
- * and cannot be reused for another. */
-CREATE TABLE IF NOT EXISTS statements (
-  party_id   INTEGER NOT NULL,
-  from_date  TEXT NOT NULL,
-  to_date    TEXT NOT NULL,
-  payload    TEXT NOT NULL,
-  synced_at  INTEGER NOT NULL,
-  PRIMARY KEY (party_id, from_date, to_date)
+ * The key carries every argument of the question it answers, so a statement
+ * for one period can never be served for another. */
+CREATE TABLE IF NOT EXISTS response_cache (
+  cache_key TEXT PRIMARY KEY,
+  payload   TEXT NOT NULL,
+  synced_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS statements_synced ON statements(synced_at);
+CREATE INDEX IF NOT EXISTS response_cache_synced ON response_cache(synced_at);
+-- Superseded by response_cache; dropped so it cannot linger holding stale
+-- figures that nothing reads and nobody would think to check.
+DROP TABLE IF EXISTS statements;
 `;
 
 /**

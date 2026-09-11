@@ -14,6 +14,7 @@ import './SidePanel.css';
 import { biometryInfo, isLockEnabled, setLockEnabled, authenticate, restartCount } from '../utils/biometric';
 import { mirrorAvailable } from '../utils/mirrorDb';
 import { mirrorState } from '../utils/mirrorSync';
+import { isSyncing, onMirrorUpdated } from '../utils/mirrorAutoSync';
 import { select as hapticSelect } from '../utils/haptics';
 
 const I = {
@@ -237,7 +238,8 @@ export default function SidePanel({ open, onClose }) {
   useEffect(() => {
     if (!open || !mirrorAvailable()) return undefined;
     let dead = false;
-    (async () => {
+    const read = async () => {
+      if (isSyncing()) { if (!dead) setMirror({ ok: true, detail: 'syncing…' }); return; }
       const st = {};
       for (const set of ['parties', 'products']) st[set] = await mirrorState(set);
       if (dead) return;
@@ -247,8 +249,13 @@ export default function SidePanel({ open, onClose }) {
         ok: !stale,
         detail: stale ? 'not synced' : (ageOf(newest) || 'just now'),
       });
-    })();
-    return () => { dead = true; };
+    };
+    read();
+    // Follow it live: the first sync on a large shop finishes while the
+    // panel is open, and a footer frozen on "syncing…" would be its own
+    // small lie.
+    const off = onMirrorUpdated(read);
+    return () => { dead = true; off(); };
   }, [open]);
   useEffect(() => { biometryInfo().then(setBio).catch(() => {}); }, []);
 

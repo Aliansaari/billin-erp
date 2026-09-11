@@ -1,14 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { cacheKey as mirrorKey, putCached as putMirrored, getCached as getMirrored } from '../utils/mirrorCache';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import ActivityRow from '../components/ActivityRow';
 import OfflineBanner from '../components/OfflineBanner';
-import {
-  fetchSnapshot, sectionOf, sectionWasTrimmed, sectionIsPartial,
-  snapshotAge, isUnreachable, friendlyError, snapshotMatchesSession,
-} from '../utils/offlineSnapshot';
+import { fetchSnapshot, sectionOf, sectionWasTrimmed, sectionIsPartial, snapshotAge, isUnreachable, friendlyError, snapshotMatchesSession, ageOf } from '../utils/offlineSnapshot';
 import { formatINR, isoDate } from '../utils/format';
 import './VouchersList.css';
 import Overlay from '../components/Overlay';
@@ -142,6 +140,7 @@ export default function VouchersList() {
         setData(rows);
         setCached(cacheKey, rows);
         setOffline(null);
+        putMirrored(mirrorKey('vouchers', { from: fromDate, to: toDate }), res.data);
       })
       .catch(async (e) => {
         if (cancelled) return;
@@ -156,6 +155,15 @@ export default function VouchersList() {
          * An empty list is the worst possible answer here, because it is
          * indistinguishable from a real quiet period. */
         if (isUnreachable(e)) {
+          /* The stored copy of this exact range first: complete, and this
+           * company's own, where the snapshot is trimmed to fit a budget
+           * shared with every other company on the install. */
+          const mine = await getMirrored(mirrorKey('vouchers', { from: fromDate, to: toDate })).catch(() => null);
+          if (!cancelled && mine?.data) {
+            setData(sortVouchersNewestFirst(mine.data?.data || []));
+            setOffline({ age: ageOf(mine.syncedAt) });
+            return;
+          }
           const snap = await fetchSnapshot().catch(() => null);
           const section = sectionOf(snap, 'dayBook');
           const rows = Array.isArray(section) ? section : (section?.data || null);

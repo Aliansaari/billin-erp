@@ -4,10 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import { Toast, PullToRefresh } from 'antd-mobile';
 import { reportAPI, isOfflineSession } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
-import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable, snapshotMatchesSession, friendlyError } from '../utils/offlineSnapshot';
+import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable, snapshotMatchesSession, friendlyError, ageOf } from '../utils/offlineSnapshot';
 import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import { activeCompanyName } from '../utils/identity';
 import { getCached, setCached } from '../utils/screenCache';
+import { cacheKey, putCached as putMirrored, getCached as getMirrored } from '../utils/mirrorCache';
 import { tap as hapticTap, warn as hapticWarn, select as hapticSelect } from '../utils/haptics';
 import useAuthStore from '../../store/authStore';
 import ActivityRow from '../components/ActivityRow';
@@ -126,6 +127,18 @@ export default function Dashboard() {
         // and must not be papered over with yesterday's numbers.
         const allFailed = [s, ins, db].every((r) => r.status === 'rejected');
         if (allFailed && isUnreachable(s.reason)) {
+          /* The stored copy first. It is this company's real figures as the
+           * server computed them, where the snapshot is a size-capped extract
+           * shared across companies — and on the shops with the most data,
+           * the most heavily trimmed. Both are last-known; only one is whole. */
+          const mine = await getMirrored(cacheKey('dashboard', { day: todayIso })).catch(() => null);
+          if (!cancelled() && mine?.data) {
+            setStats(mine.data.stats);
+            setInsights(mine.data.insights);
+            setToday(mine.data.today || []);
+            setOffline({ age: ageOf(mine.syncedAt) });
+            return;
+          }
           const snap = await fetchSnapshot();
           if (!cancelled() && snap) {
             // sectionOf returns null for a snapshot belonging to a different
@@ -149,13 +162,21 @@ export default function Dashboard() {
         if (s.status === 'fulfilled')   setStats(s.value.data);
         if (ins.status === 'fulfilled') setInsights(ins.value.data);
         if (s.status === 'fulfilled' || ins.status === 'fulfilled') {
-          setCached('dashboard', {
+          const payload = {
             stats: s.status === 'fulfilled' ? s.value.data : null,
             insights: ins.status === 'fulfilled' ? ins.value.data : null,
             today: db.status === 'fulfilled'
               ? sortVouchersNewestFirst(db.value.data?.data || []).slice(0, 6)
               : [],
-          });
+          };
+          setCached('dashboard', payload);
+          /* A second, durable copy — for the shop being OFF, not for tab
+           * switches. screenCache is deliberately short-lived (see its
+           * header: money must not outlive a restart pretending to be
+           * current) and is never shown with an age. This one is only ever
+           * read on the offline path, where it IS shown with an age, which
+           * is what makes keeping it indefinitely honest. */
+          putMirrored(cacheKey('dashboard', { day: todayIso }), payload);
         }
         if (db.status === 'fulfilled') {
           const raw = db.value.data?.data || [];

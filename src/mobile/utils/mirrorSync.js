@@ -40,10 +40,17 @@ const scaled = (v, scale) => Math.round(Number(v || 0) * scale);
 const num = (v) => Number(v || 0);
 const str = (v) => (v == null ? '' : String(v));
 
-/* Chunked because one statement with thousands of bound parameters is
- * refused by SQLite (SQLITE_MAX_VARIABLE_NUMBER), and the failure arrives as
- * an opaque prepare error that names nothing. */
-const CHUNK = 100;
+/* Chunked to bound peak memory while the value arrays are built, and nothing
+ * more.
+ *
+ * NOT for SQLITE_MAX_VARIABLE_NUMBER, which an earlier version of this
+ * comment claimed: executeSet calls prepareSQL once per row-array
+ * (UtilsSQLCipher.swift), so each execution binds one row's worth of
+ * parameters however many rows are handed over. The whole set also crosses
+ * the bridge in a single call, so chunk size does not change the number of
+ * round trips either. 500 simply keeps the intermediate arrays modest on a
+ * 30,000-row catalogue. */
+const CHUNK = 500;
 
 /**
  * One entry per set, declaring how the server's rows become local rows and —

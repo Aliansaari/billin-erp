@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { cacheKey as mirrorKey, putCached as putMirrored, getCached as getMirrored } from '../utils/mirrorCache';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Toast } from 'antd-mobile';
 import { reportAPI } from '../../api';
 import OfflineBanner from '../components/OfflineBanner';
-import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable, friendlyError, snapshotMatchesSession } from '../utils/offlineSnapshot';
+import { fetchSnapshot, sectionOf, snapshotAge, isUnreachable, friendlyError, snapshotMatchesSession, ageOf } from '../utils/offlineSnapshot';
 import { sortVouchersNewestFirst } from '../utils/voucherOrder';
 import ActivityRow from '../components/ActivityRow';
 import { formatINR, isoDate } from '../utils/format';
@@ -131,10 +132,22 @@ export default function DayBook() {
         if (cancelled) return;
         setData(sortVouchersNewestFirst(res.data?.data || []));
         setSummary(res.data?.summary || null);
+        // Keep this day. A day book is looked at for a particular date, and
+        // the dates someone opens are the ones they come back to.
+        putMirrored(mirrorKey('dayBook', { from: fromDate, to: toDate }), res.data);
       })
       .catch(async (e) => {
         if (cancelled) return;
         if (isUnreachable(e)) {
+          /* This exact day as the server computed it, ahead of the shared
+           * size-capped snapshot which holds only whatever fitted. */
+          const mine = await getMirrored(mirrorKey('dayBook', { from: fromDate, to: toDate })).catch(() => null);
+          if (!cancelled && mine?.data) {
+            setData(sortVouchersNewestFirst(mine.data?.data || []));
+            setSummary(mine.data?.summary || null);
+            setOffline({ age: ageOf(mine.syncedAt) });
+            return;
+          }
           const snap = await fetchSnapshot().catch(() => null);
           const section = sectionOf(snap, 'dayBook');
           if (!cancelled && section) {

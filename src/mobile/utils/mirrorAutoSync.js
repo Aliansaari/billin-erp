@@ -50,6 +50,14 @@ let listeners = [];
 
 const notify = () => { listeners.forEach((f) => { try { f(); } catch {} }); };
 
+/* Whether a sync is in flight right now.
+ *
+ * Exposed because the first one on a large shop is not instant — tens of
+ * thousands of rows have to arrive and be written — and during it the mirror
+ * is legitimately empty. Without this the footer says "not synced", which is
+ * true and reads as broken. "Syncing" is the same fact told usefully. */
+export const isSyncing = () => running;
+
 /** Subscribe to "the mirror changed" so a screen can refresh itself. */
 export function onMirrorUpdated(fn) {
   listeners.push(fn);
@@ -70,6 +78,7 @@ export async function syncTick({ force = false } = {}) {
   if (document.visibilityState === 'hidden') return { skipped: 'backgrounded' };
 
   running = true;
+  notify();                 // so a watcher can show "syncing" at once
   const result = {};
   let changed = false;
   let unreachable = false;
@@ -101,6 +110,7 @@ export async function syncTick({ force = false } = {}) {
     }
   } finally {
     running = false;
+    notify();
   }
 
   if (unreachable) {
@@ -111,7 +121,6 @@ export async function syncTick({ force = false } = {}) {
     nextAllowedAt = 0;
   }
 
-  if (changed) notify();
   return result;
 }
 
