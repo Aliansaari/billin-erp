@@ -108,12 +108,19 @@ router.post('/accounts', requirePermission('settings.manage_company'), async (re
 });
 
 /**
- * Paired devices — list them, and take one off.
+ * Paired devices — list them, take one off, or change how many are allowed.
  *
  * Slots are finite, and before this the owner could see a count and nothing
  * else: a shop that had paired a phone it later replaced simply ran out with
  * no way to free one. Same licence + fingerprint proof as account management,
  * so it only works from the shop computer itself.
+ *
+ * Actions (passed straight through to the control plane):
+ *   list       → devices + { max_devices, used }
+ *   revoke     → { device_id }
+ *   set_limit  → { max_devices } — the phone allowance for this licence.
+ *                Surfaced in Settings → Developer Settings, so it can be
+ *                changed for a customer without reissuing their licence.
  */
 router.post('/devices', requirePermission('settings.manage_company'), async (req, res) => {
   const fs = require('fs');

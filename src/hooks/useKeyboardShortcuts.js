@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useMenuPopup } from '../components/keyboard/MenuPopup';
 import { CTRL_DIRECT } from '../components/keyboard/menuCatalog';
 import useFilteredAltMenus from './useFilteredAltMenus';
+// Read directly off the store rather than subscribing — the keydown handler
+// only needs the unlock state at the moment the chord fires, and subscribing
+// would re-register the whole global listener every time dev mode flips.
+import useDevModeStore from '../store/devModeStore';
 
 /* Master cheat-sheet — every keyboard shortcut + every F-key action strip
  * surface the operator can reach. Categorised so the help overlay can
@@ -157,6 +161,28 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
       if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === 'KeyC') {
         e.preventDefault();
         navigate('/settings/companies');
+        return;
+      }
+
+      // Ctrl + Alt + Shift + D — developer mode.
+      //
+      // Locked  → open the password modal (<DeveloperGateMount/> owns it).
+      // Unlocked → straight to Developer Settings; re-asking for a password
+      //            the machine has already accepted is just friction.
+      //
+      // Deliberately NOT in SHORTCUTS_LIST. Developer mode is hidden from
+      // ordinary operators by design — the only other way in is typing the
+      // "/__dev" string into global search — and printing the chord in the
+      // help overlay every user can open would undo that. Three modifiers
+      // for the same reason: nobody arrives here by accident.
+      //
+      // e.code, not e.key: Shift+Alt+D is a dead-key combination on several
+      // layouts (macOS Option+Shift+D → "Î"), so the physical key is the
+      // only reliable identity.
+      if ((e.ctrlKey || e.metaKey) && e.altKey && e.shiftKey && e.code === 'KeyD') {
+        e.preventDefault();
+        if (useDevModeStore.getState().unlocked) navigate('/settings/developer');
+        else window.dispatchEvent(new Event('dev-gate:open'));
         return;
       }
 

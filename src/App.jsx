@@ -668,9 +668,12 @@ export default function App() {
           modal. Same auth gate as the search palette. */}
       {isAuthenticated && <MasterChooser />}
       {/* Developer-access password modal + the `dev-gate:open` listener
-          (fired by GlobalSearch's hidden "/__dev" string). Global so it
+          (fired by GlobalSearch's hidden "/__dev" string, or by the
+          Ctrl+Alt+Shift+D chord in useGlobalShortcuts). Global so it
           works in BOTH the sidebar and top-nav layouts — it previously
-          lived in Sidebar.jsx and was dead in horizontal mode. */}
+          lived in Sidebar.jsx and was dead in horizontal mode.
+          Signed-out is deliberately a no-op: the chord fires, nothing is
+          listening, and there is nothing behind the gate to reach anyway. */}
       {isAuthenticated && <DeveloperGateMount />}
       <Routes>
         {/* Manual access to Server Setup is dev-gated — once the office

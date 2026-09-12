@@ -257,6 +257,14 @@ export default function PurchaseBillForm() {
   const showVariantPickerRef                    = useRef(false);          // guard for lookupProduct
   const skipNextLookupRef                       = useRef(false);          // set when user explicitly skips picker
   const pickerBoundRef                          = useRef(false);          // true after an explicit picker pick — suppresses lookupProduct until entry resets
+  // Signature of the variant the user last picked ({size, article, rate}).
+  // handleVariantPick now writes Size + Art# back into the entry, which
+  // re-triggers the article/rate picker effects. Without this, the picker
+  // would pop straight back open over the row the operator just resolved.
+  // Compared field-by-field so it only suppresses the *identical* state —
+  // the moment the operator edits Size / Art# / Rate away from the picked
+  // variant the signature stops matching and the picker returns.
+  const lastPickRef                             = useRef(null);
   // Guard against double-submit from rapid Ctrl+Enter / double-click. Without
   // this a second keystroke during the save round-trip creates a duplicate
   // purchase bill (duplicate stock inflow, supplier double-charged).
@@ -679,6 +687,7 @@ export default function PurchaseBillForm() {
   const handleBarcodeScan=async(barcode)=>{
     if(!barcode) return;
     pickerBoundRef.current = false; // barcode scan starts fresh binding
+    lastPickRef.current = null;
     try{
       const{data}=await productAPI.getByBarcode(barcode);
       setEntry(p=>({...p,barcode:data.barcode,product_id:data.product_id,
@@ -802,6 +811,7 @@ export default function PurchaseBillForm() {
         colors: (p.color_mode === 'multi' && Array.isArray(p.colors)) ? p.colors : [],
       }));
       setBarcodeError('');
+      lastPickRef.current = null;   // new product family — forget the old pick
       // Single mode has no Size / Art# entry — focus Qty directly.
       justSelectedRef.current=true;
       requestAnimationFrame(()=>{ productRef.current?.blur(); qtyRef.current?.focus(); qtyRef.current?.select?.(); });
@@ -851,6 +861,7 @@ export default function PurchaseBillForm() {
       colors: familyMulti ? familyColors : [],
     }));
     setBarcodeError('');
+    lastPickRef.current = null;   // new product family — forget the old pick
     justSelectedRef.current=true;
     requestAnimationFrame(()=>{ productRef.current?.blur(); sizeRef.current?.focus(); sizeRef.current?.select?.(); });
     setTimeout(()=>{ justSelectedRef.current=false; },250);
@@ -965,9 +976,46 @@ export default function PurchaseBillForm() {
   const handleVariantPick=useCallback((variant)=>{
     skipNextLookupRef.current = true;
     pickerBoundRef.current = true;        // lock out lookupProduct until entry resets
+    // Identity fields come from the picked variant, not from what was
+    // typed. The operator reaches this picker two ways:
+    //   • Art# anchor — the filter is a *substring* match, so typing
+    //     "123" can resolve to article "AB-123". The master's full
+    //     article number is the correct value, not the fragment.
+    //   • Rate anchor — Size and Art# are usually still blank (that's
+    //     the whole point of picking by rate). Leaving them blank made
+    //     the save spawn a duplicate size-less / article-less variant
+    //     of a product that already exists.
+    // Either way the variant IS the product being received, so its
+    // identity is authoritative. Size/Art# are also exactly what the
+    // picker row displayed, so what lands in the row matches what the
+    // operator clicked.
+    const pickedSize = variant.size_value ?? variant.size ?? '';
+    const pickedArt  = variant.article_number || '';
+    lastPickRef.current = {
+      size: normTight(pickedSize),
+      article: normTight(pickedArt),
+      rate: parseFloat(variant.purchase_rate) || 0,
+    };
+    // Rate-anchored picks often happen with no category chosen — the family
+    // search falls back to name-only. The line still SAVES a category_id, so
+    // take the resolved product's rather than posting a blank one. Only when
+    // the operator hasn't picked a category themselves; theirs wins.
+    if (!entryRef.current?.category_id && variant.category_id) {
+      setActiveCatId(variant.category_id);   // keep the Category box in step
+    }
     setEntry(prev=>({...prev,
       product_id:variant.product_id,
       barcode:variant.barcode,
+      // Normalise the name to the master row — the family is matched case-
+      // and whitespace-insensitively, so the typed text can differ from the
+      // stored product it resolved to.
+      product_name:variant.product_name || prev.product_name,
+      category_id:prev.category_id || variant.category_id || null,
+      category_name:prev.category_id
+        ? prev.category_name
+        : (variant.Category?.category_name || prev.category_name),
+      size:pickedSize,
+      article_number:pickedArt,
       purchase_rate:parseFloat(variant.purchase_rate)||0,
       quantity_per_box:parseFloat(variant.quantity_per_box)||1,
       sale_rate:parseFloat(variant.sale_rate)||0,
@@ -1098,6 +1146,17 @@ export default function PurchaseBillForm() {
 
   // Cached family list keyed by product+category+size so we don't re-hit the API on every keystroke.
   // Short TTL (8 s) so that products newly created in this same form are picked up quickly.
+  // True while the entry still holds exactly the variant the operator
+  // picked — used to keep the picker closed after a pick instead of
+  // re-opening it on the Size/Art# values the pick just wrote back.
+  const matchesLastPick = useCallback((size, article, rate) => {
+    const lp = lastPickRef.current;
+    if (!lp) return false;
+    return lp.size === normTight(size)
+        && lp.article === normTight(article)
+        && Math.abs(lp.rate - (parseFloat(rate) || 0)) < 0.01;
+  }, []);
+
   const familyCacheRef = useRef({ key:null, list:[], ts:0 });
   const CACHE_TTL_MS = 8000;
   const fetchFamily = useCallback(async (pname, category_id, sizeNorm) => {
@@ -1135,6 +1194,9 @@ export default function PurchaseBillForm() {
       if (pickerAnchorRef.current === 'article') { setShowVariantPicker(false); setVariantOptions([]); setPickerArticleFilter(null); }
       return;
     }
+    // The Size/Art# just written back by handleVariantPick — don't
+    // re-open the picker on our own autofill.
+    if (matchesLastPick(entry.size, aval, entry.purchase_rate)) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
@@ -1159,7 +1221,7 @@ export default function PurchaseBillForm() {
       } catch (e) { console.error('[VariantPicker:Art]', e); }
     }, 120);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [entry.article_number, entry.product_name, entry.category_id, entry.size, fetchFamily]);
+  }, [entry.article_number, entry.product_name, entry.category_id, entry.size, fetchFamily, matchesLastPick]);
 
   // Rate field — when article is blank, show ONLY variants whose purchase_rate matches
   useEffect(() => {
@@ -1176,6 +1238,7 @@ export default function PurchaseBillForm() {
       if (pickerAnchorRef.current === 'rate') { setShowVariantPicker(false); setVariantOptions([]); setPickerRateFilter(null); }
       return;
     }
+    if (matchesLastPick(entry.size, aval, rate)) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
@@ -1195,7 +1258,7 @@ export default function PurchaseBillForm() {
       } catch (e) { console.error('[VariantPicker:Rate]', e); }
     }, 120);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [entry.purchase_rate, entry.article_number, entry.product_name, entry.category_id, entry.size, fetchFamily]);
+  }, [entry.purchase_rate, entry.article_number, entry.product_name, entry.category_id, entry.size, fetchFamily, matchesLastPick]);
 
   // Invalidate family cache when the product_name changes (so we re-fetch for the new product)
   useEffect(() => { familyCacheRef.current = { key:null, list:[] }; }, [entry.product_name, entry.category_id]);
@@ -1259,6 +1322,7 @@ export default function PurchaseBillForm() {
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setPickerRateFilter(null); setPickerArticleFilter(null);
     pickerBoundRef.current = false;       // new entry — allow lookups again
+    lastPickRef.current = null;
     invalidateFamilyCache(); // next lookup re-fetches fresh from DB (may include variants just saved)
     setActiveCatId(null); // triggers useEffect → clears prodRawList automatically
     // Focus the Category dropdown for the NEXT line item — purchase is a
@@ -1733,6 +1797,7 @@ export default function PurchaseBillForm() {
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setPickerRateFilter(null); setPickerArticleFilter(null);
     pickerBoundRef.current = false;
+    lastPickRef.current = null;
     setActiveCatId(null);
     setAmountVal(''); setAmountGstRate(0); setAmountHsnCode(''); setAmountDesc('');
     setRecalledDraftId(null);

@@ -157,6 +157,16 @@ const tunnelToken = (env, tunnelId) =>
   cfApi(env, `/accounts/${env.CF_ACCOUNT_ID}/cfd_tunnel/${tunnelId}/token`);
 
 // ── org helpers ──────────────────────────────────────────────────────
+
+/**
+ * Hard ceiling on paired phones per customer, whatever the desktop asks for.
+ *
+ * The number below is not a licensing opinion — it is a safety rail. Each
+ * paired device is a live credential into a shop's books, and a typo in a
+ * number field ("50" for "5") should not be able to open fifty of them.
+ */
+const DEVICE_LIMIT_CEILING = 50;
+
 async function findOrCreateOrg(env, payload) {
   const customerId = String(payload.customer_id ?? payload.customer_name ?? '').trim();
   if (!customerId) return null;
@@ -888,7 +898,8 @@ async function handleAccountManage(env, body) {
  * Device slots are finite (a licence allows N), and until this existed there
  * was no way to free one: the desktop could see a COUNT and nothing more, so
  * a shop that filled its slots with a replaced phone and a couple of stale
- * sign-ins was simply stuck. Authenticated by the licence plus this machine's
+ * sign-ins was simply stuck. Actions: `list`, `revoke`, `set_limit`.
+ * Authenticated by the licence plus this machine's
  * fingerprint, exactly like account management — an owner sitting at the shop
  * computer, which is the only place this should be possible from.
  *
@@ -951,6 +962,48 @@ async function handleDeviceManage(env, body) {
     await env.DB.prepare('UPDATE devices SET revoked = 1 WHERE device_id = ? AND org_id = ?')
       .bind(id, org.org_id).run();
     return json({ ok: true });
+  }
+
+  /* `set_limit` — how many phones this customer may pair.
+   *
+   * The number used to be fixed at the column default the moment the org row
+   * was created, so changing it meant a hand-written D1 query. It is a normal
+   * commercial dial ("this shop bought two more phones"), and it must be
+   * changeable WITHOUT reissuing the licence — a reissue means a new file to
+   * install on the shop's PC for what is a one-number change.
+   *
+   * Authenticated exactly like `revoke`: the signed licence plus the machine
+   * fingerprint of a provisioned site, i.e. someone at the shop's own
+   * computer. On the desktop side it additionally sits behind developer mode,
+   * which is a UI gate rather than an auth boundary — so treat this as
+   * "the installation may set its own limit", and keep the ceiling below
+   * honest about what that means.
+   */
+  if (action === 'set_limit') {
+    const n = Math.trunc(Number(body.max_devices));
+    if (!Number.isFinite(n) || n < 1 || n > DEVICE_LIMIT_CEILING) {
+      return fail('bad_limit', `Choose a number between 1 and ${DEVICE_LIMIT_CEILING}.`);
+    }
+
+    // Refuse to set a limit the shop is already over. Silently allowing it
+    // would leave every paired phone working (nothing re-checks the count
+    // after pairing) while the UI claimed "4 of 2 in use" — a number that
+    // means nothing. Ask the owner to remove devices first, so the limit is
+    // always the truth.
+    const active = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM devices WHERE org_id = ? AND revoked = 0',
+    ).bind(org.org_id).first();
+    const used = active?.n ?? 0;
+    if (n < used) {
+      return fail(
+        'limit_below_active',
+        `${used} device(s) are paired right now. Remove ${used - n} first, or set the limit to ${used} or more.`,
+      );
+    }
+
+    await env.DB.prepare('UPDATE orgs SET max_devices = ? WHERE org_id = ?')
+      .bind(n, org.org_id).run();
+    return json({ ok: true, max_devices: n, used });
   }
 
   return fail('bad_action', 'Unknown action.');

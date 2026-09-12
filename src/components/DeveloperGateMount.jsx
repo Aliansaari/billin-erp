@@ -4,8 +4,9 @@ import DeveloperGate from './DeveloperGate';
 /* ── DeveloperGateMount ────────────────────────────────────────────────
  *
  * Global singleton that owns the developer-access password modal and the
- * `dev-gate:open` window-event listener (fired by GlobalSearch when the
- * operator types the hidden "/__dev" string).
+ * `dev-gate:open` window-event listener — fired by the Ctrl+Alt+Shift+D
+ * chord (useKeyboardShortcuts) and by GlobalSearch when the operator types
+ * the hidden "/__dev" string.
  *
  * This used to live inside Sidebar.jsx — which meant the trigger silently
  * did nothing whenever the app ran in the horizontal top-nav layout

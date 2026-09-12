@@ -310,7 +310,8 @@ export default function Sidebar({ collapsed, setCollapsed }) {
     // Developer affordances appear ONLY when developer mode is unlocked
     // AND not previewing as a regular user. The locked-state dropdown
     // is intentionally identical to a normal admin's — no clue that
-    // developer mode exists. To unlock, type "/__dev" in global search.
+    // developer mode exists. To unlock: Ctrl+Alt+Shift+D, or type
+    // "/__dev" in global search.
     ...(effectiveDev ? [
       { type: 'divider' },
       { key: 'dev-settings', icon: <CodeOutlined style={{ color: '#9333ea' }} />, label: 'Developer Settings', onClick: () => navigate('/settings/developer') },

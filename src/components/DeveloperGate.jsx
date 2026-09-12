@@ -16,9 +16,11 @@ const { Paragraph, Text } = Typography;
  * should override via the DEVELOPER_PASSWORD env var on the server before
  * shipping a build to a customer.
  *
- * Trigger: render `<DeveloperGate open={...} onClose={...} />` from any
- * component. Most natural entry point is the user-menu dropdown in the
- * sidebar/topnav under "Developer Access".
+ * Trigger: mounted once app-wide by <DeveloperGateMount/>, which opens it
+ * on the `dev-gate:open` window event. Two things fire that event — the
+ * Ctrl+Alt+Shift+D chord (useKeyboardShortcuts) and the hidden "/__dev"
+ * string typed into global search. Neither is advertised in the UI: a
+ * locked machine must give no sign that developer mode exists.
  * ────────────────────────────────────────────────────────────────────── */
 export default function DeveloperGate({ open, onClose }) {
   const [password, setPassword] = useState('');

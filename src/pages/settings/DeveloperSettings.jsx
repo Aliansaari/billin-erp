@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Card, Switch, InputNumber, Button, Alert, Tag, Tooltip, Modal, Space, message, Typography,
 } from 'antd';
 import {
   CodeOutlined, LockOutlined, UnlockOutlined, ReloadOutlined,
-  ExclamationCircleOutlined, ToolOutlined, SafetyCertificateOutlined,
+  ExclamationCircleOutlined, ToolOutlined, SafetyCertificateOutlined, MobileOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { settingsAPI, companyAPI } from '../../api';
+import api, { settingsAPI, companyAPI } from '../../api';
 import { refreshSystemSettings } from '../../hooks/useSystemSettings';
 import { refreshFinancialYear } from '../../hooks/useFinancialYear';
 import useDevModeStore from '../../store/devModeStore';
@@ -96,6 +96,19 @@ export default function DeveloperSettings() {
   // page. Tracked separately to keep the save state clear.
   const [maxCompanies, setMaxCompanies] = useState(3);
   const [savingMaxCompanies, setSavingMaxCompanies] = useState(false);
+  // Mobile device allowance. Unlike every other number on this page it does
+  // NOT live on this PC — it is the licence's entitlement, held by the ZEHEN
+  // account service, so it needs the internet and an activated licence to
+  // read or change. `reason` remembers WHY it could not be read, because a
+  // blank box that means "no licence" and a blank box that means "offline"
+  // are otherwise the same blank box.
+  const [mobile, setMobile] = useState({ max_devices: null, used: 0, reason: '' });
+  const [mobileDraft, setMobileDraft] = useState(null);
+  const [savingMobile, setSavingMobile] = useState(false);
+  // Enter and blur both commit, and Enter disables the field (which fires
+  // blur). A ref, not the state flag, because the second call happens before
+  // React has re-rendered with savingMobile=true.
+  const mobileSavingRef = useRef(false);
 
   useEffect(() => {
     if (!unlocked) {
@@ -121,10 +134,55 @@ export default function DeveloperSettings() {
         const v = cap.data?.data?.dev_max_companies;
         if (Number.isFinite(Number(v))) setMaxCompanies(Number(v));
       } catch { /* master DB not ready yet — keep default */ }
+      await loadMobileLimit();
     } catch (e) {
       message.error('Could not load developer settings');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMobileLimit = async () => {
+    try {
+      const { data } = await api.post('/remote-access/devices', { action: 'list' });
+      const max = Number.isFinite(Number(data?.max_devices)) ? Number(data.max_devices) : null;
+      setMobile({ max_devices: max, used: Number(data?.used) || 0, reason: '' });
+      setMobileDraft(max);
+    } catch (e) {
+      setMobileDraft(null);
+      setMobile({
+        max_devices: null,
+        used: 0,
+        reason: e?.response?.data?.error
+          || 'Could not reach the ZEHEN account service — this needs an internet connection.',
+      });
+    }
+  };
+
+  const updateMobileLimit = async (v) => {
+    if (mobileSavingRef.current) return;
+    const n = Math.trunc(Number(v));
+    if (!Number.isFinite(n) || n < 1 || n === mobile.max_devices) {
+      setMobileDraft(mobile.max_devices);   // cleared or unchanged — put the real value back
+      return;
+    }
+    mobileSavingRef.current = true;
+    setSavingMobile(true);
+    try {
+      const { data } = await api.post('/remote-access/devices', { action: 'set_limit', max_devices: n });
+      if (data?.error) throw new Error(data.error);
+      const saved = Number(data?.max_devices ?? n);
+      setMobile((m) => ({ ...m, max_devices: saved, used: Number(data?.used ?? m.used), reason: '' }));
+      setMobileDraft(saved);
+      message.success(`Saved — this licence now allows ${n} phone${n === 1 ? '' : 's'}.`);
+    } catch (e) {
+      // Show the service's own words. "3 devices are paired right now" is a
+      // sentence the developer can act on; "Save failed" is not.
+      message.error(e?.response?.data?.error || e.message || 'Could not change the device limit.');
+      await loadMobileLimit();
+    } finally {
+      mobileSavingRef.current = false;
+      setSavingMobile(false);
     }
   };
 
@@ -417,6 +475,72 @@ export default function DeveloperSettings() {
             style={{ width: 120 }}
             addonAfter="books"
           />
+        </div>
+      </Card>
+
+      {/* ── Mobile app access ──────────────────────────────────────── */}
+      <Card
+        title={<span><MobileOutlined /> Mobile app access</span>}
+        style={{ marginBottom: 20, borderRadius: 12 }}
+        styles={{ header: { fontWeight: 600 } }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '10px 0' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+              Phones allowed on this licence
+              {mobile.max_devices != null && (
+                <Tag color={mobile.used >= mobile.max_devices ? 'red' : 'blue'}>
+                  {mobile.used} of {mobile.max_devices} in use
+                </Tag>
+              )}
+            </div>
+            <div style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.55 }}>
+              How many phones may sign in to the ZEHEN mobile app for this customer.
+              Change it here when they buy more — <strong>no need to reissue the licence</strong>.
+              Each paired phone holds a live credential into these books, so keep it to the
+              phones actually in use; remove old ones in{' '}
+              <a onClick={() => navigate('/settings/remote-access')} style={{ cursor: 'pointer' }}>
+                Settings → Remote Access
+              </a>.
+              {mobile.max_devices != null && mobile.used > 0 && (
+                <> The limit cannot be set below the {mobile.used} already paired.</>
+              )}
+            </div>
+            {mobile.reason && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginTop: 10 }}
+                message="Not available right now"
+                description={<span style={{ fontSize: 12.5 }}>{mobile.reason} The allowance lives with the licence at the ZEHEN account service, not on this PC.</span>}
+              />
+            )}
+          </div>
+          <Space>
+            {/* Committed on blur / Enter, not on every keystroke — each save
+                is a round-trip to the account service, and typing "12" would
+                otherwise try to set the limit to 1 on the way there. */}
+            <InputNumber
+              min={1}
+              max={50}
+              step={1}
+              value={mobileDraft}
+              placeholder="—"
+              disabled={savingMobile || mobile.max_devices == null}
+              onChange={setMobileDraft}
+              onBlur={() => updateMobileLimit(mobileDraft)}
+              onPressEnter={() => updateMobileLimit(mobileDraft)}
+              style={{ width: 120 }}
+              addonAfter="phones"
+            />
+            <Tooltip title="Re-read the allowance from the account service">
+              <Button
+                icon={<ReloadOutlined />}
+                loading={savingMobile}
+                onClick={loadMobileLimit}
+              />
+            </Tooltip>
+          </Space>
         </div>
       </Card>
 
