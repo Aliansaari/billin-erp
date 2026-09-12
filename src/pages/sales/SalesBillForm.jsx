@@ -95,6 +95,23 @@ const defaultRateFromProduct = (p) => {
   return (inclusive && mrp > 0) ? mrp : sale;
 };
 
+/* Cost basis for the optional "Cost ₹" column, staged client-side onto each
+ * line as `purchase_rate`. Prefer the server's mode-aware `display_cost`
+ * (variant → purchase_rate, single → weighted_avg_cost, single+batch →
+ * batch-weighted average) and fall back to the raw catalog rate only when a
+ * payload predates it. Raw purchase_rate alone is wrong for single-mode
+ * products, where it stays frozen at the first-purchase rate.
+ *
+ * Every path that builds a line goes through this — scan, product pick,
+ * variant-sibling pick, edit-load — so the column can never show a figure
+ * on one row and "—" on the next for the same product. */
+const costFromProduct = (p) => {
+  if (!p) return 0;
+  const dc = parseFloat(p.display_cost);
+  if (Number.isFinite(dc) && dc !== 0) return dc;
+  return parseFloat(p.purchase_rate) || 0;
+};
+
 const UNITS     = ['Pcs','Box','Set','Pair','Dozen','Mtr','Roll'];
 const PAY_MODES = ['Cash','Card','UPI','Bank Transfer','Cheque','Credit'];
 
@@ -797,6 +814,11 @@ export default function SalesBillForm() {
         total_amount:parseFloat(it.total_amount)||0,
         mrp:parseFloat(it.mrp)||0, hsn_code:it.hsn_code||'',
         gst_rate:parseFloat(it.gst_rate)||0, available_stock:0,
+        // Cost column on edit-load reads the cost_rate the server
+        // snapshotted when the bill was saved — the truest figure
+        // available here, and it can't drift if the product's catalog
+        // rate or weighted average has moved since.
+        purchase_rate:parseFloat(it.cost_rate)||0,
         // Preserve batch identity on edit-load so the saved batch
         // round-trips through the form even when the operator only
         // changes a non-batch field (qty, rate). Server's update path
@@ -894,6 +916,10 @@ export default function SalesBillForm() {
       rate, quantity: qty, quantity_per_box: parseFloat(p.quantity_per_box) || 1,
       discount_percentage: 0, discount_amount: 0,
       total_amount: lt, mrp: parseFloat(p.mrp) || 0,
+      // Stage cost so the optional "Cost" column has data on scanned
+      // lines too. Client-side only — never persisted; the server
+      // snapshots its own cost_rate at save time.
+      purchase_rate: costFromProduct(p),
       hsn_code: p.hsn_code || '', gst_rate: gst,
       available_stock: parseFloat(p.current_stock) || 0,
       is_batch_tracked: !!p.is_batch_tracked,
@@ -1170,7 +1196,7 @@ export default function SalesBillForm() {
       rate:defaultRateFromProduct(p),
       // Stage purchase_rate so the optional "Cost" column has data.
       // Client-side only — never persisted to the server.
-      purchase_rate:parseFloat(p.purchase_rate)||0,
+      purchase_rate:costFromProduct(p),
       mrp:parseFloat(p.mrp)||0,
       is_tax_inclusive:!!p.is_tax_inclusive,
       hsn_code:p.hsn_code||'',gst_rate:parseFloat(p.gst_rate)||0,
@@ -1251,7 +1277,7 @@ export default function SalesBillForm() {
       // can read it without an extra round-trip. Stays client-side
       // only — the save payloads (lines 1358 / 1443) cherry-pick the
       // server-needed fields so this never hits the DB.
-      purchase_rate:     parseFloat(sib.purchase_rate) || 0,
+      purchase_rate:     costFromProduct(sib),
       mrp:               parseFloat(sib.mrp) || 0,
       hsn_code:          sib.hsn_code || '',
       gst_rate:          parseFloat(sib.gst_rate) || 0,

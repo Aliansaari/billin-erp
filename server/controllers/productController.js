@@ -536,12 +536,23 @@ exports.scanIndex = async (req, res) => {
         'size_value', 'category_id', 'sale_rate', 'mrp', 'is_tax_inclusive',
         'hsn_code', 'gst_rate', 'current_stock', 'quantity_per_box',
         'is_batch_tracked', 'color_mode',
+        // Cost basis inputs for attachDisplayCost below. The sales form's
+        // Cost column reads display_cost off the scanned line; without
+        // these three columns the instant-scan path had no cost to stage
+        // and every scanned row rendered "—" while a dropdown-picked row
+        // showed a figure.
+        'product_mode', 'purchase_rate', 'weighted_avg_cost',
       ],
       include: [{ model: Category, attributes: ['category_name'] }],
       raw: true,
       nest: true,
     });
-    const data = rows.map((r) => ({
+    // Mode-aware cost, same helper every other read path uses, so a
+    // scanned line and a dropdown-picked line agree on the number.
+    // One extra aggregate query, and only when the catalog holds a
+    // single+batch product — this endpoint is called once per form mount.
+    const priced = await attachDisplayCost(rows);
+    const data = priced.map((r) => ({
       product_id:       r.product_id,
       barcode:          r.barcode,
       article_number:   r.article_number || '',
@@ -558,6 +569,7 @@ exports.scanIndex = async (req, res) => {
       quantity_per_box: r.quantity_per_box,
       is_batch_tracked: !!r.is_batch_tracked,
       color_mode:       r.color_mode || 'none',
+      display_cost:     r.display_cost,
     }));
     res.json({ success: true, count: data.length, data });
   } catch (error) {
