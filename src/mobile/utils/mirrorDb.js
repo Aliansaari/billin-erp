@@ -407,3 +407,31 @@ export async function selfTest() {
 try {
   window.addEventListener('zehen:session-changed', () => { closeMirror(); });
 } catch { /* no window */ }
+
+/**
+ * What the mirror actually holds, in one short string.
+ *
+ * Written because "statements are not showing offline" has at least four
+ * distinct causes that look identical from the outside: nothing was ever
+ * written, the write failed, the read used a different key, or the schema
+ * migration is wiping the database on every open. Guessing between them
+ * costs a build and an install each time, and has already cost several.
+ */
+export async function mirrorDiag() {
+  if (!mirrorAvailable()) return 'not native';
+  const scope = sessionScope();
+  if (!scope) return 'no scope';
+  const db = await openMirror();
+  if (!db) return `open failed: ${lastOpenError || '?'}`;
+  const one = async (sql) => {
+    try { const r = await db.query(sql); return Object.values(r?.values?.[0] || {})[0]; }
+    catch (e) { return 'err'; }
+  };
+  const ver    = await one("SELECT value AS v FROM meta WHERE key = 'schema_version';");
+  const cached = await one('SELECT COUNT(*) AS n FROM response_cache;');
+  const parts  = await one('SELECT COUNT(*) AS n FROM parties;');
+  const prods  = await one('SELECT COUNT(*) AS n FROM products;');
+  const keys   = await one("SELECT COUNT(*) AS n FROM response_cache WHERE cache_key LIKE 'statement%';");
+  const movs   = await one("SELECT COUNT(*) AS n FROM response_cache WHERE cache_key LIKE 'movement%';");
+  return `v${ver ?? '?'} p${parts ?? '?'} i${prods ?? '?'} cache${cached ?? '?'}(s${keys ?? '?'} m${movs ?? '?'})`;
+}

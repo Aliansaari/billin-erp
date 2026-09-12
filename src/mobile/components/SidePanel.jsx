@@ -12,7 +12,7 @@ import api, { companyAPI, setServerUrl as saveServerUrl, getServerUrl, getDevice
 import { ageOf, fetchSnapshot, snapshotAge } from '../utils/offlineSnapshot';
 import './SidePanel.css';
 import { biometryInfo, isLockEnabled, setLockEnabled, authenticate, restartCount } from '../utils/biometric';
-import { mirrorAvailable } from '../utils/mirrorDb';
+import { mirrorAvailable, mirrorDiag } from '../utils/mirrorDb';
 import { mirrorState } from '../utils/mirrorSync';
 import { isSyncing, onMirrorUpdated, lastSyncProblem } from '../utils/mirrorAutoSync';
 import { select as hapticSelect } from '../utils/haptics';
@@ -250,9 +250,15 @@ export default function SidePanel({ open, onClose }) {
        * older build, the login lacks permission — and they are told apart
        * from here or not at all. */
       const why = lastSyncProblem();
+      /* The raw counts alongside the friendly age. "Nothing is showing
+       * offline" has several causes that look identical from outside — never
+       * written, write failed, read used a different key, migration wiping
+       * on every open — and only the counts tell them apart. */
+      const diag = await mirrorDiag().catch(() => '?');
+      if (dead) return;
       setMirror({
         ok: !stale,
-        detail: stale ? (why || 'not synced') : (ageOf(newest) || 'just now'),
+        detail: `${stale ? (why || 'not synced') : (ageOf(newest) || 'just now')} · ${diag}`,
       });
     };
     read();
