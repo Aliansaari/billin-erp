@@ -28,7 +28,7 @@
  * It never runs two syncs at once, and it backs off when the shop is
  * unreachable rather than retrying on a fixed beat into a PC that is off.
  */
-import { syncSet, confirmSet, mirrorState } from './mirrorSync';
+import { syncSet, confirmSet, mirrorState, prefetchAnswers } from './mirrorSync';
 import { mirrorAvailable } from './mirrorDb';
 
 const SETS = ['parties', 'products'];
@@ -124,6 +124,13 @@ export async function syncTick({ force = false } = {}) {
   } finally {
     running = false;
     notify();
+  }
+
+  /* Once the bounded sets are current, fill in the answers worth having in
+   * advance. After them, not before: parties and products are what every
+   * screen needs, and a slow prefetch must never delay them. */
+  if (!unreachable) {
+    try { result.prefetch = await prefetchAnswers({ force }); } catch { /* never fatal */ }
   }
 
   lastReason = Object.values(result).find((r) => r && r.ok === false)?.reason || null;

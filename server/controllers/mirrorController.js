@@ -29,6 +29,7 @@
  */
 const sequelize = require('../config/database');
 const { respondWithError } = require('../utils/helpers');
+const { getLedgerStatement, resolveLedgerForParty } = require('../services/ledgerStatementService');
 
 /* Numbers are compared as scaled INTEGERS, never as floats.
  *
@@ -121,6 +122,152 @@ const SETS = {
   },
 };
 
+/* ── Prefetch sets ───────────────────────────────────────────────────
+ *
+ * Statements and movement histories are answers to questions with
+ * arguments — one per party per date range, one per product — so they were
+ * cached only when a screen asked for one. That works, and it means nothing
+ * is there offline until you have visited it, which is not what "show me the
+ * statements offline" means to anybody.
+ *
+ * These two sets fetch the ones worth having in advance, in a single request
+ * each rather than one per party. Bounded hard: the point is the handful
+ * anyone actually works with, not the whole book.
+ */
+const PREFETCH_LIMIT = 40;
+
+/* The financial year the mobile screens default to, computed the same way:
+ * April to March, the year chosen by which side of April today falls. */
+function currentFY() {
+  const now = new Date();
+  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  const p = (n) => String(n).padStart(2, '0');
+  return { from: `${y}-04-01`, to: `${y + 1}-03-${p(31)}` };
+}
+
+/**
+ * Statements for the parties with the most money outstanding.
+ *
+ * Ordered by absolute balance because that is the order anyone works a
+ * collection list in, and because if the cache can only hold some of them it
+ * should hold the ones a conversation is most likely to be about.
+ */
+async function prefetchStatements(limit = PREFETCH_LIMIT) {
+  const { from, to } = currentFY();
+  const parties = await sequelize.query(
+    `SELECT party_id FROM parties
+      WHERE COALESCE(current_balance, 0) <> 0
+      ORDER BY ABS(COALESCE(current_balance, 0)) DESC
+      LIMIT :limit`,
+    { replacements: { limit }, type: sequelize.QueryTypes.SELECT },
+  );
+  const out = [];
+  for (const { party_id } of parties) {
+    try {
+      const ledgerId = await resolveLedgerForParty(party_id);
+      if (!ledgerId) continue;
+      const payload = await getLedgerStatement(ledgerId, { from_date: from, to_date: to });
+      out.push({ party_id, from, to, payload });
+    } catch {
+      /* One party failing must not cost the other thirty-nine. */
+    }
+  }
+  return { rows: out, period: { from, to } };
+}
+
+/**
+ * Movement histories for the items that have actually moved lately.
+ *
+ * Recency, not stock value: the thing someone checks the history of is the
+ * thing that has been selling, and a warehouse full of dead stock should not
+ * crowd it out.
+ */
+async function prefetchMovements(limit = PREFETCH_LIMIT) {
+  /* One query for every product, not one per product.
+   *
+   * party_name is NOT a column on stock_ledger — productController derives
+   * it in JS by looking the reference up in purchase_bills or sales_bills
+   * and falling back to remarks, or to "Cash Sale" for a sale with no
+   * customer. Reproduced here in SQL so the offline rows carry exactly what
+   * the live ones do; an offline history missing the party it traded with
+   * would be a different screen wearing the same name.
+   *
+   * The reversal filter matches getStockMovement's default: hide reversal
+   * rows AND the originals they reverse, so only currently-active rows
+   * remain. The pair nets to zero, so nothing is lost but noise. */
+  const rows = await sequelize.query(
+    `WITH recent AS (
+       SELECT product_id
+         FROM stock_ledger
+        GROUP BY product_id
+        ORDER BY MAX(transaction_date) DESC
+        LIMIT :limit
+     )
+     SELECT sl.ledger_id, sl.product_id, sl.transaction_date, sl.transaction_type,
+            sl.reference_number, sl.reference_id,
+            sl.quantity_in::float  AS quantity_in,
+            sl.quantity_out::float AS quantity_out,
+            sl.remarks,
+            CASE
+              WHEN sl.transaction_type IN ('Purchase', 'Purchase Return')
+                THEN COALESCE(pp.party_name, sl.remarks, '')
+              WHEN sl.transaction_type IN ('Sales', 'Sales Return')
+                THEN COALESCE(sp.party_name, 'Cash Sale')
+              ELSE COALESCE(sl.remarks, '')
+            END AS party_name
+       FROM stock_ledger sl
+       JOIN recent r ON r.product_id = sl.product_id
+       LEFT JOIN purchase_bills pb
+              ON pb.purchase_bill_id = sl.reference_id
+             AND sl.transaction_type IN ('Purchase', 'Purchase Return')
+       LEFT JOIN parties pp ON pp.party_id = pb.supplier_id
+       LEFT JOIN sales_bills sb
+              ON sb.sales_bill_id = sl.reference_id
+             AND sl.transaction_type IN ('Sales', 'Sales Return')
+       LEFT JOIN parties sp ON sp.party_id = sb.customer_id
+      WHERE sl.is_reversal_of_ledger_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM stock_ledger rv
+                         WHERE rv.is_reversal_of_ledger_id = sl.ledger_id)
+      ORDER BY sl.product_id, sl.transaction_date ASC, sl.ledger_id ASC`,
+    { replacements: { limit }, type: sequelize.QueryTypes.SELECT },
+  );
+
+  const byProduct = new Map();
+  for (const r of rows) {
+    if (!byProduct.has(r.product_id)) byProduct.set(r.product_id, []);
+    byProduct.get(r.product_id).push(r);
+  }
+  const ids = [...byProduct.keys()];
+  if (!ids.length) return { rows: [] };
+
+  /* The product record too, or the offline screen has a movement list under
+   * a blank header. Deliberately WITHOUT display_stock_value: that figure is
+   * computed per stock-valuation mode by attachDisplayCost, and inventing it
+   * here would be the device showing a money figure the server never said.
+   * The screen renders it as unknown rather than zero. */
+  const products = await sequelize.query(
+    `SELECT pr.product_id, pr.product_name, pr.article_number, pr.barcode,
+            pr.hsn_code, pr.size_value,
+            pr.unit_of_measurement::text                            AS unit_of_measurement,
+            ROUND(COALESCE(pr.current_stock, 0)::numeric, 3)::float AS current_stock,
+            ROUND(COALESCE(pr.sale_rate, 0)::numeric, 2)::float     AS sale_rate,
+            ROUND(COALESCE(pr.purchase_rate, 0)::numeric, 2)::float AS purchase_rate
+       FROM products pr
+      WHERE pr.product_id IN (:ids)`,
+    { replacements: { ids }, type: sequelize.QueryTypes.SELECT },
+  );
+  const pmap = new Map(products.map((p) => [p.product_id, p]));
+
+  return {
+    rows: ids.map((product_id) => ({
+      product_id,
+      product: pmap.get(product_id) || null,
+      movements: byProduct.get(product_id),
+    })),
+  };
+}
+
+
 const buildSet = async (name) => {
   const def = SETS[name];
   if (!def) return null;
@@ -138,6 +285,18 @@ const buildSet = async (name) => {
 exports.pull = async (req, res) => {
   try {
     const set = String(req.query.set || '');
+
+    /* The prefetch sets are shaped differently from the table sets — a list
+     * of answers rather than rows with a checksum — so they answer here
+     * rather than being forced through buildSet's contract. */
+    if (set === 'statements' || set === 'movements') {
+      const limit = Math.max(1, Math.min(PREFETCH_LIMIT, Number(req.query.limit) || PREFETCH_LIMIT));
+      const body = set === 'statements'
+        ? await prefetchStatements(limit)
+        : await prefetchMovements(limit);
+      return res.json({ set, generated_at: Date.now(), ...body });
+    }
+
     if (!SETS[set]) {
       return res.status(400).json({ message: `Unknown mirror set: ${set || '(none)'}` });
     }

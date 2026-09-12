@@ -35,6 +35,7 @@
  */
 import api from '../../api';
 import { openMirror, setMeta, getMeta } from './mirrorDb';
+import { cacheKey, putCached } from './mirrorCache';
 import { isUnreachable } from './offlineSnapshot';
 
 const scaled = (v, scale) => Math.round(Number(v || 0) * scale);
@@ -250,4 +251,64 @@ export async function confirmSet(setName) {
     if (e?.response?.status === 404) return { state: 'unsupported' };
     return { state: 'unreachable' };
   }
+}
+
+/* How often to pull the prefetch sets. Heavier than a checksum poll —
+ * around 600 KB for eighty answers — and the things it fetches change on the
+ * timescale of a trading day, not a minute. */
+const PREFETCH_EVERY_MS = 30 * 60_000;
+const PREFETCH_AT = 'prefetch_at';
+
+/**
+ * Fetch the statements and movement histories worth having BEFORE they are
+ * asked for.
+ *
+ * Both were cached only when a screen opened one, which works and means
+ * nothing is there offline until you have already visited it — not what
+ * "show me the statements offline" means to anyone. This pulls the ones most
+ * likely to be wanted: the parties with the most outstanding, and the items
+ * that have moved most recently.
+ *
+ * Written under exactly the keys the screens read, so a prefetched answer
+ * and a visited one are indistinguishable to everything downstream.
+ */
+export async function prefetchAnswers({ force = false } = {}) {
+  const db = await openMirror();
+  if (!db) return { ok: false, reason: 'no mirror' };
+
+  const last = Number(await getMeta(PREFETCH_AT)) || 0;
+  if (!force && Date.now() - last < PREFETCH_EVERY_MS) {
+    return { ok: true, skipped: 'recent' };
+  }
+
+  let statements = 0;
+  let movements = 0;
+
+  try {
+    const res = await api.get('/mirror/pull', { params: { set: 'statements' } });
+    for (const r of res?.data?.rows || []) {
+      if (!r?.party_id || !r?.payload) continue;
+      const key = cacheKey('statement', { party: Number(r.party_id), from: r.from, to: r.to });
+      if (await putCached(key, r.payload)) statements += 1;
+    }
+  } catch (e) {
+    /* An older shop PC has no such set and answers 404. Not a failure worth
+     * reporting as broken — the screens still cache on view. */
+    if (e?.response?.status !== 404) return { ok: false, reason: 'statements unreachable' };
+  }
+
+  try {
+    const res = await api.get('/mirror/pull', { params: { set: 'movements' } });
+    for (const r of res?.data?.rows || []) {
+      if (!r?.product_id || !Array.isArray(r.movements)) continue;
+      const key = cacheKey('movement', { product: Number(r.product_id) });
+      // Same shape the screen writes itself, product record included.
+      if (await putCached(key, { product: r.product ?? null, movements: r.movements })) movements += 1;
+    }
+  } catch (e) {
+    if (e?.response?.status !== 404) return { ok: false, reason: 'movements unreachable' };
+  }
+
+  await setMeta(PREFETCH_AT, Date.now());
+  return { ok: true, statements, movements };
 }

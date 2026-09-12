@@ -223,6 +223,13 @@ export default function StockMovement() {
   const purRate = Number(product?.purchase_rate ?? product?.display_cost ?? 0);
   const saleRate = Number(product?.sale_rate ?? product?.sale_price ?? 0);
   const currentStock = Number(product?.current_stock ?? 0);
+  /* Undefined is NOT zero.
+   *
+   * display_stock_value is computed per stock-valuation mode server-side, so
+   * a prefetched product carries no value for it — and rendering that as ₹0
+   * would state a figure the server never gave. Shown as unknown instead. */
+  const stockValueKnown = product?.display_stock_value !== undefined
+                       && product?.display_stock_value !== null;
   const stockValue = Number(product?.display_stock_value ?? 0);
 
   /* Margin, worked out here rather than left to the reader.
@@ -301,7 +308,9 @@ export default function StockMovement() {
               </div>
               <div className="sm-card-trail">
                 <span className="sm-k">Stock value</span>
-                <span className="sm-card-val">₹{formatINR(stockValue)}</span>
+                <span className="sm-card-val">
+                  {stockValueKnown ? <>₹{formatINR(stockValue)}</> : '—'}
+                </span>
               </div>
             </div>
 
