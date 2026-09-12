@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS parties (
   credit_days   INTEGER,
   -- Money is an INTEGER count of paise, never REAL.
   --
-  -- SQLite's REAL is a double, so storing rupees in one would reintroduce
+  -- A SQLite REAL is a double, so storing rupees in one would reintroduce
   -- exactly the drift the checksum exists to detect: the device and the shop
   -- could hold "the same" balance and disagree in the second decimal place.
   -- Integers are exact, and rupees are produced at the display edge.
@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS response_cache (
   synced_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS response_cache_synced ON response_cache(synced_at);
--- Superseded by response_cache; dropped so it cannot linger holding stale
+-- Superseded by response_cache, dropped so it cannot linger holding stale
 -- figures that nothing reads and nobody would think to check.
 DROP TABLE IF EXISTS statements;
 `;
@@ -212,8 +212,18 @@ async function migrate(db) {
   try {
     await db.execute('DROP TABLE IF EXISTS parties; DROP TABLE IF EXISTS products;');
     // Both sets must resync before anything may be served from them.
+    /* Two calls, not one string.
+     *
+     * execute() takes a different code path the moment the SQL mentions
+     * DELETE FROM: it strips every newline and splits on ';' before handing
+     * the result to sqlite3_exec (UtilsSQLCipher.swift). With newlines gone
+     * a `--` comment swallows the rest of the statement, and a ';' inside
+     * one splits it in the wrong place. Keeping the DELETE on its own,
+     * comment-free, keeps both hazards out of reach. */
     await db.execute(
-      "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);" +
+      'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);',
+    );
+    await db.run(
       "DELETE FROM meta WHERE key LIKE '%_trusted' OR key LIKE '%_checksum' OR key LIKE '%_synced_at';",
     );
     await db.run(
