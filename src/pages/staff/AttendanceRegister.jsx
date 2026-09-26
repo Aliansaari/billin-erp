@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Button, DatePicker, Segmented, Table, Tag, Space, Tooltip, Modal, Input, Select, message, Empty, Alert,
+  Button, DatePicker, Segmented, Table, Tag, Space, Tooltip, Modal, Input, Select, message, Empty, Alert, Checkbox,
 } from 'antd';
 import {
   SyncOutlined, SettingOutlined, PlusOutlined, WifiOutlined, EnvironmentOutlined,
@@ -82,6 +82,7 @@ export default function AttendanceRegister() {
   const [preview, setPreview] = useState(null);
   const [adding, setAdding] = useState(null);      // { staff_id, kind, date, time, reason }
   const [voiding, setVoiding] = useState(null);    // { punch, staffName, reason }
+  const [bulk, setBulk] = useState(null);          // mark-present form
 
   const range = useMemo(() => (mode === 'day'
     ? { from: date.format('YYYY-MM-DD'), to: date.format('YYYY-MM-DD') }
@@ -128,6 +129,47 @@ export default function AttendanceRegister() {
       await load();
     } catch (err) {
       message.error(err?.response?.data?.error || 'Could not add the punch');
+    }
+  };
+
+  const openBulk = () => {
+    const cfg = data?.config || {};
+    setBulk({
+      staff_ids: (data?.staff || []).map((s) => s.staff_id),
+      range: [dayjs(range.from), dayjs(mode === 'day' ? range.from : range.to).isAfter(dayjs()) ? dayjs() : dayjs(range.to)],
+      in_time: cfg.open_time || '10:00',
+      out_time: cfg.close_time || '21:00',
+      reason: 'Marked present by owner',
+      include_weekly_off: false,
+      saving: false,
+    });
+  };
+
+  const submitBulk = async () => {
+    setBulk((b) => ({ ...b, saving: true }));
+    try {
+      const { data: r } = await staffAttendanceAPI.bulkPunches({
+        staff_ids: bulk.staff_ids,
+        from: bulk.range[0].format('YYYY-MM-DD'),
+        to: bulk.range[1].format('YYYY-MM-DD'),
+        in_time: bulk.in_time,
+        out_time: bulk.out_time || null,
+        reason: bulk.reason,
+        include_weekly_off: bulk.include_weekly_off,
+      });
+      const sk = r.skipped || {};
+      const notes = [
+        sk.existing && `${sk.existing} already had a check-in`,
+        sk.weekly_off && `${sk.weekly_off} weekly off`,
+        sk.before_joining && `${sk.before_joining} before joining`,
+        sk.future && `${sk.future} in the future`,
+      ].filter(Boolean);
+      message.success(`Marked ${r.created_days} day(s) present${notes.length ? `. Skipped: ${notes.join(', ')}` : ''}.`, 6);
+      setBulk(null);
+      await load();
+    } catch (err) {
+      message.error(err?.response?.data?.error || 'Could not mark attendance');
+      setBulk((b) => b && ({ ...b, saving: false }));
     }
   };
 
@@ -287,6 +329,7 @@ export default function AttendanceRegister() {
             ? <DatePicker value={date} onChange={(d) => d && setDate(d)} allowClear={false} format="ddd, D MMM YYYY" />
             : <DatePicker picker="month" value={date} onChange={(d) => d && setDate(d)} allowClear={false} format="MMMM YYYY" />}
           <Button icon={<SyncOutlined spin={syncing} />} onClick={sync} loading={syncing}>Sync</Button>
+          <Button icon={<PlusOutlined />} onClick={openBulk} disabled={!data?.staff?.length}>Mark present</Button>
           <Button icon={<SettingOutlined />} onClick={() => navigate('/settings/staff-attendance')}>Staff & rules</Button>
         </Space>
       </header>
@@ -361,6 +404,53 @@ export default function AttendanceRegister() {
             <label>Reason (the staff member will see this)</label>
             <Input.TextArea rows={2} maxLength={300} value={adding.reason} placeholder="e.g. Phone battery was dead"
               onChange={(e) => setAdding({ ...adding, reason: e.target.value })} />
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!bulk}
+        title="Mark present"
+        okText="Mark present"
+        onOk={submitBulk}
+        onCancel={() => setBulk(null)}
+        confirmLoading={bulk?.saving}
+        okButtonProps={{ disabled: !bulk || !bulk.staff_ids.length || bulk.reason.trim().length < 3 || !bulk.range?.[0] }}
+        destroyOnClose
+        width={520}
+      >
+        {bulk && (
+          <div className="ar-form">
+            <p style={{ marginTop: 0 }}>
+              Adds a check-in (and check-out) for each staff member on each day. Days that already have a check-in,
+              weekly offs and future days are skipped, and nothing existing is changed. Staff see your reason.
+            </p>
+            <label>Staff</label>
+            <Select
+              mode="multiple" value={bulk.staff_ids} onChange={(v) => setBulk({ ...bulk, staff_ids: v })}
+              options={(data?.staff || []).map((s) => ({ value: s.staff_id, label: s.name }))}
+              maxTagCount="responsive" style={{ width: '100%' }} placeholder="Choose staff"
+            />
+            <Space size={4} style={{ marginTop: 2 }}>
+              <Button size="small" type="link" onClick={() => setBulk({ ...bulk, staff_ids: (data?.staff || []).map((s) => s.staff_id) })}>All</Button>
+              <Button size="small" type="link" onClick={() => setBulk({ ...bulk, staff_ids: [] })}>None</Button>
+            </Space>
+            <label>Days</label>
+            <DatePicker.RangePicker
+              value={bulk.range} onChange={(v) => v && setBulk({ ...bulk, range: v })} allowClear={false}
+              format="D MMM YYYY" disabledDate={(d) => d.isAfter(dayjs(), 'day')} style={{ width: '100%' }}
+            />
+            <label>Check-in and check-out time</label>
+            <Space>
+              <Input type="time" value={bulk.in_time} onChange={(e) => setBulk({ ...bulk, in_time: e.target.value })} />
+              <span>to</span>
+              <Input type="time" value={bulk.out_time} onChange={(e) => setBulk({ ...bulk, out_time: e.target.value })} />
+            </Space>
+            <Checkbox checked={bulk.include_weekly_off} onChange={(e) => setBulk({ ...bulk, include_weekly_off: e.target.checked })} style={{ marginTop: 10 }}>
+              Include weekly off days
+            </Checkbox>
+            <label>Reason (the staff member will see this)</label>
+            <Input.TextArea rows={2} maxLength={300} value={bulk.reason} onChange={(e) => setBulk({ ...bulk, reason: e.target.value })} />
           </div>
         )}
       </Modal>

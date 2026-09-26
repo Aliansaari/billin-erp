@@ -311,9 +311,9 @@ async function openSession(env, staffUid, deviceId, deps) {
 async function handleShopLookup(env, url, deps) {
   const code = String(url.searchParams.get('code') || '').trim().toUpperCase();
   if (!/^[A-Z2-9]{6}$/.test(code)) return deps.fail('not_found', 'Shop not found.', 404);
-  const shop = await env.DB.prepare('SELECT company_name, enabled FROM att_shops WHERE shop_code = ?').bind(code).first();
+  const shop = await env.DB.prepare('SELECT company_name, enabled, settings FROM att_shops WHERE shop_code = ?').bind(code).first();
   if (!shop || !shop.enabled) return deps.fail('not_found', 'Shop not found.', 404);
-  return deps.json({ shop_code: code, company_name: shop.company_name || 'Your shop' });
+  return deps.json({ shop_code: code, company_name: shop.company_name || 'Your shop', logo: settingsOf(shop).brand_logo || null });
 }
 
 /**
@@ -414,7 +414,10 @@ async function handleStaffMe(env, staff, deps) {
     has_passkey: (pk?.n || 0) > 0,
     next_kind: last?.kind === 'in' ? 'out' : 'in',
     server_time: now,
+    logo: settings.brand_logo || null,
     settings: {
+      grace_min: settings.grace_min,
+      weekly_off: settings.weekly_off || [],
       passkey: settings.passkey,
       selfie: settings.selfie,
       wifi_mode: settings.wifi_mode,
@@ -703,6 +706,11 @@ async function handleAttSync(env, body, request, deps) {
 
   // Settings — stored whole; the desktop is authoritative.
   const settings = { ...DEFAULT_SETTINGS, ...(body.settings || {}) };
+  // The shop's logo rides along for the staff app; keep it small.
+  if (typeof settings.brand_logo !== 'string' || !/^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(settings.brand_logo)
+      || settings.brand_logo.length > 130_000) {
+    settings.brand_logo = null;
+  }
   await env.DB.prepare(
     'UPDATE att_shops SET settings = ?, enabled = ?, company_name = ?, updated_at = ? WHERE shop_code = ?',
   ).bind(JSON.stringify(settings), body.enabled ? 1 : 0, body.company_name || shop.company_name, now, shop.shop_code).run();

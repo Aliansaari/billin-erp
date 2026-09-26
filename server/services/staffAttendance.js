@@ -342,7 +342,7 @@ function staffViews(register) {
     views[s.staff_id] = {
       month: register.days[0].slice(0, 7),
       month_label: monthLabel,
-      summary: { present: s.summary.present, late: s.summary.late, absent: s.summary.absent },
+      summary: { present: s.summary.present, late: s.summary.late, absent: s.summary.absent, worked_min: s.summary.worked_min },
       days,
     };
   }
@@ -444,9 +444,36 @@ async function currentViews(cfg) {
   return staffViews(register);
 }
 
+/**
+ * What staff phones show as the shop: the name and logo from Settings →
+ * Company Profile (not the internal company label). The logo travels only
+ * when it is a small image; a large one is skipped, never shrunk here.
+ */
+const LOGO_MAX_BYTES = 90 * 1024;
+const LOGO_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
+async function shopBranding(fallbackName) {
+  const [row] = await q('SELECT company_name, logo_path FROM system_settings ORDER BY 1 LIMIT 1').catch(() => []);
+  const name = (row && String(row.company_name || '').trim()) || fallbackName || null;
+  let logo = null;
+  try {
+    if (row && row.logo_path) {
+      const dir = process.env.BILLING_ERP_UPLOADS_DIR || require('path').join(require('os').homedir(), '.zehen', 'uploads');
+      const file = require('path').join(dir, 'branding', require('path').basename(String(row.logo_path)));
+      const type = LOGO_TYPES[require('path').extname(file).toLowerCase()];
+      if (type && fs.existsSync(file) && fs.statSync(file).size <= LOGO_MAX_BYTES) {
+        logo = `data:${type};base64,${fs.readFileSync(file).toString('base64')}`;
+      }
+    }
+  } catch { /* no logo is fine */ }
+  return { name, logo };
+}
+
 /** One full sync for the company whose context we are in. */
-async function syncCurrentCompany(companyId, companyName, { force = false } = {}) {
+async function syncCurrentCompany(companyId, companyLabel, { force = false } = {}) {
   const settings = await getSettingsRow();
+  const brand = await shopBranding(companyLabel);
+  const companyName = brand.name;
+  const cloudSettings = { ...settings.config, brand_logo: brand.logo };
   // Nothing to do for a company that has never turned attendance on. One that
   // turned it OFF still syncs, so the control plane learns to refuse logins.
   if (!settings.enabled && !settings.shop_code) return { skipped: true };
@@ -475,7 +502,7 @@ async function syncCurrentCompany(companyId, companyName, { force = false } = {}
       company_id: companyId,
       company_name: companyName,
       enabled: !!settings.enabled,
-      settings: settings.config,
+      settings: cloudSettings,
       staff: staff.map((s) => ({
         ext_id: s.staff_id,
         name: s.name,
@@ -516,7 +543,7 @@ async function syncCurrentCompany(companyId, companyName, { force = false } = {}
     if (freshHash !== st.lastViewsHash) {
       await postSync({
         ...auth, company_id: companyId, company_name: companyName, enabled: true,
-        settings: settings.config,
+        settings: cloudSettings,
         staff: staff.map((s) => ({
           ext_id: s.staff_id, name: s.name, phone: s.phone, pin_hash: s.pin_hash,
           enabled: !!s.attendance_enabled && !!s.pin_hash, reset_seq: s.device_reset_seq || 0,

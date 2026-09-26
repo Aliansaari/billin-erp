@@ -331,6 +331,74 @@ exports.addPunch = async (req, res) => {
   }
 };
 
+/**
+ * Mark attendance in bulk: several staff, a range of days, one reason.
+ *
+ * Append-only like every correction: it ADDS owner entries (IN, and OUT
+ * when given) and never touches an existing punch. Days that already have
+ * any punch are skipped, as are weekly offs (unless asked), days before a
+ * staff member joined, and anything in the future.
+ */
+exports.bulkPunches = async (req, res) => {
+  try {
+    const b = req.body || {};
+    const ids = [...new Set((Array.isArray(b.staff_ids) ? b.staff_ids : []).map(Number).filter(Number.isFinite))].slice(0, 300);
+    const iso = /^\d{4}-\d{2}-\d{2}$/; const hm = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const reason = String(b.reason || '').trim();
+    if (!ids.length) return bad(res, 'Pick at least one staff member.');
+    if (!iso.test(String(b.from)) || !iso.test(String(b.to)) || b.to < b.from) return bad(res, 'Pick a valid date range.');
+    if ((Date.parse(b.to) - Date.parse(b.from)) / 86_400_000 > 62) return bad(res, 'Pick at most two months at a time.');
+    if (!hm.test(String(b.in_time))) return bad(res, 'Enter the check-in time.');
+    if (b.out_time && (!hm.test(String(b.out_time)) || b.out_time <= b.in_time)) return bad(res, 'Check-out must be after check-in.');
+    if (reason.length < 3) return bad(res, 'Write the reason. The staff member will see it.');
+
+    const { config } = await att.getSettingsRow();
+    const off = Number(config.tz_offset_min) || 0;
+    const weeklyOff = new Set((config.weekly_off || []).map(Number));
+    const at = (day, t) => { const [y, m, d] = day.split('-').map(Number); const [h, mi] = t.split(':').map(Number); return Date.UTC(y, m - 1, d, h, mi) - off * 60_000; };
+    const nowMs = Date.now();
+
+    const staff = await q('SELECT staff_id, joined_on, created_date FROM staff_members WHERE staff_id IN (:ids) AND is_active', { replacements: { ids } });
+    const existing = await q(
+      `SELECT DISTINCT staff_id, to_char(punched_at + (:off || ' minutes')::interval, 'YYYY-MM-DD') AS day
+         FROM staff_punches WHERE staff_id IN (:ids) AND voided_at IS NULL
+          AND punched_at >= :from AND punched_at < :to`,
+      { replacements: { ids, off: String(off), from: new Date(at(b.from, '00:00')), to: new Date(at(b.to, '00:00') + 86_400_000) } },
+    );
+    const has = new Set(existing.map((r) => `${r.staff_id}:${r.day}`));
+
+    let created = 0; const skipped = { existing: 0, weekly_off: 0, before_joining: 0, future: 0 };
+    await sequelize.transaction(async (t) => {
+      for (let d = Date.parse(b.from); d <= Date.parse(b.to); d += 86_400_000) {
+        const day = new Date(d).toISOString().slice(0, 10);
+        const weekday = new Date(d).getUTCDay();
+        for (const st of staff) {
+          const joined = st.joined_on ? String(st.joined_on).slice(0, 10) : null;
+          if (joined && day < joined) { skipped.before_joining++; continue; }
+          if (has.has(`${st.staff_id}:${day}`)) { skipped.existing++; continue; }
+          if (weeklyOff.has(weekday) && !b.include_weekly_off) { skipped.weekly_off++; continue; }
+          const inAt = at(day, b.in_time);
+          if (inAt > nowMs) { skipped.future++; continue; }
+          const rows = [{ kind: 'in', when: inAt }];
+          if (b.out_time && at(day, b.out_time) <= nowMs) rows.push({ kind: 'out', when: at(day, b.out_time) });
+          for (const r of rows) {
+            await sequelize.query(
+              `INSERT INTO staff_punches (punch_id, staff_id, kind, punched_at, source, reason, created_by)
+               VALUES (:id, :sid, :kind, :at, 'manual', :reason, :uid)`,
+              { replacements: { id: `man_${crypto.randomBytes(8).toString('hex')}`, sid: st.staff_id, kind: r.kind, at: new Date(r.when), reason: reason.slice(0, 300), uid: req.user?.user_id || null }, transaction: t },
+            );
+          }
+          created++;
+        }
+      }
+    });
+    if (created) kick();
+    res.json({ created_days: created, skipped });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
 exports.voidPunch = async (req, res) => {
   try {
     const reason = String(req.body?.reason || '').trim();

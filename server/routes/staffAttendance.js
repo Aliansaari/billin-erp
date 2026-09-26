@@ -28,6 +28,7 @@ router.post('/staff/:id/reset-device', c.resetDevice);
 router.get('/register',              c.getRegister);
 router.get('/punches/:id/selfie',    c.getSelfie);
 router.post('/punches',              c.addPunch);
+router.post('/punches/bulk',         c.bulkPunches);
 router.post('/punches/:id/void',     c.voidPunch);
 
 module.exports = router;

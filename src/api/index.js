@@ -926,6 +926,7 @@ export const staffAttendanceAPI = {
   getRegister:    (params) => api.get('/staff-attendance/register', { params }),
   getSelfie:      (punchId) => api.get(`/staff-attendance/punches/${punchId}/selfie`, { responseType: 'blob' }),
   addPunch:       (data) => api.post('/staff-attendance/punches', data),
+  bulkPunches:    (data) => api.post('/staff-attendance/punches/bulk', data),
   voidPunch:      (punchId, reason) => api.post(`/staff-attendance/punches/${punchId}/void`, { reason }),
 };
 
