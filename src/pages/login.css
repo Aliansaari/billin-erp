@@ -1,0 +1,473 @@
+/* ── Sign-in screen ────────────────────────────────────────────────────
+ *
+ * Built from LOGIN_SCREEN_SPEC.md. Two deliberate departures from the
+ * spec, both because the spec says to fit the existing app:
+ *
+ *   FONT — the spec asks for Geist. ZEHEN already ships Source Sans 3
+ *   (bundled via @fontsource-variable, so it works offline); adding a
+ *   second UI face for one screen would mean a different sign-in
+ *   typeface from every screen behind it. Source Sans 3 it is. Numbers
+ *   that need to align (FY, GSTIN) use the app's existing mono stack.
+ *
+ *   COLOUR — the spec's palette is ZEHEN's Classic teal, so instead of
+ *   hard-coding it this file reads the LIVE theme tokens. Under Classic
+ *   the screen is the teal the spec describes; under Modern it is the
+ *   same design in terracotta. The sign-in screen therefore always
+ *   matches the app waiting behind it.
+ *
+ *   The one thing that never recolours is the ZEHEN mark itself — it is
+ *   the app icon, and an icon that changes colour with a setting is not
+ *   a logo. That is the brand constant on an otherwise theme-led screen.
+ * ──────────────────────────────────────────────────────────────────── */
+
+.zlogin {
+  /* Accent comes from the active theme. */
+  --ac:        var(--accent);
+  --ring:      color-mix(in srgb, var(--accent) 16%, transparent);
+
+  /* Button fill is deliberately darker than the accent: white text on
+     Classic's #0891A8 fails WCAG AA at 15px, so the spec specifies
+     #06758A. Per-theme overrides below. */
+  --btn:       var(--accent-hover, var(--accent));
+  --btn-ink:   #FFFFFF;
+
+  --bg:        var(--bg-app);
+  --card:      var(--bg-panel);
+  --ink:       var(--fg-primary);
+  --muted:     var(--fg-secondary);
+  --line:      var(--border);
+  --field:     var(--bg-panel);
+  --field-idle:var(--bg-muted);
+  --chip:      var(--bg-muted);
+  --row-on:    var(--bg-hover);
+  --err:       var(--danger);
+  --err-ring:  color-mix(in srgb, var(--danger) 13%, transparent);
+  --warn:      var(--warning);
+  --ok:        var(--success);
+  --dot:       color-mix(in srgb, var(--fg-primary) 15%, transparent);
+  --card-shadow:
+    0 1px 2px rgba(10, 20, 22, .04),
+    0 8px 24px -10px rgba(10, 20, 22, .08),
+    0 40px 80px -40px rgba(10, 20, 22, .28);
+
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
+  transition: background-color .8s ease, color .8s ease;
+}
+
+/* Classic — the spec's exact button fill. */
+:root[data-theme^="classic"] .zlogin { --btn: #06758A; }
+/* Modern — terracotta is already dark enough for white text. */
+:root[data-theme^="modern"]  .zlogin { --btn: #B1472F; }
+
+/* Dark surfaces need a heavier, tighter shadow or the card floats. */
+:root[data-theme$="-dark"] .zlogin {
+  --card-shadow: 0 1px 0 rgba(255, 255, 255, .04) inset, 0 30px 70px -30px rgba(0, 0, 0, .70);
+  --dot: color-mix(in srgb, var(--fg-primary) 11%, transparent);
+  --field-idle: var(--bg-app);
+  --field: var(--bg-app);
+}
+
+/* Time of day — a wash over the theme background rather than a
+   replacement, so it tints whichever palette is active instead of
+   fighting it. Morning warms, evening cools. */
+.zlogin[data-phase="morning"] .zl-bg-tint { background: rgba(214, 158, 74, .07); }
+.zlogin[data-phase="evening"] .zl-bg-tint { background: rgba(74, 128, 158, .06); }
+.zl-bg-tint {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  transition: background-color .8s ease;
+}
+
+/* width/height are explicit because a canvas is a REPLACED element:
+   `inset: 0` alone leaves it at its intrinsic 300x150 instead of
+   stretching it, so the dot grid only covered the top-left corner. */
+.zl-bg {
+  position: absolute; inset: 0; z-index: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+/* ── Header ───────────────────────────────────────────────────────── */
+.zl-head {
+  position: relative; z-index: 2;
+  flex: 0 0 76px;
+  display: flex; align-items: center; gap: 22px;
+  padding: 0 40px;
+  font-size: 13px; color: var(--muted);
+}
+.zl-brand { display: flex; align-items: center; gap: 10px; margin-right: auto; color: var(--ink); }
+.zl-word { font-size: 17px; font-weight: 700; letter-spacing: -0.03em; }
+.zl-when { display: flex; align-items: center; gap: 8px; }
+.zl-when .sep { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .6; }
+.zl-when .time { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+.zl-help {
+  display: flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--card); color: var(--ink);
+  font: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.zl-help:hover { border-color: var(--ac); }
+
+/* ── Centre column ────────────────────────────────────────────────── */
+.zl-main {
+  position: relative; z-index: 1;
+  flex: 1 1 auto;
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px 20px;
+  overflow-y: auto;
+}
+.zl-col {
+  width: 404px; max-width: 100%;
+  display: flex; flex-direction: column; align-items: center; gap: 20px;
+}
+
+/* ── Company pill ─────────────────────────────────────────────────── */
+.zl-pill-wrap { position: relative; z-index: 5; }
+.zl-pill {
+  display: flex; align-items: center; gap: 9px;
+  height: 40px; padding: 0 12px 0 9px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--card); color: var(--ink);
+  font: inherit; cursor: pointer;
+  box-shadow: 0 1px 2px rgba(10, 20, 22, .05);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.zl-pill.static { cursor: default; }
+.zl-pill.open, .zl-pill:focus-visible {
+  border-color: var(--ac);
+  box-shadow: 0 0 0 4px var(--ring), 0 1px 2px rgba(10, 20, 22, .05);
+  outline: none;
+}
+.zl-init {
+  width: 22px; height: 22px; flex: none;
+  border-radius: 7px;
+  background: var(--co, var(--ac)); color: #FFFFFF;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .2px;
+  overflow: hidden;
+}
+.zl-co-name { font-size: 13.5px; font-weight: 500; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zl-pill .div { width: 1px; height: 14px; background: var(--line); }
+.zl-fy { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--muted); }
+.zl-chev {
+  width: 7px; height: 7px; flex: none; margin-left: 1px;
+  border-right: 1.8px solid var(--muted); border-bottom: 1.8px solid var(--muted);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform .2s ease;
+}
+.zl-pill.open .zl-chev { transform: rotate(-135deg) translate(-2px, -2px); }
+/* Company swap — old name drops out, new one fades in. */
+.zl-swap { display: inline-block; transition: opacity .16s ease, transform .2s cubic-bezier(.2,.8,.2,1); }
+.zl-swap.out { opacity: 0; transform: translateY(6px); }
+
+.zl-scrim { position: fixed; inset: 0; z-index: 40; }
+.zl-pop {
+  position: absolute; z-index: 41;
+  top: 48px; left: 50%; width: 340px; margin-left: -170px;
+  border: 1px solid var(--line); border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(10, 20, 22, .05), 0 24px 56px -18px rgba(10, 20, 22, .35);
+  overflow: hidden;
+  transform-origin: 50% 0;
+  animation: zlPop .24s cubic-bezier(.2, .8, .2, 1);
+}
+@keyframes zlPop { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
+.zl-search { position: relative; border-bottom: 1px solid var(--line); }
+.zl-search input {
+  width: 100%; height: 44px; box-sizing: border-box;
+  padding: 0 14px 0 36px;
+  border: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: 13.5px; outline: none;
+}
+.zl-search .mag { position: absolute; top: 15px; left: 14px; color: var(--muted); pointer-events: none; }
+.zl-rows { padding: 5px; display: flex; flex-direction: column; gap: 1px; max-height: 262px; overflow-y: auto; }
+.zl-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 48px; padding: 6px 9px;
+  border: 0; border-radius: 10px;
+  background: transparent; color: var(--ink);
+  font: inherit; text-align: left; cursor: pointer;
+  transition: background-color .2s ease;
+}
+.zl-row:hover, .zl-row.hl { background: var(--row-on); }
+.zl-row.sel { background: var(--row-on); }
+.zl-row .chip {
+  width: 28px; height: 28px; flex: none; border-radius: 8px;
+  background: var(--co, var(--chip)); color: #FFFFFF;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 700;
+}
+.zl-row .meta { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.zl-row .nm { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zl-row .gst { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: var(--muted); }
+.zl-none { margin: 10px; font-size: 13px; color: var(--muted); }
+
+/* ── Card ─────────────────────────────────────────────────────────── */
+.zl-card {
+  width: 100%; box-sizing: border-box;
+  padding: 34px 34px 30px;
+  border: 1px solid var(--line); border-radius: 24px;
+  background: var(--card);
+  box-shadow: var(--card-shadow);
+  animation: zlCardIn .55s cubic-bezier(.2, .8, .2, 1) .12s both;
+  transition: box-shadow .3s ease, border-color .3s ease, background-color .8s ease;
+}
+@keyframes zlCardIn { from { opacity: 0; transform: translateY(14px) scale(.985); } }
+.zl-card.err { border-color: var(--err); box-shadow: 0 0 0 5px var(--err-ring), var(--card-shadow); }
+.zl-card.shake { animation: zlShake .33s linear; }
+@keyframes zlShake {
+  0%   { transform: translateX(0); }
+  16%  { transform: translateX(12px); }
+  33%  { transform: translateX(-10px); }
+  50%  { transform: translateX(8px); }
+  66%  { transform: translateX(-6px); }
+  83%  { transform: translateX(3px); }
+  100% { transform: translateX(0); }
+}
+
+.zl-title { margin: 0 0 6px; font-size: 26px; font-weight: 700; letter-spacing: -0.035em; line-height: 1.15; }
+.zl-sub { margin: 0 0 26px; font-size: 14px; color: var(--muted); }
+
+.zl-field { margin-bottom: 16px; position: relative; }
+.zl-lrow { display: flex; align-items: baseline; gap: 10px; min-height: 20px; margin-bottom: 7px; }
+.zl-label { font-size: 13px; font-weight: 500; color: var(--ink); transition: color .25s ease; }
+.zl-label.on { color: var(--btn); }
+/* Lifted back into the label row from its place after the input, where it
+   has to live so Tab reaches the password box first. */
+.zl-forgot {
+  position: absolute; top: 0; right: 0;
+  height: 20px; display: flex; align-items: center;
+  border: 0; background: none; padding: 0 2px; border-radius: 5px;
+  cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--muted);
+}
+.zl-forgot:hover { color: var(--ink); }
+
+.zl-inwrap { position: relative; }
+.zlogin .zl-in {
+  width: 100%; height: 48px; box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--field-idle); color: var(--ink);
+  font: inherit; font-size: 15px; outline: none;
+  transition: box-shadow .15s ease, border-color .15s ease, background-color .5s ease;
+}
+.zlogin .zl-in:hover { border-color: color-mix(in srgb, var(--fg-primary) 26%, transparent); }
+.zlogin .zl-in:focus { border-color: var(--ac); background: var(--field); box-shadow: 0 0 0 4px var(--ring); }
+.zlogin .zl-in.bad { border-color: var(--err); }
+.zl-in.user { padding: 0 46px 0 14px; }
+.zl-in.pass { padding: 0 50px 0 14px; }
+/* Real password input, custom dots drawn over it (spec §7.6). */
+.zl-in.pass.masked { color: transparent; caret-color: transparent; }
+
+/* Focus sweep — a line that draws in along the bottom of the field. */
+.zl-sweep {
+  position: absolute; left: 12px; right: 12px; bottom: 1px; height: 2px;
+  border-radius: 2px; background: var(--ac);
+  transform-origin: left center; transform: scaleX(0);
+  transition: transform .45s cubic-bezier(.2, .8, .2, 1);
+  pointer-events: none;
+}
+.zl-sweep.on { transform: scaleX(1); }
+
+/* Initial of what was typed — never a stored or looked-up name. */
+.zl-badge {
+  position: absolute; top: 11px; right: 11px;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--btn); color: #FFFFFF;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600;
+  pointer-events: none;
+  opacity: 0; transform: scale(.4);
+  transition: opacity .2s ease, transform .35s cubic-bezier(.3, 1.7, .5, 1);
+}
+.zl-badge.on { opacity: 1; transform: scale(1); }
+
+.zl-dots {
+  position: absolute; top: 0; bottom: 0; left: 15px; right: 52px;
+  display: flex; align-items: center; gap: 6px;
+  overflow: hidden; pointer-events: none;
+}
+.zl-dots i {
+  width: 8px; height: 8px; flex: none; border-radius: 50%;
+  background: var(--ink);
+  animation: zlDot .24s cubic-bezier(.3, 1.8, .5, 1);
+}
+.zl-dots i.last { background: var(--ac); }
+@keyframes zlDot { from { transform: scale(.2); } }
+.zl-caret {
+  width: 2px; height: 20px; flex: none; border-radius: 1px;
+  background: var(--ac);
+  animation: zlBlink 1.05s steps(1, end) infinite;
+}
+@keyframes zlBlink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+
+.zl-eye {
+  position: absolute; top: 2px; right: 2px;
+  width: 44px; height: 44px;
+  border: 0; border-radius: 9px; background: transparent;
+  color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.zl-eye:hover { color: var(--ink); }
+
+/* One focus ring for the whole screen, in the active accent. */
+.zlogin :focus { outline: none; }
+.zl-eye:focus-visible,
+.zl-forgot:focus-visible,
+.zl-help:focus-visible,
+.zl-row:focus-visible,
+.zlogin .zl-btn:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+}
+.zl-eye:focus-visible { outline-offset: -4px; }
+
+.zl-msg { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; line-height: 1.5; margin-bottom: 14px; }
+.zl-msg.error { color: var(--err); }
+.zl-msg.warn  { color: var(--warn); }
+.zl-msg svg { flex: none; margin-top: 1px; }
+
+.zlogin .zl-btn {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; height: 50px;
+  border: 0; border-radius: 12px;
+  background: var(--btn); color: var(--btn-ink);
+  font: inherit; font-size: 15px; font-weight: 600; letter-spacing: -0.005em;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .18),
+    0 1px 2px color-mix(in srgb, var(--btn) 35%, transparent),
+    0 10px 24px -10px color-mix(in srgb, var(--btn) 65%, transparent);
+  transition: background-color .3s ease, transform .15s ease, box-shadow .2s ease;
+}
+.zlogin .zl-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .22),
+    0 2px 4px color-mix(in srgb, var(--btn) 35%, transparent),
+    0 16px 30px -12px color-mix(in srgb, var(--btn) 75%, transparent);
+}
+.zlogin .zl-btn:active:not(:disabled) { transform: translateY(0) scale(.985); }
+.zlogin .zl-btn.ok { background: var(--ok); }
+.zlogin .zl-btn:disabled { cursor: default; opacity: .9; }
+.zl-kbd {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 26px; height: 22px; padding: 0 6px;
+  border-radius: 6px; font-size: 12px;
+  background: rgba(255, 255, 255, .16);
+  box-shadow: inset 0 -1.5px 0 rgba(0, 0, 0, .18);
+  transition: all .08s ease;
+}
+.zl-kbd.down { background: rgba(255, 255, 255, .34); box-shadow: none; transform: translateY(1.5px); }
+.zl-spin { animation: zlSpin .75s linear infinite; }
+@keyframes zlSpin { to { transform: rotate(360deg); } }
+.zl-check path { stroke-dasharray: 24; stroke-dashoffset: 24; animation: zlDraw .35s ease forwards; }
+@keyframes zlDraw { to { stroke-dashoffset: 0; } }
+
+.zl-note { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); text-align: center; }
+
+/* ── Change-password extras ───────────────────────────────────────── */
+
+/* Three bars, not a percentage: the point is to nudge, and a number
+   invites gaming it. Colour comes from the theme's own semantic tokens
+   so the meter never introduces a fifth hue to the screen. */
+.zl-meter { display: flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+.zl-meter i {
+  width: 26px; height: 3px; border-radius: 2px;
+  background: var(--line);
+  transition: background-color .25s ease;
+}
+.zl-meter span { margin-left: 4px; }
+.zl-meter[data-level="1"] i:nth-child(1) { background: var(--err); }
+.zl-meter[data-level="1"] span { color: var(--err); }
+.zl-meter[data-level="2"] i:nth-child(-n+2) { background: var(--warn); }
+.zl-meter[data-level="2"] span { color: var(--warn); }
+.zl-meter[data-level="3"] i { background: var(--ok); }
+.zl-meter[data-level="3"] span { color: var(--ok); }
+
+.zl-ok-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: var(--ok); }
+
+/* Secondary action — reads as a way out, never as a second button to
+   press. Borderless until hovered. */
+.zlogin .zl-ghost {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; height: 42px; margin-top: 10px;
+  border: 1px solid transparent; border-radius: 12px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 13.5px; font-weight: 500;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background-color .15s ease;
+}
+.zlogin .zl-ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--line); background: var(--field-idle); }
+.zlogin .zl-ghost:focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }
+.zlogin .zl-ghost:disabled { cursor: default; opacity: .5; }
+
+/* ── Footer ───────────────────────────────────────────────────────── */
+.zl-foot {
+  position: relative; z-index: 2;
+  flex: 0 0 64px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 0 40px;
+  font-size: 12.5px; color: var(--muted);
+}
+.zl-live { display: flex; align-items: center; gap: 8px; }
+.zl-live i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent);
+}
+
+/* ── Hand-off ─────────────────────────────────────────────────────── */
+.zl-zoom {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--btn);
+  pointer-events: none;
+  clip-path: circle(0px at 50% 46%);
+  animation: zlZoom .8s cubic-bezier(.7, 0, .2, 1) forwards;
+}
+@keyframes zlZoom { to { clip-path: circle(150% at 50% 46%); } }
+.zl-zoom-in {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  color: #FFFFFF; text-align: center;
+  opacity: 0;
+  animation: zlZoomIn .4s ease .25s forwards;
+}
+@keyframes zlZoomIn { to { opacity: 1; } }
+.zl-zoom-in .t { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+.zl-zoom-in .s { font-size: 13.5px; opacity: .8; }
+
+/* ── Narrow / short windows ───────────────────────────────────────── */
+@media (max-width: 720px) {
+  .zl-head, .zl-foot { padding: 0 20px; }
+  .zl-head { gap: 14px; }
+  .zl-when { display: none; }
+  .zl-foot span:nth-child(2) { display: none; }
+}
+@media (max-height: 700px) {
+  .zl-head { flex-basis: 60px; }
+  .zl-foot { flex-basis: 52px; }
+  .zl-card { padding: 26px 28px 24px; }
+  .zl-title { font-size: 23px; }
+  .zl-sub { margin-bottom: 20px; }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .zl-card, .zl-pop, .zl-dots i, .zl-zoom, .zl-zoom-in, .zl-spin, .zl-check path { animation: none; }
+  .zl-card.shake { animation: none; }
+  .zl-zoom { clip-path: circle(150% at 50% 46%); }
+  .zl-zoom-in { opacity: 1; }
+  .zl-check path { stroke-dashoffset: 0; }
+  .zl-sweep, .zl-badge, .zl-swap, .zlogin .zl-btn { transition: none; }
+  .zl-caret { animation: none; }
+  .zlogin .zl-btn:hover:not(:disabled) { transform: none; }
+}

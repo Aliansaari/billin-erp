@@ -7,6 +7,7 @@ import { partyAPI } from './api';
 import { refreshFinancialYear } from './hooks/useFinancialYear';
 import { useMultiWarehouseEnabled } from './hooks/useSystemSettings';
 import { useGlobalShortcuts, SHORTCUTS_LIST, SHORTCUTS_CATEGORIES } from './hooks/useKeyboardShortcuts';
+import useUserPrefsSync from './hooks/useUserPrefsSync';
 import AppLayout from './components/Layout/AppLayout';
 import OnboardingWizard, { shouldShowOnboarding } from './components/OnboardingWizard';
 import RoleRoute from './components/RoleRoute';
@@ -57,6 +58,8 @@ import PurchaseReport from './pages/reports/PurchaseReport';
 import DayBook from './pages/reports/DayBook';
 import CustomerStatement from './pages/reports/CustomerStatement';
 import SupplierStatement from './pages/reports/SupplierStatement';
+import PartyLapseReport from './pages/reports/PartyLapseReport';
+import TopPartiesReport from './pages/reports/TopPartiesReport';
 import Ledger from './pages/reports/Ledger';
 import ProfitLoss from './pages/reports/ProfitLoss';
 import AgingReport from './pages/reports/AgingReport';
@@ -572,6 +575,11 @@ export default function App() {
 
   useGlobalShortcuts({ onToggleHelp: toggleHelp });
 
+  // Point every UI preference — appearance, home KPI cards, dashboard
+  // tiles, grid columns — at the signed-in user, and reconcile them with
+  // the copy stored against that login on the server.
+  useUserPrefsSync();
+
   // Refresh the cached Financial Year on every authenticated boot.
   // The cache (localStorage) hydrates pickers synchronously on first
   // paint, so this background fetch only updates the values if admin
@@ -798,6 +806,10 @@ export default function App() {
               correct flavor. */}
           <Route path="reports/customer-statement" element={<RoleRoute perm="accounts.view"><CustomerStatement /></RoleRoute>} />
           <Route path="reports/supplier-statement" element={<RoleRoute perm="accounts.view"><SupplierStatement /></RoleRoute>} />
+          {/* One route serves both directions — ?direction=supplier|customer.
+              The registry lists them as two cards so each is pinnable. */}
+          <Route path="reports/party-lapse"        element={<RoleRoute perm="reports.view"><PartyLapseReport /></RoleRoute>} />
+          <Route path="reports/top-parties"        element={<RoleRoute perm="reports.view"><TopPartiesReport /></RoleRoute>} />
           <Route path="reports/ledger"             element={<RoleRoute perm="accounts.view"><Ledger /></RoleRoute>} />
           <Route path="reports/party-ledger"       element={<RoleRoute perm="accounts.view"><PartyLedgerRedirect /></RoleRoute>} />
           <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />

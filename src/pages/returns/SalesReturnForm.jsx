@@ -18,6 +18,7 @@ import { partySelectProps } from '../../utils/partySelectProps';
 import confirmPrint from '../../utils/confirmPrint';
 import './return-form.css';
 import '../sales/sales-bill-form.css';
+import { getPref, setPref, clearPref } from '../../store/prefSync';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
@@ -66,21 +67,19 @@ export default function SalesReturnForm() {
   const [returnNo, setReturnNo]   = useState('');
 
   // Items table column visibility — operator picks via the Customize
-  // popover. Required columns are pinned on. localStorage-backed so
-  // the choice survives a reload.
+  // popover. Required columns are pinned on. Stored against the
+  // signed-in user so the choice survives a reload and follows them to
+  // another machine.
   const SRF_COL_DEFAULTS = ['barcode','size','unit','article','disc_pct','gst_pct'];
   const [srfVisibleCols, setSrfVisibleCols] = useState(() => {
-    try {
-      const raw = localStorage.getItem('srf_visible_cols');
-      if (raw) return new Set(JSON.parse(raw));
-    } catch {}
-    return new Set(SRF_COL_DEFAULTS);
+    const saved = getPref('srf_visible_cols', null);
+    return Array.isArray(saved) ? new Set(saved) : new Set(SRF_COL_DEFAULTS);
   });
   const toggleSrfCol = (key) => {
     setSrfVisibleCols(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
-      try { localStorage.setItem('srf_visible_cols', JSON.stringify([...next])); } catch {}
+      setPref('srf_visible_cols', [...next]);
       return next;
     });
   };
@@ -701,7 +700,7 @@ export default function SalesReturnForm() {
             type="button"
             onClick={() => {
               setSrfVisibleCols(new Set(SRF_COL_DEFAULTS));
-              try { localStorage.removeItem('srf_visible_cols'); } catch {}
+              clearPref('srf_visible_cols');
             }}
           >Reset</button>
         </div>
@@ -1097,7 +1096,7 @@ export default function SalesReturnForm() {
             field — no auto-fill at the button. F6 jumps to that field. */}
         <ActionStrip
           actions={[
-            { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+            { id: 'back', key: 'Esc', label: 'Back',
               onAction: () => confirmLeave(goBack) },
             { id: 'date', key: 'F2', label: 'Date',
               onAction: f2DatePopup,

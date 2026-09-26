@@ -17,6 +17,7 @@ import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/bill-list.css';
 import './return-list.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 /* ════════════════════════════════════════════════════════════════════════════
  *  PurchaseReturnList — virtualized list with editorial visual treatment
@@ -189,12 +190,12 @@ export default function PurchaseReturnList() {
 
   const [cols, setCols] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY) || 'null');
+      const saved = JSON.parse(readRaw(COLS_STORAGE_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...DEFAULT_COLS, ...saved } : DEFAULT_COLS;
     } catch { return DEFAULT_COLS; }
   });
   useEffect(() => {
-    try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(cols)); } catch {}
+    try { writeRaw(COLS_STORAGE_KEY, JSON.stringify(cols)); } catch {}
   }, [cols]);
   const visibleOptionalCount = OPTIONAL_COLS.filter((c) => cols[c.key]).length;
 

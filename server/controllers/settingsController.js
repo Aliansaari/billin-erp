@@ -157,6 +157,16 @@ exports.updateSystemSettings = async (req, res) => {
       await settings.update(req.body);
     }
 
+    // The sign-in picker shows this name, and caches it for half a minute.
+    // Drop the entry so a rename here is visible on the very next sign-in
+    // instead of up to 30s later.
+    try {
+      const { forgetCompanyName } = require('./companyController');
+      forgetCompanyName(req.companyId ?? req.user?.company_id);
+    } catch (e) {
+      // Cache eviction is an optimisation; a failure must not fail the save.
+    }
+
     // Audit-log any compliance config change. Best-effort; never blocks
     // the save. Snapshot the user from req.user so the log row carries
     // attribution even if the user is later renamed / deactivated.

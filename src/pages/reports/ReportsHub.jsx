@@ -235,10 +235,9 @@ export default function ReportsHub() {
   const favIds   = useFavoritesStore((s) => s.ids);
   const favLoad  = useFavoritesStore((s) => s.load);
   const favLoaded= useFavoritesStore((s) => s.loaded);
-  // Query lives in the URL (?q=…) so the browser-back button restores
-  // the same search state when returning from a report. ESC on a
-  // report page fires history.back() (handled by AppLayout) which
-  // brings the user here with the query already populated.
+  // Query lives in the URL (?q=…) so returning from a report restores
+  // the same search state: Esc on a report comes back to the hub (the
+  // report's parent), and this page reloads with the query populated.
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get('q') || '');
   // Selection is tracked as (categoryId, idx) — not a flat index —
@@ -286,9 +285,8 @@ export default function ReportsHub() {
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [selectedCat, selectedIdx]);
 
-  // Restore the search if we returned from a report via ESC. The
-  // URL ?q= already carries the query, but the searchRef needs to
-  // be focused so the operator can keep typing without clicking.
+  // Returned from a report: the URL ?q= already carries the query, so
+  // all that is left is to put the cursor back in the search box.
   useEffect(() => {
     if (sessionStorage.getItem('reports_hub_back') === '1') {
       sessionStorage.removeItem('reports_hub_back');
@@ -324,8 +322,11 @@ export default function ReportsHub() {
     return resolveReports(favIds.filter((id) => visibleIds.has(id)));
   }, [favIds, visibleReports]);
 
-  // Open a report, remembering we came from the hub so Esc on the
-  // report cascades back here (AppLayout reads reports_hub_back).
+  // Open a report, leaving a note that we came from the hub. Esc on the
+  // report returns here by itself (the hub is the report's parent — see
+  // src/utils/escBack.js); the note only tells the hub, once it is back
+  // on screen, to put the cursor in the search box so the operator can
+  // keep typing where they left off.
   const openReport = (route) => {
     sessionStorage.setItem('reports_hub_back', '1');
     nav(route);

@@ -625,6 +625,31 @@ async function runCompanySchemaMigrations(sequelize) {
       END IF;
     END $staff_att$;
   `);
+
+  // user_preferences — the operator's own UI settings, keyed to their
+  // login (see models/UserPreference.js). Created explicitly here rather
+  // than left to sequelize.sync so that the boot-time additive-schema
+  // guard in server/index.js brings it to the master DB as well: the
+  // version-gated migration block above it is skipped on an already
+  // stamped install, and a missing table would mean every sign-in logs a
+  // failed preference fetch and silently falls back to device-local
+  // settings. Idempotent.
+  await sequelize.query(`
+    DO $user_preferences$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name='user_preferences') THEN
+        CREATE TABLE user_preferences (
+          pref_id    SERIAL PRIMARY KEY,
+          user_id    INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+          pref_key   VARCHAR(64) NOT NULL,
+          value      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE UNIQUE INDEX user_preferences_user_key_uniq ON user_preferences(user_id, pref_key);
+        CREATE INDEX user_preferences_user_idx ON user_preferences(user_id);
+      END IF;
+    END $user_preferences$;
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };

@@ -752,7 +752,7 @@ export default function ReceiptEntry() {
           to actual handlers via the bottom strip. */}
       <ActionStrip
         actions={[
-          { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+          { id: 'back', key: 'Esc', label: 'Back',
             onAction: () => confirmLeave(goBack) },
           { id: 'reset', key: 'F5', label: 'Reset',
             onAction: handleReset },

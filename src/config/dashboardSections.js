@@ -1,3 +1,5 @@
+import { getPref, setPref } from '../store/prefSync';
+
 // ── Editorial dashboard — section catalog + visibility prefs ────────────
 //
 // Single source of truth shared by /dashboard (which renders the sections)
@@ -6,13 +8,20 @@
 // while the routed /dashboard ignored it entirely — the operator toggled
 // things and nothing changed.
 //
-// Prefs are a plain { [id]: boolean } map in localStorage; a missing key
-// means visible (default-on), so new sections added later appear without
-// migrating anyone's saved prefs. Writes dispatch `ed-dash-sections` so an
-// already-mounted dashboard re-reads instantly (same-tab localStorage
-// writes don't fire the native `storage` event).
+// Prefs are a plain { [id]: boolean } map; a missing key means visible
+// (default-on), so new sections added later appear without migrating
+// anyone's saved prefs. Writes dispatch `ed-dash-sections` so an
+// already-mounted dashboard re-reads instantly (same-tab storage writes
+// don't fire the native `storage` event).
+//
+// Storage goes through prefSync, which keeps the map against the
+// signed-in USER — on a shared counter PC the next person's dashboard is
+// their own — and mirrors it to the server so it follows them to another
+// machine. `ed-dash-sections` still fires for a local edit; a change
+// arriving from the server fires PREFS_CHANGED_EVENT instead, and the
+// dashboard listens for both.
 
-export const ED_SECTIONS_KEY = 'zehen_ed_dashboard_sections_v1';
+export const ED_SECTIONS_KEY = 'dashboardSections';
 
 export const ED_SECTIONS = [
   { id: 'quickstats',   label: 'Header & quick stats',
@@ -40,18 +49,12 @@ export const ED_SECTIONS = [
 ];
 
 export function readSectionPrefs() {
-  try {
-    const raw = localStorage.getItem(ED_SECTIONS_KEY);
-    if (raw) {
-      const obj = JSON.parse(raw);
-      if (obj && typeof obj === 'object') return obj;
-    }
-  } catch { /* corrupt/blocked storage → all sections visible */ }
-  return {};
+  const obj = getPref(ED_SECTIONS_KEY, null);
+  return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
 }
 
 export function writeSectionPrefs(prefs) {
-  try { localStorage.setItem(ED_SECTIONS_KEY, JSON.stringify(prefs || {})); } catch {}
+  setPref(ED_SECTIONS_KEY, prefs || {});
   try { window.dispatchEvent(new Event('ed-dash-sections')); } catch {}
 }
 

@@ -24,6 +24,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Select } from 'antd';
 import { partyAPI } from '../api';
+import { readRaw, writeRaw } from '../store/prefSync';
 
 const RECENT_KEY = (type) => `pp_recent_${type.toLowerCase()}`;
 const RECENT_MAX = 5;
@@ -43,12 +44,12 @@ const drCr = (v) => (parseFloat(v || 0) >= 0 ? 'Dr' : 'Cr');
 
 function loadRecent(type) {
   try {
-    const raw = localStorage.getItem(RECENT_KEY(type));
+    const raw = readRaw(RECENT_KEY(type));
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
 }
 function saveRecent(type, partyIds) {
-  try { localStorage.setItem(RECENT_KEY(type), JSON.stringify(partyIds.slice(0, RECENT_MAX))); }
+  try { writeRaw(RECENT_KEY(type), JSON.stringify(partyIds.slice(0, RECENT_MAX))); }
   catch { /* swallow — quota errors shouldn't break selection */ }
 }
 

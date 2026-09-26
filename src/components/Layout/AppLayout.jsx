@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Layout } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import useThemeStore from '../../store/themeStore';
+import { resolveBack } from '../../utils/escBack';
 import Sidebar from './Sidebar';
 import TopNav from './TopNav';
 import PastFYBanner from '../PastFYBanner';
@@ -24,17 +25,24 @@ const TOP_NAV_H = 56;
 const COLLAPSE_BREAKPOINT = 1100;
 const HIDE_BREAKPOINT     = 700;
 
-// ── Escape → cascade up to Home ───────────────────────────────────────────
-// An Esc that nothing else consumes walks the operator back up the
-// hierarchy and finally lands on Home (Command Center). Pages that own Esc
-// (bill / return / payment forms, detail pages via their ActionStrip
-// "Back") call preventDefault, so they still go one level up — e.g. the
-// Sales form → Sales list. The NEXT Esc on that list, which has no Esc
-// handler of its own, falls through to this rule and goes Home. One
-// central rule instead of an Esc handler bolted onto ~40 list pages.
-const HOME_PATH = '/';
-// Already at the top of the tree — Esc has nowhere further up to go.
-const ESC_HOME_SKIP_PATHS = new Set(['/', '/dashboard', '/dashboard/classic']);
+// ── Escape → one step up the tree ─────────────────────────────────────────
+// Esc closes the current screen and moves up one level, ending at Home.
+//
+// EXACTLY ONE navigation per press. That is the whole point of this block
+// and it used to be the bug: this listener is registered at app mount, so
+// it runs BEFORE any page's ActionStrip, and `stopImmediatePropagation`
+// from the strip cannot retroactively cancel a listener that has already
+// run. A tier here that navigated immediately therefore fired IN ADDITION
+// to the page's own Back, and a single Esc jumped two screens — which is
+// what made the app feel like it was rewinding through everything you had
+// opened instead of closing one screen.
+//
+// So a tier may do exactly one of two things:
+//   • claim the key outright — preventDefault + stopImmediatePropagation,
+//     which stops the page strip (registered later on the same target); or
+//   • defer a macrotask and act only if `!e.defaultPrevented`, i.e. only
+//     when no page owned this Esc.
+// Never both, and never an immediate navigate without claiming.
 // If any of these is in the DOM when Esc is pressed, that Esc belongs to
 // the overlay (Esc closes it). A second Esc — overlay now gone — cascades
 // Home. Covers the app's custom popups + every AntD overlay layer.
@@ -124,35 +132,47 @@ export default function AppLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   useEffect(() => { setMobileNavOpen(false); }, [location.pathname]);
 
-  // Global Esc handling. Three tiers, first match wins:
-  //   1. Search-back — reached this page via the global search palette →
-  //      Esc returns to where the search started.
-  //   2. Reports-hub back — a report opened from the /reports hub bounces
-  //      back to the hub (search query intact).
-  //   3. Cascade-to-Home fallback — anything else: if no page-level
-  //      handler / modal consumed the Esc, walk up to Home. This is what
-  //      makes "Esc on the Sales list goes Home" work without bolting an
-  //      Esc handler onto every list / report / settings page.
+  // Global Esc handling. Two tiers:
+  //   1. Search-back — you jumped here from the ⌘K palette, so Esc returns
+  //      you to where you were searching from. This is the one case where
+  //      "where you came from" beats "where this screen lives", because
+  //      you asked to be teleported and expect to be put back. It claims
+  //      the key so the page's own Back does not also fire.
+  //   2. Up-one-level fallback — anything the page did not handle itself
+  //      goes one step up the tree (src/utils/escBack.js), ending at Home.
+  //      This is what makes "Esc on the Sales list goes Home" work without
+  //      bolting an Esc handler onto every list / report / settings page.
   //
-  // Guard: never fight TEXT inputs / textareas / contenteditable — they
-  // own Esc for their own clear/dismiss. Non-text inputs (the hidden
-  // radio AntD's Segmented control parks focus on, etc.) must NOT block
-  // Esc-back.
+  // Guard: a text field owns Esc only while it has something to clear.
+  //
+  // This used to bail on ANY focused text field, empty or not, which made
+  // Esc a dead key on every screen that parks the cursor in its search box
+  // — the Reports hub does exactly that when you come back to it, so Esc
+  // there did nothing at all and the operator had to reach for the mouse.
+  // A field with text in it still owns Esc (clear the field first); an
+  // empty one has nothing to dismiss, so Esc means "close this screen".
+  // Non-text inputs (the hidden radio AntD's Segmented control parks focus
+  // on, etc.) never block Esc.
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
 
       const ae  = document.activeElement;
       const tag = (ae?.tagName || '').toLowerCase();
-      if (ae?.isContentEditable) return;
-      if (tag === 'textarea') return;
-      if (tag === 'input') {
+      if (ae?.isContentEditable) { if (ae.textContent?.trim()) return; }
+      else if (tag === 'textarea') { if (ae.value) return; }
+      else if (tag === 'input') {
         const type = (ae.type || 'text').toLowerCase();
         const TEXT_TYPES = new Set([
           'text', 'search', 'email', 'password', 'url', 'tel', 'number', 'date', 'datetime-local', 'time', 'month', 'week',
         ]);
-        if (TEXT_TYPES.has(type)) return;
+        if (TEXT_TYPES.has(type) && ae.value) return;
       }
+
+      // An overlay (modal, dropdown, palette, date popup) owns Esc — it
+      // closes. Checked before EITHER tier so an open AntD dropdown is
+      // never navigated out from under the operator.
+      if (document.querySelector(ESC_OVERLAY_SELECTOR)) return;
 
       // (1) Search-back. The palette stashed the source route in
       // `search_back_from` before navigating; consume it so a second Esc
@@ -160,36 +180,30 @@ export default function AppLayout() {
       const here = location.pathname + location.search;
       const searchBack = sessionStorage.getItem('search_back_from');
       if (searchBack && searchBack !== here) {
+        // Claim it: stop the page's ActionStrip (registered after this
+        // listener on the same target) so this is the only navigation.
         e.preventDefault();
+        e.stopImmediatePropagation();
         sessionStorage.removeItem('search_back_from');
         navigate(searchBack);
         return;
       }
 
-      // (2) Reports-hub back — only for a report opened from the hub.
-      // (A directly-opened report URL falls through to tier 3 → Home.)
+      // (2) Up-one-level fallback.
       const path = location.pathname;
-      if (path.startsWith('/reports/') && path !== '/reports/' &&
-          sessionStorage.getItem('reports_hub_back') === '1') {
-        e.preventDefault();
-        window.history.back();
-        return;
-      }
-
-      // (3) Cascade-to-Home fallback.
-      // Already at the top of the tree — nowhere further up.
-      if (ESC_HOME_SKIP_PATHS.has(path)) return;
-      // An overlay is open — this Esc closes it, it doesn't navigate.
-      // The next Esc (overlay gone) cascades.
-      if (document.querySelector(ESC_OVERLAY_SELECTOR)) return;
+      const up = resolveBack(path);
+      // Already at the top of the tree — nowhere further up. Esc does
+      // nothing, which is the correct "this is the top" signal.
+      if (up === path) return;
       // Defer one macrotask so page-level Esc owners (a bill form's
       // ActionStrip "Back", AntD modals, the custom popups) run first.
       // They call preventDefault when they handle it — e.g. the Sales
       // form navigates to the Sales list. Only an Esc that NOBODY
-      // consumed reaches Home, turning Form → List → Home into one rule.
+      // consumed is acted on here, turning Form → List → Home into one
+      // rule instead of an Esc handler on every list page.
       setTimeout(() => {
         if (e.defaultPrevented) return;
-        navigate(HOME_PATH);
+        navigate(up, { replace: true });
       }, 0);
     };
     window.addEventListener('keydown', onKey);

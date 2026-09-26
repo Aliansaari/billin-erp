@@ -19,6 +19,7 @@ import { useSingleColorEnabled, useMultiColorEnabled } from '../../hooks/useSyst
 
 dayjs.extend(relativeTime);
 import '../../styles/editorial-product-list.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 /*
  * ProductList — virtualized rewrite. Editorial visual treatment is
@@ -62,7 +63,7 @@ const DEFAULT_COLS = {
 
 function loadPrefs(key, defaults) {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = readRaw(key);
     if (!raw) return { ...defaults };
     const parsed = JSON.parse(raw);
     return { ...defaults, ...parsed };
@@ -171,7 +172,7 @@ export default function ProductList() {
   /* ── columns / sections ── */
   const [cols, setCols] = useState(() => loadPrefs(LS_COLS, DEFAULT_COLS));
   useEffect(() => {
-    try { localStorage.setItem(LS_COLS, JSON.stringify(cols)); } catch {}
+    try { writeRaw(LS_COLS, JSON.stringify(cols)); } catch {}
   }, [cols]);
   const visibleColCount = COL_DEFS.filter(c => cols[c.key] || c.fixed).length;
 

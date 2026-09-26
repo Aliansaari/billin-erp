@@ -9,6 +9,7 @@ import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 /*
  * Day Book — classic accounting-style chronological voucher list.
@@ -180,44 +181,44 @@ export default function DayBook() {
   });
   const [colsVisible, setColsVisible] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY) || 'null');
+      const saved = JSON.parse(readRaw(COLS_STORAGE_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...DEFAULT_COLS, ...saved } : DEFAULT_COLS;
     } catch { return DEFAULT_COLS; }
   });
   const [kpisVisible, setKpisVisible] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(KPIS_STORAGE_KEY) || 'null');
+      const saved = JSON.parse(readRaw(KPIS_STORAGE_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...DEFAULT_KPIS, ...saved } : DEFAULT_KPIS;
     } catch { return DEFAULT_KPIS; }
   });
   // Simple-view KPI card visibility — its own Customize-driven prefs.
   const [simpleKpisVisible, setSimpleKpisVisible] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(SIMPLE_KPIS_STORAGE_KEY) || 'null');
+      const saved = JSON.parse(readRaw(SIMPLE_KPIS_STORAGE_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...DEFAULT_SIMPLE_KPIS, ...saved } : DEFAULT_SIMPLE_KPIS;
     } catch { return DEFAULT_SIMPLE_KPIS; }
   });
 
 
   useEffect(() => {
-    try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(colsVisible)); } catch {}
+    try { writeRaw(COLS_STORAGE_KEY, JSON.stringify(colsVisible)); } catch {}
   }, [colsVisible]);
   useEffect(() => {
-    try { localStorage.setItem(KPIS_STORAGE_KEY, JSON.stringify(kpisVisible)); } catch {}
+    try { writeRaw(KPIS_STORAGE_KEY, JSON.stringify(kpisVisible)); } catch {}
   }, [kpisVisible]);
   useEffect(() => {
-    try { localStorage.setItem(SIMPLE_KPIS_STORAGE_KEY, JSON.stringify(simpleKpisVisible)); } catch {}
+    try { writeRaw(SIMPLE_KPIS_STORAGE_KEY, JSON.stringify(simpleKpisVisible)); } catch {}
   }, [simpleKpisVisible]);
 
   // View mode — 'accounting' (classic Dr/Cr, default — unchanged for
   // existing users) or 'simple' (shop-owner Money In / Money Out).
   // Remembered across sessions so the operator's choice sticks.
   const [viewMode, setViewMode] = useState(() => {
-    try { return localStorage.getItem(VIEW_STORAGE_KEY) === 'simple' ? 'simple' : 'accounting'; }
+    try { return readRaw(VIEW_STORAGE_KEY) === 'simple' ? 'simple' : 'accounting'; }
     catch { return 'accounting'; }
   });
   useEffect(() => {
-    try { localStorage.setItem(VIEW_STORAGE_KEY, viewMode); } catch {}
+    try { writeRaw(VIEW_STORAGE_KEY, viewMode); } catch {}
   }, [viewMode]);
   const isSimple = viewMode === 'simple';
 

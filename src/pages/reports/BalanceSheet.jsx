@@ -26,6 +26,7 @@ import { useFinancialYear } from '../../hooks/useFinancialYear';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './balance-sheet.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 const fmtINR = (v) =>
   Number(v || 0).toLocaleString('en-IN', {
@@ -162,10 +163,10 @@ function buildNav(sidePrimaries, sideKey, collapsedSet, handlers) {
 // Persistent expand/collapse preference shared with Trial Balance.
 const EXPAND_PREF_KEY = 'erp_report_expand_default';
 function loadExpandPref() {
-  try { return localStorage.getItem(EXPAND_PREF_KEY) === 'expanded'; } catch { return false; }
+  try { return readRaw(EXPAND_PREF_KEY) === 'expanded'; } catch { return false; }
 }
 function saveExpandPref(v) {
-  try { localStorage.setItem(EXPAND_PREF_KEY, v ? 'expanded' : 'collapsed'); } catch {}
+  try { writeRaw(EXPAND_PREF_KEY, v ? 'expanded' : 'collapsed'); } catch {}
 }
 
 export default function BalanceSheet() {

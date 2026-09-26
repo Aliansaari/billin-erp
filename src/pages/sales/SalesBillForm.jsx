@@ -19,6 +19,7 @@ import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import confirmPrint, { confirmPrintWithSend } from '../../utils/confirmPrint';
 import './sales-bill-form.css';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
+import { getPref, setPref, clearPref } from '../../store/prefSync';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
@@ -530,23 +531,20 @@ export default function SalesBillForm() {
   // ── Items table column visibility ─────────────────────────────────────
   // Each operator can toggle which optional columns appear in the items
   // table via the Columns button. The set of visible keys persists in
-  // localStorage so the choice survives a reload. Required columns
-  // (number, product, qty, rate, amount, tick, delete) are always
-  // rendered regardless of this state.
+  // this user's login, so the choice survives a reload and follows them
+  // to another machine. Required columns (number, product, qty, rate,
+  // amount, tick, delete) are always rendered regardless of this state.
   const COL_DEFAULTS = ['barcode','size','unit','article','disc_pct','gst_pct','verified'];
   const [colsModalOpen, setColsModalOpen] = useState(false);
   const [visibleCols, setVisibleCols] = useState(() => {
-    try {
-      const raw = localStorage.getItem('sbf_visible_cols');
-      if (raw) return new Set(JSON.parse(raw));
-    } catch {}
-    return new Set(COL_DEFAULTS);
+    const saved = getPref('sbf_visible_cols', null);
+    return Array.isArray(saved) ? new Set(saved) : new Set(COL_DEFAULTS);
   });
   const toggleCol = (key) => {
     setVisibleCols((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
-      try { localStorage.setItem('sbf_visible_cols', JSON.stringify([...next])); } catch {}
+      setPref('sbf_visible_cols', [...next]);
       return next;
     });
   };
@@ -3646,7 +3644,7 @@ export default function SalesBillForm() {
             saves and prints; F2 just saves. */}
         <ActionStrip
           actions={[
-            { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+            { id: 'back', key: 'Esc', label: 'Back',
               onAction: () => confirmLeave(goBack) },
             { id: 'date', key: 'F2', label: 'Date',
               onAction: f2DatePopup,
@@ -3697,7 +3695,7 @@ export default function SalesBillForm() {
       </div>
 
       {/* Columns picker — toggles which optional columns the items table
-          renders. Choice persists per-browser via localStorage. Required
+          renders. Choice is saved against this user's login. Required
           columns (number, product, qty, rate, amount, tick, delete) are
           locked on regardless of selection. */}
       <Modal
@@ -3711,7 +3709,7 @@ export default function SalesBillForm() {
               className="sbf-cols-reset"
               onClick={() => {
                 setVisibleCols(new Set(COL_DEFAULTS));
-                try { localStorage.removeItem('sbf_visible_cols'); } catch {}
+                clearPref('sbf_visible_cols');
               }}
             >
               Reset

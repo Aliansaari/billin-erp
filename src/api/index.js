@@ -354,7 +354,6 @@ export const authAPI = {
   login: (data) => api.post('/auth/login', data),
   getProfile: () => api.get('/auth/profile'),
   changePassword: (data) => api.post('/auth/change-password', data),
-  verifyPassword: (password) => api.post('/auth/verify-password', { password }),
   // Developer-mode unlock — verifies the env-tunable DEVELOPER_PASSWORD.
   // Returns { ok: true, using_default_password: bool } on success.
   // 401 on wrong password; 429 if rate-limited (5+ failures in 15 min).
@@ -588,6 +587,14 @@ export const reportAPI = {
   // color). Drives the standalone Stock by Color report and feeds the
   // expandable rows in the main Stock Report.
   stockByColor:       (params) => api.get('/reports/stock-by-color',     { params }),
+  // Party Lapse — suppliers who stopped supplying / customers who
+  // stopped buying, bucketed by days quiet. `direction` is
+  // 'supplier' | 'customer'.
+  partyLapse:         (params) => api.get('/reports/party-lapse',        { params }),
+  exportPartyLapse:   (params) => api.get('/reports/party-lapse/export', { params, responseType: 'blob', timeout: 300000 }),
+  // Top Parties — ranked customers / suppliers over a date range.
+  topParties:         (params) => api.get('/reports/top-parties',        { params }),
+  exportTopParties:   (params) => api.get('/reports/top-parties/export', { params, responseType: 'blob', timeout: 300000 }),
 
   // Filter-aware XLSX exports — SAME filter shape as the JSON endpoints above.
   // The server applies the filters, fetches ALL matching rows (no page limit),
@@ -962,6 +969,19 @@ export const favoritesAPI = {
   list:   () => api.get('/user/favorites'),
   pin:    (reportId) => api.post(`/user/favorites/${reportId}`),
   unpin:  (reportId) => api.delete(`/user/favorites/${reportId}`),
+};
+
+// Per-user UI preferences — appearance, home/dashboard layout, grid
+// columns. Values are opaque JSON owned by the client; the server only
+// stores them against the signed-in user. Consumers should go through
+// src/store/prefSync.js rather than calling these directly, so the
+// local copy, the debounce and the offline queue stay in one place.
+export const preferencesAPI = {
+  list:     () => api.get('/user/preferences'),
+  put:      (key, value) => api.put(`/user/preferences/${encodeURIComponent(key)}`, { value }),
+  putMany:  (values) => api.put('/user/preferences', { values }),
+  remove:   (key) => api.delete(`/user/preferences/${encodeURIComponent(key)}`),
+  clear:    () => api.delete('/user/preferences'),
 };
 
 // Stock transfers between godowns. Lifecycle is Draft → In-Transit →

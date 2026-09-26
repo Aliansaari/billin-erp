@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { createPrefStorage, registerPrefStore } from './prefSync';
 
 /**
  * homeSettingsStore — per-user layout preferences for the Command Center
@@ -64,6 +65,8 @@ const useHomeSettingsStore = create(
     }),
     {
       name: 'erp-home-settings',
+      // Per-user, server-backed — see src/store/prefSync.js.
+      storage: createPrefStorage('home'),
       version: 1,
       /* Future-proof migration: when fields are added, fill them with the
        * default value so old persisted state never produces undefined. */
@@ -71,6 +74,8 @@ const useHomeSettingsStore = create(
     },
   ),
 );
+
+registerPrefStore('home', useHomeSettingsStore, () => useHomeSettingsStore.setState(defaults));
 
 export default useHomeSettingsStore;
 

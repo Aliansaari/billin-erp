@@ -843,6 +843,26 @@ ipcMain.handle('shell:open-zehen-url', async (_ev, raw) => {
   } catch { return false; }
 });
 
+// Open a link OUTSIDE the app — used by the sign-in screen's Help button,
+// which goes to WhatsApp support. Loading it in the app window would trap
+// the operator in a web page with no way back to the shop.
+//
+// https only, and only hosts we ship links to. A renderer bug (or anything
+// that manages to call this) must not be able to launch arbitrary
+// executables or file:// paths through the shell.
+const OPEN_EXTERNAL_ALLOWED = new Set(['wa.me', 'api.whatsapp.com', 'zehenapp.com', 'www.zehenapp.com']);
+ipcMain.handle('shell:open-external', async (_ev, rawUrl) => {
+  try {
+    const u = new URL(String(rawUrl));
+    if (u.protocol !== 'https:') return { ok: false, error: 'Only https links can be opened' };
+    if (!OPEN_EXTERNAL_ALLOWED.has(u.hostname)) return { ok: false, error: 'Link not allowed' };
+    await shell.openExternal(u.toString());
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 ipcMain.handle('shell:show-item', async (_ev, filePath) => {
   if (!filePath) return { error: 'No path' };
   shell.showItemInFolder(filePath);

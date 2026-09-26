@@ -5,6 +5,7 @@ import { DatePicker, Tooltip } from 'antd';
 import { WhatsAppOutlined } from '@ant-design/icons';
 import { reportAPI } from '../api';
 import { readSectionPrefs, isSectionVisible } from '../config/dashboardSections';
+import { PREFS_CHANGED_EVENT } from '../store/prefSync';
 import './dashboard-editorial.css';
 
 /* ── InfoTip ──────────────────────────────────────────────────────────
@@ -85,17 +86,21 @@ export default function Dashboard() {
   const [loading, setLoading]   = useState(true);
   const [lastSyncAt, setLastSyncAt] = useState(null);
 
-  // Section visibility — authored in Settings → Dashboard, stored in
-  // localStorage. Re-read on the custom event (same-tab settings change)
-  // and the native storage event (another tab/window).
+  // Section visibility — authored in Settings → Dashboard, stored against
+  // the signed-in user. Re-read on the custom event (same-tab settings
+  // change), the native storage event (another tab/window), and the
+  // preference-sync event (this user's choice arriving from the server,
+  // or a different user signing in).
   const [sectionPrefs, setSectionPrefs] = useState(readSectionPrefs);
   useEffect(() => {
     const reread = () => setSectionPrefs(readSectionPrefs());
     window.addEventListener('ed-dash-sections', reread);
     window.addEventListener('storage', reread);
+    window.addEventListener(PREFS_CHANGED_EVENT, reread);
     return () => {
       window.removeEventListener('ed-dash-sections', reread);
       window.removeEventListener('storage', reread);
+      window.removeEventListener(PREFS_CHANGED_EVENT, reread);
     };
   }, []);
   const show = (id) => isSectionVisible(sectionPrefs, id);

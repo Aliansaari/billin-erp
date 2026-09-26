@@ -21,6 +21,7 @@ import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './aging-report.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 /* ──────────────────────────── formatting ───────────────────────────── */
 
@@ -68,14 +69,14 @@ export default function AgingReport({ partyType = 'Customer' }) {
   // each have their own customization).
   const [display, setDisplay] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(DISPLAY_STORAGE_KEY) || 'null');
+      const saved = JSON.parse(readRaw(DISPLAY_STORAGE_KEY) || 'null');
       return saved && typeof saved === 'object'
         ? { ...DEFAULT_DISPLAY, ...saved }
         : DEFAULT_DISPLAY;
     } catch { return DEFAULT_DISPLAY; }
   });
   useEffect(() => {
-    try { localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify(display)); } catch {}
+    try { writeRaw(DISPLAY_STORAGE_KEY, JSON.stringify(display)); } catch {}
   }, [display]);
   const [displayOpen, setDisplayOpen] = useState(false);
   const displayBtnRef = useRef(null);

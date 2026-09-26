@@ -55,6 +55,7 @@ import { useFinancialYear } from '../../hooks/useFinancialYear';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './fast-slow-stock.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 // ── Number / date formatters ─────────────────────────────────────────
 const fmtAmt = (v) => {
@@ -230,7 +231,7 @@ const PREFS_KEY = 'fss-prefs';
 
 function loadPrefs() {
   try {
-    const raw = localStorage.getItem(PREFS_KEY);
+    const raw = readRaw(PREFS_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return {
@@ -240,7 +241,7 @@ function loadPrefs() {
   } catch { return null; }
 }
 function savePrefs(p) {
-  try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch {}
+  try { writeRaw(PREFS_KEY, JSON.stringify(p)); } catch {}
 }
 function defaultVisibleCols() {
   return COLUMNS.filter((c) => c.default).map((c) => c.id);

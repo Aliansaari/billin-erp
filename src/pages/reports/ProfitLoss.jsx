@@ -43,6 +43,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './balance-sheet.css';
 import './profit-loss.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 const { RangePicker } = DatePicker;
 
@@ -87,10 +88,10 @@ function unionByLedger(curLines, cmpLines, kind) {
 // = show all the constituent ledger sub-rows.
 const EXPAND_PREF_KEY = 'erp_report_expand_default';
 function loadExpandPref() {
-  try { return localStorage.getItem(EXPAND_PREF_KEY) === 'expanded'; } catch { return false; }
+  try { return readRaw(EXPAND_PREF_KEY) === 'expanded'; } catch { return false; }
 }
 function saveExpandPref(v) {
-  try { localStorage.setItem(EXPAND_PREF_KEY, v ? 'expanded' : 'collapsed'); } catch {}
+  try { writeRaw(EXPAND_PREF_KEY, v ? 'expanded' : 'collapsed'); } catch {}
 }
 
 function buildPresets(fyStart, fyEnd) {

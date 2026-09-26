@@ -184,40 +184,6 @@ exports.getProfile = async (req, res) => {
   res.json({ user: req.user });
 };
 
-// Verifies the CURRENTLY authenticated user's password. Used by sensitive
-// in-app admin gates — eye-toggle on receivables totals, table column picker,
-// etc. — where we want a second-factor confirmation before the action runs.
-// Returns { ok: true } on success; 401 with a generic message otherwise so
-// timing / response shape doesn't leak whether the user account is valid.
-exports.verifyPassword = async (req, res) => {
-  // W17: reuse the login rate-limiter by populating req.body.username from
-  // the JWT so recordFailure/recordSuccess key on the same per-user-per-IP
-  // bucket as the login endpoint. Without this, repeated wrong guesses on
-  // verify-password (used for confirming destructive actions) are unlimited.
-  req.body.username = req.user.username;
-  try {
-    const { password } = req.body;
-    if (!password || typeof password !== 'string') {
-      return res.status(400).json({ error: 'Password is required' });
-    }
-    const user = await User.findByPk(req.user.user_id);
-    if (!user || !user.is_active) {
-      recordFailure(req);
-      return res.status(401).json({ error: 'Invalid password' });
-    }
-    const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) {
-      recordFailure(req);
-      return res.status(401).json({ error: 'Invalid password' });
-    }
-    recordSuccess(req);
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('Verify password error:', error);
-    respondWithError(res, error);
-  }
-};
-
 /* ── In-place company switch ─────────────────────────────────────────────
  *
  * A classic-accounting-style mid-session switch: keep the React app mounted, swap

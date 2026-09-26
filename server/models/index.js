@@ -56,6 +56,7 @@ const StockTransferItemFactory = require('./StockTransferItem');
 const ProductBatchFactory = require('./ProductBatch');
 const ProductBatchStockFactory = require('./ProductBatchStock');
 const UserReportFavoriteFactory = require('./UserReportFavorite');
+const UserPreferenceFactory = require('./UserPreference');
 const LoanAccountFactory = require('./LoanAccount');
 const ChequeFactory = require('./Cheque');
 const ExpenseVoucherFactory = require('./ExpenseVoucher');
@@ -118,6 +119,7 @@ function defineModels(sequelize) {
   const ProductBatch = ProductBatchFactory(sequelize);
   const ProductBatchStock = ProductBatchStockFactory(sequelize);
   const UserReportFavorite = UserReportFavoriteFactory(sequelize);
+  const UserPreference = UserPreferenceFactory(sequelize);
   const LoanAccount = LoanAccountFactory(sequelize);
   const Cheque = ChequeFactory(sequelize);
   const ExpenseVoucher = ExpenseVoucherFactory(sequelize);
@@ -321,6 +323,12 @@ function defineModels(sequelize) {
   // the user if the user is removed.
   User.hasMany(UserReportFavorite,   { foreignKey: 'user_id', as: 'reportFavorites', onDelete: 'CASCADE' });
   UserReportFavorite.belongsTo(User, { foreignKey: 'user_id' });
+
+  // User ↔ Preferences — the operator's own UI settings (appearance,
+  // home/dashboard layout, grid columns) travel with the login, so they
+  // are removed with it.
+  User.hasMany(UserPreference,       { foreignKey: 'user_id', as: 'preferences', onDelete: 'CASCADE' });
+  UserPreference.belongsTo(User,     { foreignKey: 'user_id' });
 
   // User ↔ Notifications — both state and settings cascade with the
   // user; deleting a user removes their per-key seen/dismissed state
@@ -530,6 +538,7 @@ function defineModels(sequelize) {
     ProductBatch,
     ProductBatchStock,
     UserReportFavorite,
+    UserPreference,
     LoanAccount,
     Cheque,
     ExpenseVoucher,
@@ -654,6 +663,7 @@ module.exports = {
   ProductBatch: makeProxy('ProductBatch'),
   ProductBatchStock: makeProxy('ProductBatchStock'),
   UserReportFavorite: makeProxy('UserReportFavorite'),
+  UserPreference: makeProxy('UserPreference'),
   LoanAccount: makeProxy('LoanAccount'),
   Cheque: makeProxy('Cheque'),
   ExpenseVoucher: makeProxy('ExpenseVoucher'),

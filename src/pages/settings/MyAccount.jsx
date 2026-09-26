@@ -2,11 +2,15 @@ import React, { useEffect, useState } from 'react';
 import {
   Card, Form, Input, Button, Row, Col, Typography, message, Divider, Tag, Tabs,
 } from 'antd';
-import { SaveOutlined, KeyOutlined, UserOutlined } from '@ant-design/icons';
+import {
+  SaveOutlined, KeyOutlined, UserOutlined, CloudSyncOutlined, ReloadOutlined, UndoOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { settingsAPI, authAPI } from '../../api';
 import useAuthStore from '../../store/authStore';
+import { usePrefSyncStore, applyUserPrefs, resetMyPreferences } from '../../store/prefSync';
+import confirmDialog from '../../utils/confirmDialog';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './ModuleSettings.css';
 
@@ -14,12 +18,15 @@ const { Title } = Typography;
 
 /* MyAccount — self-service "My Profile" page for the logged-in user.
  *
- * Three sections (tabs):
- *   1. Profile  — edit full_name, email, mobile_number
- *   2. Password — rotate own password (old + new + confirm)
- *   3. Access   — read-only view of role, permissions, allowed godowns,
- *                 last login. Useful for auditors and for users to
- *                 understand why something is hidden / disabled.
+ * Four sections (tabs):
+ *   1. Profile     — edit full_name, email, mobile_number
+ *   2. Password    — rotate own password (old + new + confirm)
+ *   3. Preferences — the settings that follow this login rather than the
+ *                    machine (appearance, layouts, table columns): where
+ *                    they stand with the server, and a single reset.
+ *   4. Access      — read-only view of role, permissions, allowed godowns,
+ *                    last login. Useful for auditors and for users to
+ *                    understand why something is hidden / disabled.
  *
  * Everything here is per-USER (not company-wide). Admins manage OTHER
  * users via Settings → Users; this page covers the gap where a user
@@ -45,6 +52,44 @@ export default function MyAccount() {
   // *itself* and the rest of the app stays on the stale cached user.
   const updateUserInStore = useAuthStore((s) => s.updateUser);
   const cachedUser        = useAuthStore((s) => s.user);
+
+  // Preferences tab — appearance, layouts and grid columns are stored
+  // against this login and mirrored to the server; this is where the
+  // user can see that it worked and undo all of it in one go.
+  const prefStatus       = usePrefSyncStore((s) => s.status);
+  const prefLastSynced   = usePrefSyncStore((s) => s.lastSyncedAt);
+  const prefUnsavedCount = usePrefSyncStore((s) => s.unsavedCount);
+  const prefError        = usePrefSyncStore((s) => s.lastError);
+  const [prefBusy, setPrefBusy] = useState(false);
+
+  const handleSyncPrefs = async () => {
+    setPrefBusy(true);
+    try { await applyUserPrefs({ force: true }); }
+    finally { setPrefBusy(false); }
+  };
+
+  const handleResetPrefs = async () => {
+    const ok = await confirmDialog({
+      title: 'Reset your settings?',
+      message: 'Appearance, home page layout, dashboard tiles and saved table columns go back to the ZEHEN defaults — on this machine and on every other one you sign in to. Your bills, parties and figures are untouched.',
+      confirmText: 'Reset my settings',
+      cancelText:  'Keep them',
+      danger: true,
+      // Enter cancels — this throws away a layout the user may have
+      // spent a while arranging.
+      safeDefault: true,
+    });
+    if (!ok) return;
+    setPrefBusy(true);
+    try {
+      await resetMyPreferences();
+      message.success('Your settings are back to the defaults');
+    } catch (e) {
+      message.error(e?.response?.data?.error || 'Could not reset your settings');
+    } finally {
+      setPrefBusy(false);
+    }
+  };
 
   useEffect(() => { loadProfile(); }, []);
 
@@ -220,6 +265,85 @@ export default function MyAccount() {
       ),
     },
     {
+      key: 'preferences',
+      label: <span><CloudSyncOutlined /> Preferences</span>,
+      children: (
+        <div style={{ maxWidth: 680 }}>
+          <Typography.Paragraph>
+            Your appearance, layouts and saved table columns belong to
+            <strong> your login</strong>, not to this computer. Sign in on the
+            counter machine, a LAN client or a fresh install and you get the
+            same setup — and the next person to sign in here gets theirs,
+            not yours.
+          </Typography.Paragraph>
+
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            padding: '10px 14px', borderRadius: 8,
+            background: 'var(--bg-subtle, rgba(127,127,127,0.06))',
+            border: '1px solid var(--border-subtle)',
+          }}>
+            {prefStatus === 'syncing' && <Tag color="blue">Saving…</Tag>}
+            {prefStatus === 'saved'   && <Tag color="green">Saved to your account</Tag>}
+            {prefStatus === 'unsaved' && <Tag color="orange">{prefUnsavedCount} change{prefUnsavedCount === 1 ? '' : 's'} waiting to save</Tag>}
+            {prefStatus === 'offline' && <Tag color="orange">Saved on this machine only</Tag>}
+            {prefStatus === 'error'   && <Tag color="red">Could not save</Tag>}
+            {prefStatus === 'idle'    && <Tag>Not checked yet</Tag>}
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {prefLastSynced
+                ? `Last checked ${dayjs(prefLastSynced).format('DD MMM · hh:mm A')}`
+                : 'No check yet this session'}
+            </Typography.Text>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={handleSyncPrefs}
+              loading={prefBusy && prefStatus === 'syncing'}
+              style={{ marginLeft: 'auto' }}
+            >
+              Sync now
+            </Button>
+          </div>
+
+          {(prefStatus === 'offline' || prefStatus === 'unsaved') && prefError && (
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
+              {prefError}. Your settings still work here and will save themselves
+              once the shop&rsquo;s server is reachable again.
+            </Typography.Paragraph>
+          )}
+
+          <Divider />
+
+          <Typography.Text type="secondary">What travels with your login</Typography.Text>
+          <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <Tag>Light / dark &amp; theme</Tag>
+            <Tag>Accent colour</Tag>
+            <Tag>Menu on the side or top</Tag>
+            <Tag>Home page KPI cards &amp; quick actions</Tag>
+            <Tag>Dashboard tiles &amp; sections</Tag>
+            <Tag>Bill &amp; return table columns</Tag>
+            <Tag>Statement columns</Tag>
+            <Tag>Pinned reports</Tag>
+          </div>
+          <Typography.Paragraph type="secondary" style={{ marginTop: 12, fontSize: 12 }}>
+            Company-wide settings — bill prefixes, GST defaults, features,
+            printing — are not personal and stay where an administrator sets
+            them (Settings &rarr; Defaults and Features).
+          </Typography.Paragraph>
+
+          <Divider />
+
+          <Button danger icon={<UndoOutlined />} onClick={handleResetPrefs} loading={prefBusy}>
+            Reset my settings to defaults
+          </Button>
+          <Typography.Paragraph type="secondary" style={{ marginTop: 8, fontSize: 12 }}>
+            Affects only the list above, for your login alone. Bills, parties,
+            stock and reports are untouched.
+          </Typography.Paragraph>
+        </div>
+      ),
+    },
+    {
       key: 'access',
       label: 'Access & Audit',
       children: (
@@ -277,7 +401,8 @@ export default function MyAccount() {
       <header className="ms-page-header">
         <h1 className="ms-page-title">My Account</h1>
         <p className="ms-page-sub">
-          Update your personal details, rotate your password, and see what access you have.
+          Update your personal details, rotate your password, manage the settings
+          tied to your login, and see what access you have.
         </p>
       </header>
 
@@ -306,7 +431,7 @@ export default function MyAccount() {
           },
           {
             id: 'reset', key: 'F5', label: 'Reset',
-            disabled: activeTab === 'access',
+            disabled: activeTab === 'access' || activeTab === 'preferences',
             onAction: handleReset,
           },
           // F1 Save (primary) on the right — app convention for the
@@ -315,8 +440,10 @@ export default function MyAccount() {
             id: 'save', key: 'F1',
             label: activeTab === 'password' ? 'Change Password' : 'Save',
             tone: 'primary',
-            // Access tab is read-only, disable F1 there.
-            disabled: activeTab === 'access' || savingProfile || savingPassword,
+            // Access is read-only and Preferences saves itself, so F1
+            // has nothing to submit on either.
+            disabled: activeTab === 'access' || activeTab === 'preferences'
+                      || savingProfile || savingPassword,
             onAction: handleSaveActive,
           },
         ]}

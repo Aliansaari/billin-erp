@@ -34,6 +34,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './bills-outstanding.css';
 import './product-items.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 const fmtINR = (v) => {
   const n = Number(v) || 0;
@@ -202,12 +203,12 @@ export default function ProductItemsReport({ side }) {
   }, [colsForSide]);
   const [colsVisible, setColsVisible] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(COLS_KEY) || 'null');
+      const saved = JSON.parse(readRaw(COLS_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...defaultCols, ...saved } : defaultCols;
     } catch { return defaultCols; }
   });
   useEffect(() => {
-    try { localStorage.setItem(COLS_KEY, JSON.stringify(colsVisible)); } catch {}
+    try { writeRaw(COLS_KEY, JSON.stringify(colsVisible)); } catch {}
   }, [colsVisible, COLS_KEY]);
 
   // ── URL sync ─────────────────────────────────────────────────────

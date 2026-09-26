@@ -3,7 +3,14 @@ import react from '@vitejs/plugin-react';
 
 const API_PORT = process.env.VITE_API_PORT || '3001';
 
+// The sign-in screen shows the running version in its footer. Injected at
+// build time so the renderer never has to import package.json (which would
+// drag the whole dependency list into the bundle).
+const APP_VERSION = process.env.npm_package_version
+  || require('./package.json').version;
+
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
   // Use relative asset URLs so the same `dist/` works in BOTH paths:
   //   - Electron prod loads dist/index.html via `file://`. Absolute
   //     paths like `/assets/x.js` resolve to `file:///assets/x.js`

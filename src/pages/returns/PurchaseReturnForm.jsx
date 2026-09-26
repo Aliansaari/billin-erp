@@ -17,6 +17,7 @@ import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import { partySelectProps } from '../../utils/partySelectProps';
 import confirmPrint from '../../utils/confirmPrint';
 import './return-form.css';
+import { getPref, setPref, clearPref } from '../../store/prefSync';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
@@ -61,20 +62,17 @@ export default function PurchaseReturnForm() {
   const [returnNo, setReturnNo]   = useState('');
 
   // Items table column visibility — Customize popover writes to this
-  // Set, persists to localStorage. Required columns pinned on.
+  // Set, stored against the signed-in user. Required columns pinned on.
   const PRF_COL_DEFAULTS = ['barcode','size','unit','article','disc_pct','gst_pct'];
   const [prfVisibleCols, setPrfVisibleCols] = useState(() => {
-    try {
-      const raw = localStorage.getItem('prf_visible_cols');
-      if (raw) return new Set(JSON.parse(raw));
-    } catch {}
-    return new Set(PRF_COL_DEFAULTS);
+    const saved = getPref('prf_visible_cols', null);
+    return Array.isArray(saved) ? new Set(saved) : new Set(PRF_COL_DEFAULTS);
   });
   const togglePrfCol = (key) => {
     setPrfVisibleCols(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
-      try { localStorage.setItem('prf_visible_cols', JSON.stringify([...next])); } catch {}
+      setPref('prf_visible_cols', [...next]);
       return next;
     });
   };
@@ -667,7 +665,7 @@ export default function PurchaseReturnForm() {
             type="button"
             onClick={() => {
               setPrfVisibleCols(new Set(PRF_COL_DEFAULTS));
-              try { localStorage.removeItem('prf_visible_cols'); } catch {}
+              clearPref('prf_visible_cols');
             }}
           >Reset</button>
         </div>
@@ -1036,7 +1034,7 @@ export default function PurchaseReturnForm() {
             + prints the debit note; F2 saves only. F6 jumps to Refund ₹. */}
         <ActionStrip
           actions={[
-            { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+            { id: 'back', key: 'Esc', label: 'Back',
               onAction: () => confirmLeave(goBack) },
             { id: 'date', key: 'F2', label: 'Date',
               onAction: f2DatePopup,

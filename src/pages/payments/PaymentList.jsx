@@ -28,6 +28,7 @@ import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/bill-list.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 // Optional columns the user can toggle via the Customize popover.
 // Mode + remarks default ON to preserve the previous list shape; time
@@ -148,12 +149,12 @@ export default function PaymentList() {
   // sections (totalRow) live on a separate row of the popover.
   const [cols, setCols] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY) || 'null');
+      const saved = JSON.parse(readRaw(COLS_STORAGE_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...DEFAULT_COLS, ...saved } : DEFAULT_COLS;
     } catch { return DEFAULT_COLS; }
   });
   useEffect(() => {
-    try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(cols)); } catch {}
+    try { writeRaw(COLS_STORAGE_KEY, JSON.stringify(cols)); } catch {}
   }, [cols]);
   // Optional columns only — sections (totalRow) excluded from the badge.
   const visibleOptionalCount = PAYMENT_OPTIONAL_COLS.filter((c) => cols[c.key]).length;

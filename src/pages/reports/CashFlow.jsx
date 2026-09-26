@@ -18,8 +18,9 @@
 //     Single chronological table, Date / Voucher / Contra / Amount,
 //     with sticky-bottom Total. Terminal view (no further drill).
 //
-// Esc → AppLayout's history.back() handler. URL-driven design means
-// that pops back to the previous view automatically.
+// Esc → this page's own goBack, which rebuilds the parent view's URL.
+// Each view knows the one above it, so closing a drill never depends on
+// how the operator got here.
 
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Button, DatePicker, Checkbox, Popover, Input, message } from 'antd';
@@ -35,6 +36,7 @@ import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './cash-flow.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 // ── Number formatting ────────────────────────────────────────────────
 // Indian rupee, two decimals. Negative renders as `(-)X,XX,XXX.XX`
@@ -86,8 +88,8 @@ const fmtRange = (from, to) =>
 export default function CashFlow() {
   const [searchParams] = useSearchParams();
   const view = searchParams.get('view') || 'register';
-  // Single component switching on view keeps URL-driven Esc behaviour
-  // intact (history.back() pops to the previous view automatically).
+  // One component switching on ?view= keeps every drill level linkable
+  // and reloadable; each view's goBack navigates to the level above.
   if (view === 'month') return <CashFlowMonthView />;
   if (view === 'group') return <CashFlowGroupView />;
   return <CashFlowRegisterView />;
@@ -747,7 +749,7 @@ function CashFlowMonthStrip({ goBack, month, onPickMonth, onDrill, canDrill }) {
   return (
     <ActionStrip
       actions={[
-        { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+        { id: 'back', key: 'Esc', label: 'Back',
           onAction: goBack },
         { id: 'period', key: 'F2', label: 'Month',
           onAction: () => openDate({
@@ -871,12 +873,12 @@ function CashFlowGroupView() {
   const [search, setSearch]   = useState('');
   const [colsVisible, setColsVisible] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(CFG_COLS_KEY) || 'null');
+      const saved = JSON.parse(readRaw(CFG_COLS_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...CFG_DEFAULT_COLS, ...saved } : CFG_DEFAULT_COLS;
     } catch { return CFG_DEFAULT_COLS; }
   });
   useEffect(() => {
-    try { localStorage.setItem(CFG_COLS_KEY, JSON.stringify(colsVisible)); } catch {}
+    try { writeRaw(CFG_COLS_KEY, JSON.stringify(colsVisible)); } catch {}
   }, [colsVisible]);
 
   useEffect(() => {
@@ -1136,7 +1138,7 @@ function CashFlowGroupView() {
 
       <ActionStrip
         actions={[
-          { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+          { id: 'back', key: 'Esc', label: 'Back',
             onAction: goBack },
           { id: 'period', key: 'F2', label: 'Period',
             onAction: () => openDate({

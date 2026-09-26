@@ -23,7 +23,6 @@ router.post('/sso-switch', authenticateToken, authController.ssoSwitchCompany);
 router.get('/profile', authenticateToken, authController.getProfile);
 router.post('/logout', authenticateToken, authController.logout);
 router.post('/change-password', authenticateToken, authController.changePassword);
-router.post('/verify-password', authenticateToken, authController.verifyPassword);
 
 // In-place company switch — caller must already be authenticated; supplies
 // the destination company_id and the password for that company. Rate-limited

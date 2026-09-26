@@ -303,15 +303,6 @@
 .plv-iconbtn:hover { border-color: var(--accent); color: var(--accent); }
 .plv-iconbtn svg { width: 13px; height: 13px; }
 .plv-iconbtn.square { padding: 0; width: 34px; justify-content: center; }
-.plv-iconbtn .lock-dot {
-  position: absolute; top: -4px; right: -4px;
-  width: 12px; height: 12px; border-radius: 50%;
-  background: var(--warning); color: var(--bg-panel);
-  font-size: 7px; line-height: 12px; text-align: center;
-  font-weight: 700;
-  border: 2px solid var(--bg-panel);
-}
-
 /* Columns dropdown */
 .plv-dd {
   position: absolute; top: 100%; right: 0; margin-top: 6px;
@@ -700,7 +691,7 @@
 }
 .plv-empty .sub { font-size: 12px; color: var(--fg-tertiary); margin-top: 4px; }
 
-/* ── Admin password modal ── */
+/* ── Modal scrim (bulk-reminder run) ── */
 .plv-scrim {
   position: fixed; inset: 0;
   background: rgba(29,26,21,0.5);
@@ -710,79 +701,6 @@
   z-index: 1100;
 }
 .plv-scrim.open { opacity: 1; pointer-events: auto; }
-.plv-pwmodal {
-  position: fixed;
-  left: 50%; top: 50%;
-  transform: translate(-50%, -50%) scale(0.96);
-  width: 420px; max-width: calc(100vw - 32px);
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 40px 80px rgba(29,26,21,0.35), 0 8px 30px rgba(29,26,21,0.18);
-  opacity: 0; pointer-events: none;
-  transition: all .28s cubic-bezier(.2,.7,.2,1);
-  z-index: 1101;
-  overflow: hidden;
-}
-.plv-pwmodal.open { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
-.plv-pw-hd { padding: 20px 22px 0; display: flex; align-items: flex-start; gap: 14px; }
-.plv-pw-hd .icon {
-  width: 40px; height: 40px; border-radius: 10px;
-  background: var(--warning-bg); color: var(--warning);
-  display: grid; place-items: center; flex-shrink: 0;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 30%, transparent);
-}
-.plv-pw-hd .icon svg { width: 20px; height: 20px; }
-.plv-pw-hd .title {
-  font-family: 'Source Sans 3', sans-serif;
-  font-size: 20px; font-weight: 600;
-  color: var(--fg-primary);
-  letter-spacing: -0.01em;
-  line-height: 1.2;
-}
-.plv-pw-hd .sub {
-  font-size: 12.5px; color: var(--fg-secondary);
-  margin-top: 4px; line-height: 1.5;
-}
-.plv-pw-hd .sub b { color: var(--fg-primary); font-weight: 600; }
-.plv-pw-body { padding: 16px 22px 12px; }
-.plv-pw-body .fl {
-  font-size: 10px; font-weight: 700;
-  letter-spacing: 1.2px; text-transform: uppercase;
-  color: var(--fg-tertiary);
-  margin-bottom: 5px;
-}
-.plv-pw-body input {
-  width: 100%; height: 42px;
-  padding: 0 14px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--fg-primary);
-  font: inherit; font-size: 14px;
-  outline: none;
-  transition: all .15s;
-}
-.plv-pw-body input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-bg);
-}
-.plv-pw-body .err {
-  font-size: 11.5px; color: var(--danger);
-  margin-top: 6px;
-}
-.plv-pw-body .hint {
-  font-size: 11.5px; color: var(--fg-tertiary);
-  margin-top: 8px;
-  display: flex; align-items: center; gap: 6px;
-}
-.plv-pw-body .hint svg { width: 12px; height: 12px; flex-shrink: 0; }
-.plv-pw-ft {
-  padding: 12px 22px 16px;
-  display: flex; justify-content: flex-end; gap: 8px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--bg-muted);
-}
 
 /* ── Collections selection bar ──
    Slides in above the ActionStrip only when >1 row is selected. */

@@ -1,36 +1,29 @@
 import { useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { resolveBack } from '../utils/escBack';
 
 /**
- * useBack — natural, history-aware "Back".
+ * useBack — "close this screen and go up one level".
  *
- * Returns a handler that sends the user back to the exact screen they
- * came from (the previous in-app history entry), falling back to
- * `fallback` ONLY when there's no in-app history to return to — i.e. the
- * page was reached by a deep link, a hard refresh, or it's the very
- * first screen of the session.
+ * Returns a handler that moves the operator one step up the menu tree,
+ * the same tree the Esc key and every ActionStrip "Back" walk (see
+ * src/utils/escBack.js). `fallback` is used when the current route has
+ * no parent of its own — normally Home.
  *
- * Why not just hardcode `navigate('/reports')` (or any one path)? Because
- * a user almost never arrives at a page from a single fixed place. They
- * open a report from Home, the dashboard, a sidebar favourite, global
- * search, or by drilling in from another report. Hardcoding one
- * destination means "Back" dumps them somewhere they were never at —
- * which is exactly the confusing, "it doesn't bring me back where I left"
- * behaviour we're fixing. navigate(-1) returns them to the screen they
- * actually left, like every browser / OS back button does.
- *
- * History detection uses React Router's location.key rather than
- * window.history.state.idx: idx can be wiped under Electron's webview,
- * whereas location.key is kept in memory by the router and is always
- * accurate. It's the literal string 'default' only for the first entry
- * of the session; any other value means at least one in-app navigation
- * has happened, so there's a real previous entry to return to.
+ * This used to be navigate(-1), a browser Back. It was changed because
+ * replaying the session's history made Esc feel like a stuck rewind
+ * button: the destination depended on how you had arrived, repeated
+ * presses walked back through screens you had already finished with, and
+ * it never reached a top. Going up a fixed tree is predictable, short,
+ * and ends at Home. escBack.js carries the full reasoning.
  */
 export default function useBack(fallback = '/') {
   const navigate = useNavigate();
-  const { key } = useLocation();
+  const { pathname } = useLocation();
   return useCallback(() => {
-    if (key !== 'default') navigate(-1);
-    else navigate(fallback, { replace: true });
-  }, [navigate, key, fallback]);
+    const up = resolveBack(pathname);
+    // `replace` keeps history shallow — going up closes a screen rather
+    // than stacking another copy of the parent on top of it.
+    navigate(up === pathname ? fallback : up, { replace: true });
+  }, [navigate, pathname, fallback]);
 }

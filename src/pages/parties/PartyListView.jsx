@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { message, Modal, Spin } from 'antd';
 import dayjs from 'dayjs';
-import { partyAPI, authAPI, dataAPI, settingsAPI, membershipAPI } from '../../api';
+import { partyAPI, dataAPI, settingsAPI, membershipAPI } from '../../api';
+import { getPref, setPref } from '../../store/prefSync';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import PartyForm from './PartyForm';
@@ -16,10 +17,11 @@ import './party-list-view.css';
  *   1. Header     — big title + 4 CTAs (Receipt · Sale · New · Export for
  *                   Customers; Payment · Purchase · New · Export for Suppliers)
  *   2. Aging hero — 5 cards (Total + 0-30 + 31-60 + 61-90 + 90+) sourced
- *                   from partyAPI.getAging. Blurred behind admin password
- *                   when the eye toggle is pressed.
+ *                   from partyAPI.getAging. The eye toggle hides the band
+ *                   for this operator, on every machine they sign in to
+ *                   (over-the-shoulder privacy at the counter).
  *   3. Filter bar — lens chips + status chips inline + search + sort +
- *                   columns (admin-gated) + eye (admin-gated).
+ *                   columns + eye.
  *   4. Table      — data-dense row per party; expandable row loads ledger
  *                   on demand and shows last-5 + 30-day stats + lifetime.
  *
@@ -27,8 +29,11 @@ import './party-list-view.css';
  *   - Large screens show all three as labelled buttons.
  *   - Small screens collapse them into a "⋯" menu (same three options).
  *
- * Admin gates (eye toggle + columns dropdown) call POST /auth/verify-password
- * before flipping state. Who can pass the gate is governed by user roles.
+ * The column picker and the eye toggle used to sit behind a re-type-your-
+ * password prompt. Neither reveals anything the page is not already showing
+ * — the columns are this user's own view and the totals are the numbers
+ * printed right above them — so the prompt only stood between the operator
+ * and their own screen. Both are now a single click.
  * ════════════════════════════════════════════════════════════════════════════ */
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -103,8 +108,6 @@ const Ico = {
   Columns: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>),
   Eye: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>),
   EyeOff: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>),
-  Lock: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>),
-  Info: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>),
   Edit: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>),
   Report: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>),
   Block: (props) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>),
@@ -120,7 +123,17 @@ const Ico = {
 // so it's dead weight in the resting view. Admins can re-enable it from the
 // Columns dropdown; their choice persists per localStorage.
 const DEFAULT_COLS = { status: true, contact: true, outstanding: true, aging: true, credit: false, last: true, actions: true };
+// Which columns this operator wants to see. Stored against their login
+// (see src/store/prefSync.js), so it follows them to the counter PC or a
+// LAN client — and the next person to sign in here gets their own view.
 const COLS_KEY = (partyType) => `plv_cols_${partyType}`;
+
+// Whether to keep the receivables/payables band off screen. A counter PC has
+// customers standing in front of it, so the person on the till wants the
+// firm's total receivable hidden every day — not just until they navigate
+// away. Kept against their login, so the proprietor in the back office still
+// sees it on theirs.
+const HIDE_TOTALS_KEY = 'plv_hide_totals';
 
 export default function PartyListView({ partyType }) {
   const isCustomer = partyType === 'Customer';
@@ -141,7 +154,7 @@ export default function PartyListView({ partyType }) {
   // UI state
   const [expandedId, setExpandedId] = useState(null);
   const [expandData, setExpandData] = useState(null);
-  const [hideTotals, setHideTotals] = useState(false);
+  const [hideTotals, setHideTotals] = useState(() => getPref(HIDE_TOTALS_KEY, false) === true);
 
   // Collections follow-up log (localStorage) + bulk reminder run modal.
   const [reminders, setReminders] = useState(loadReminders);
@@ -158,10 +171,10 @@ export default function PartyListView({ partyType }) {
     return () => { alive = false; };
   }, []);
   const [cols, setCols] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(COLS_KEY(partyType)) || 'null');
-      return saved && typeof saved === 'object' ? { ...DEFAULT_COLS, ...saved } : DEFAULT_COLS;
-    } catch { return DEFAULT_COLS; }
+    const saved = getPref(COLS_KEY(partyType), null);
+    return (saved && typeof saved === 'object' && !Array.isArray(saved))
+      ? { ...DEFAULT_COLS, ...saved }
+      : DEFAULT_COLS;
   });
   const [colsOpen, setColsOpen] = useState(false);
   const colsRef = useRef(null);
@@ -188,13 +201,6 @@ export default function PartyListView({ partyType }) {
   }, [searchParams, setSearchParams]);
   const [editingParty, setEditingParty] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
-
-  // Admin password modal
-  const [pwModal, setPwModal] = useState(null);
-  const [pwInput, setPwInput] = useState('');
-  const [pwError, setPwError] = useState('');
-  const [pwLoading, setPwLoading] = useState(false);
-  const pwInputRef = useRef(null);
 
   /* ── Load ──────────────────────────────────────────────────────────────── */
   const loadData = useCallback(async () => {
@@ -232,9 +238,9 @@ export default function PartyListView({ partyType }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [colsOpen]);
 
-  // Persist column choices so admin's picks stick across reloads.
+  // Persist column choices so the operator's picks stick across reloads.
   useEffect(() => {
-    try { localStorage.setItem(COLS_KEY(partyType), JSON.stringify(cols)); } catch {}
+    setPref(COLS_KEY(partyType), cols);
   }, [cols, partyType]);
 
   /* ── Derived views ─────────────────────────────────────────────────────── */
@@ -361,47 +367,6 @@ export default function PartyListView({ partyType }) {
       const { data } = await partyAPI.getProfit(expandedId, { period: newPeriod });
       setExpandData(prev => prev ? { ...prev, profit: data } : prev);
     } catch {}
-  };
-
-  /* ── Admin-gated actions ───────────────────────────────────────────────── */
-  const requirePassword = (action) => {
-    setPwInput(''); setPwError(''); setPwModal(action);
-    // Focus the password field after the modal transition settles.
-    setTimeout(() => pwInputRef.current?.focus(), 120);
-  };
-
-  const pwCopy = () => {
-    if (!pwModal) return { title: 'Admin access required', sub: '' };
-    if (pwModal === 'toggle-totals') {
-      return {
-        title: 'Admin access required',
-        sub: hideTotals
-          ? <>Enter the admin password to <b>reveal the totals band</b>. Action logged.</>
-          : <>Enter the admin password to <b>hide the totals band</b>. Action logged.</>,
-      };
-    }
-    if (pwModal === 'open-columns') {
-      return {
-        title: 'Admin access required',
-        sub: <>Enter the admin password to <b>change visible columns</b>. Applies to all users.</>,
-      };
-    }
-    return { title: 'Admin access required', sub: '' };
-  };
-
-  const handleVerifyPassword = async (e) => {
-    e?.preventDefault?.();
-    if (!pwInput) return;
-    setPwLoading(true); setPwError('');
-    try {
-      await authAPI.verifyPassword(pwInput);
-      if (pwModal === 'toggle-totals') setHideTotals(!hideTotals);
-      else if (pwModal === 'open-columns') setColsOpen(!colsOpen);
-      setPwModal(null);
-    } catch (err) {
-      setPwError(err.response?.data?.error || 'Invalid password');
-    }
-    setPwLoading(false);
   };
 
   /* ── Row actions ───────────────────────────────────────────────────────── */
@@ -703,7 +668,7 @@ export default function PartyListView({ partyType }) {
             })}
           </div>
           <div className="plv-hero-hidden-pill">
-            <Ico.EyeOff/> Totals hidden · admin only
+            <Ico.EyeOff/> Totals hidden · click the eye to show
           </div>
         </div>
       )}
@@ -772,17 +737,16 @@ export default function PartyListView({ partyType }) {
             <option value="name-desc">Sort: Name Z → A</option>
           </select>
 
-          {/* Columns + Eye (admin-gated) */}
+          {/* Columns + Eye */}
           <div style={{ position: 'relative' }} ref={colsRef}>
-            <button className="plv-iconbtn" onClick={() => requirePassword('open-columns')}>
+            <button className="plv-iconbtn" onClick={() => setColsOpen(o => !o)}>
               <Ico.Columns/> Columns
-              <span className="lock-dot"><Ico.Lock style={{ width: 7, height: 7 }}/></span>
             </button>
             {colsOpen && (
               <div className="plv-dd">
                 <div className="mh">
                   <span className="mh-title">Show columns</span>
-                  <span className="mh-pad">Admin · saves for all users</span>
+                  <span className="mh-pad">Saved to your login</span>
                 </div>
                 <label className="opt"><input type="checkbox" checked disabled/> {isCustomer ? 'Customer' : 'Supplier'} <span className="pin">Pinned</span></label>
                 {[
@@ -808,11 +772,10 @@ export default function PartyListView({ partyType }) {
 
           <button
             className="plv-iconbtn square"
-            onClick={() => requirePassword('toggle-totals')}
+            onClick={() => setHideTotals((h) => { setPref(HIDE_TOTALS_KEY, !h); return !h; })}
             title={hideTotals ? 'Show totals' : 'Hide totals'}
           >
             {hideTotals ? <Ico.EyeOff/> : <Ico.Eye/>}
-            <span className="lock-dot"><Ico.Lock style={{ width: 7, height: 7 }}/></span>
           </button>
         </div>
       </div>
@@ -1048,41 +1011,6 @@ export default function PartyListView({ partyType }) {
         })()}
       </div>
 
-      {/* ── Admin password modal ── */}
-      <div className={`plv-scrim${pwModal ? ' open' : ''}`} onClick={() => !pwLoading && setPwModal(null)}/>
-      <div className={`plv-pwmodal${pwModal ? ' open' : ''}`} role="dialog" aria-modal="true">
-        <form onSubmit={handleVerifyPassword}>
-          <div className="plv-pw-hd">
-            <div className="icon"><Ico.Lock/></div>
-            <div>
-              <div className="title">{pwCopy().title}</div>
-              <div className="sub">{pwCopy().sub}</div>
-            </div>
-          </div>
-          <div className="plv-pw-body">
-            <div className="fl">Admin password</div>
-            <input
-              ref={pwInputRef}
-              type="password"
-              placeholder="Enter your password"
-              value={pwInput}
-              onChange={(e) => { setPwInput(e.target.value); setPwError(''); }}
-              disabled={pwLoading}
-            />
-            {pwError && <div className="err">{pwError}</div>}
-            <div className="hint">
-              <Ico.Info/>
-              Who can toggle this? Configured in <b>Settings · User roles &amp; permissions</b>
-            </div>
-          </div>
-          <div className="plv-pw-ft">
-            <button type="button" className="plv-btn" onClick={() => setPwModal(null)} disabled={pwLoading}>Cancel</button>
-            <button type="submit" className="plv-btn primary" disabled={pwLoading || !pwInput}>
-              {pwLoading ? 'Verifying…' : 'Unlock'}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   );
 }

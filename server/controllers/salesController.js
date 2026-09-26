@@ -138,13 +138,25 @@ exports.getAll = async (req, res) => {
           [sequelize.literal(
             '(SELECT COALESCE(SUM(quantity), 0)::float FROM sales_bill_items WHERE sales_bill_items.sales_bill_id = "SalesBill"."sales_bill_id")'
           ), '_pcs_total'],
+          // Party dues for the bill's customer — the maintained
+          // `parties.current_balance` ledger column, the SAME source the
+          // Dashboard tiles, the Customers list and the Party Outstanding
+          // report read (see reportController.partyOutstanding). This
+          // replaces an earlier SUM(sales_bills.balance_amount) basis,
+          // which disagreed with all three: it saw only sales bills, so
+          // opening balances, unallocated receipts, credit notes and
+          // manual JVs were invisible, and a party that both buys and
+          // supplies had its purchase side dropped entirely.
           [sequelize.literal(
-            '(SELECT COALESCE(SUM(b2.balance_amount), 0)::float FROM sales_bills b2 WHERE b2.customer_id = "SalesBill"."customer_id" AND b2.is_cancelled = false)'
+            '(SELECT COALESCE(p2.current_balance, 0)::float FROM parties p2 WHERE p2.party_id = "SalesBill"."customer_id")'
           ), 'party_outstanding'],
         ],
       },
       include: [
-        { model: Party,  as: 'customer', attributes: ['party_name', 'mobile_1', 'gstin'] },
+        // is_system_cash is needed by the list UI: the walk-in "Cash" party
+        // carries a running ledger balance of its own, which must never be
+        // rendered as a customer's dues.
+        { model: Party,  as: 'customer', attributes: ['party_name', 'mobile_1', 'gstin', 'is_system_cash'] },
         { model: Godown, as: 'godown',   attributes: ['godown_id', 'code', 'name'] },
       ],
       order: [['bill_date', 'DESC'], ['sales_bill_id', 'DESC']],

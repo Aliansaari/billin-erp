@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showItemInFolder:  (p) => ipcRenderer.invoke('shell:show-item', p),
   // Opens https://zehenapp.com pages only (main enforces the domain).
   openZehenUrl:      (url) => ipcRenderer.invoke('shell:open-zehen-url', url),
+  // Opens a vetted https link in the user's browser (see main.js allow-list).
+  openExternal:      (url) => ipcRenderer.invoke('shell:open-external', url),
 
   // LAN thin-client mode: read / persist the host PC's server URL the
   // client connects to. Only used by client builds and the client setup
@@ -68,16 +70,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 // ── UI-settings persistence mirror ──────────────────────────────────
 //
-// Home/dashboard layout, theme and barcode-label prefs live in the
-// renderer's localStorage. To keep them alive across reinstalls and any
-// storage reset, we mirror just these keys to a ~/.zehen JSON file
-// (read/written by main). On boot we restore any MISSING key BEFORE the
-// SPA's scripts read storage; then back up changes periodically + on exit.
-// Strictly best-effort: every step is wrapped so the preload never throws.
+// Barcode-label prefs live in the renderer's localStorage. To keep them
+// alive across reinstalls and any storage reset, we mirror just these
+// keys to a ~/.zehen JSON file (read/written by main). On boot we
+// restore any MISSING key BEFORE the SPA's scripts read storage; then
+// back up changes periodically + on exit. Strictly best-effort: every
+// step is wrapped so the preload never throws.
+//
+// The home layout, dashboard tiles and theme USED to be mirrored here
+// too. They now belong to the signed-in user and are stored on the
+// server (see src/store/prefSync.js), which survives a reinstall far
+// better than a per-machine file does — and, crucially, does not hand
+// the next person to sign in on this PC the previous person's setup.
+// Restoring them here would do exactly that, by putting the old
+// machine-wide keys back after sync had retired them.
+//
+// Existing sidecar files still carry those three keys; the next backup
+// writes the whole file afresh from this list, so they drop out on
+// their own.
 const UI_SETTINGS_KEYS = [
-  'erp-home-settings',      // Command Center (home) layout
-  'erp-dashboard-settings', // Dashboard tiles + config
-  'erp-theme',              // Theme / appearance
   'barcode_label_layout',   // Barcode label designer layout
   'barcode_company_name',   // Barcode label company name
   'barcode_printer_name',   // Barcode label printer

@@ -34,6 +34,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Select, Spin, Typography } from 'antd';
 import { BankOutlined, PlusOutlined } from '@ant-design/icons';
 import { bankAPI } from '../api';
+import { readRaw, writeRaw } from '../store/prefSync';
 
 const LAST_USED_KEY = 'bank_ledger_select__last_used';
 
@@ -90,7 +91,7 @@ export default function BankLedgerSelect({
     if (!autoDefault || initRef.current || isCash || loading || banks.length === 0) return;
     if (value) { initRef.current = true; return; }
 
-    const lastUsed = parseInt(localStorage.getItem(LAST_USED_KEY) || '0', 10);
+    const lastUsed = parseInt(readRaw(LAST_USED_KEY) || '0', 10);
     const lastUsedExists = lastUsed && banks.some((b) => b.ledger_id === lastUsed);
     const pick = lastUsedExists ? lastUsed : banks[0].ledger_id;
     onChange?.(pick);
@@ -161,7 +162,7 @@ export default function BankLedgerSelect({
       value={value || undefined}
       onChange={(v) => {
         onChange?.(v ?? null);
-        if (v) localStorage.setItem(LAST_USED_KEY, String(v));
+        if (v) writeRaw(LAST_USED_KEY, String(v));
       }}
       options={options}
       placeholder={placeholder}

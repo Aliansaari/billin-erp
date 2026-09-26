@@ -16,6 +16,7 @@ import VirtualReportTable from '../../components/VirtualReportTable';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './stock-report.css';
+import { readRaw, writeRaw, clearPref } from '../../store/prefSync';
 
 const fmt  = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const fmtN = (v) =>    parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -64,7 +65,7 @@ const DEFAULT_PREFS = {
 
 function loadPrefs() {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = readRaw(LS_KEY);
     if (!raw) return { ...DEFAULT_PREFS };
     return { ...DEFAULT_PREFS, ...JSON.parse(raw) };
   } catch { return { ...DEFAULT_PREFS }; }
@@ -141,7 +142,7 @@ export default function StockReport() {
   const multiWarehouseOn            = useMultiWarehouseEnabled();
   const batchTrackingOn             = useBatchTrackingEnabled();
   const [prefs, setPrefs] = useState(loadPrefs);
-  useEffect(() => { try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)); } catch {} }, [prefs]);
+  useEffect(() => { try { writeRaw(LS_KEY, JSON.stringify(prefs)); } catch {} }, [prefs]);
   const cols = prefs;
 
   const [importing, setImporting] = useState(false);
@@ -887,7 +888,7 @@ export default function StockReport() {
               className="sbf-cols-reset"
               onClick={() => {
                 setPrefs(DEFAULT_PREFS);
-                try { localStorage.removeItem(LS_KEY); } catch {}
+                try { clearPref(LS_KEY); } catch {}
               }}
             >
               Reset

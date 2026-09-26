@@ -242,6 +242,7 @@ app.use('/api/states', require('./routes/states'));
 app.use('/api/stock-transfers', require('./routes/stockTransfers'));
 app.use('/api/batches', require('./routes/batches'));
 app.use('/api/user/favorites', require('./routes/userFavorites'));
+app.use('/api/user/preferences', require('./routes/userPreferences'));
 app.use('/api/banks', require('./routes/banks'));
 app.use('/api/loans', require('./routes/loans'));
 app.use('/api/cheques', require('./routes/cheques'));

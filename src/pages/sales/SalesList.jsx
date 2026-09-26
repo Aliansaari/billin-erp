@@ -22,9 +22,10 @@ import './sales-view-modal.css';
 // Pulled in solely for the `.sbf-drafts-*` editorial drafts-modal
 // classes so the Drafts dialog here matches the SalesBillForm version.
 import './sales-bill-form.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 // Optional columns the user can toggle via the Customize popover. Keys
-// match the state shape persisted to localStorage.
+// match the state shape saved against the signed-in user (prefSync).
 const SALES_OPTIONAL_COLS = [
   { key: 'time',             label: 'Time' },
   { key: 'godown',           label: 'Godown' },
@@ -36,7 +37,7 @@ const SALES_OPTIONAL_COLS = [
   { key: 'gst',              label: 'GST amount' },
   { key: 'discount',         label: 'Discount' },
   { key: 'return',           label: 'Return amount' },
-  { key: 'partyOutstanding', label: 'Party total outstanding' },
+  { key: 'partyOutstanding', label: 'Customer total due' },
 ];
 // Toggleable page sections (not data columns). Stored alongside column
 // prefs so the Customize popover can show both groups in one place.
@@ -405,12 +406,12 @@ export default function SalesList() {
   // Column visibility — persisted so user's choice survives reload.
   const [cols, setCols] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY) || 'null');
+      const saved = JSON.parse(readRaw(COLS_STORAGE_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...DEFAULT_COLS, ...saved } : DEFAULT_COLS;
     } catch { return DEFAULT_COLS; }
   });
   useEffect(() => {
-    try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(cols)); } catch {}
+    try { writeRaw(COLS_STORAGE_KEY, JSON.stringify(cols)); } catch {}
   }, [cols]);
   // Count of toggled-on optional COLUMNS only — sections (e.g. totalRow)
   // are excluded so the badge on the Customize button reflects column
@@ -708,13 +709,27 @@ export default function SalesList() {
         : <span className="amt zero">—</span>,
     },
     cols.partyOutstanding && {
-      key: 'partyOutstanding', title: 'Party Dues', width: 130, align: 'right',
+      key: 'partyOutstanding', title: 'Customer Due', width: 130, align: 'right',
       render: (_, r) => {
         if (!r.customer_id || r.customer?.is_system_cash) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+        // parties.current_balance — positive means the customer owes us,
+        // negative means they are in credit (advance paid / over-receipt).
         const total = parseFloat(r.party_outstanding || 0);
-        return total > 0.01
-          ? <span className="amt due" title="Total outstanding across all bills for this customer"><span className="rs">₹</span>{Math.round(total).toLocaleString('en-IN')}</span>
-          : <span className="settled-tag">Cleared</span>;
+        if (total > 0.01) {
+          return (
+            <span className="amt due" title="Total dues of this customer across the whole ledger, not just this bill">
+              <span className="rs">₹</span>{Math.round(total).toLocaleString('en-IN')}
+            </span>
+          );
+        }
+        if (total < -0.01) {
+          return (
+            <span className="amt paid" title="Customer is in credit — advance held against this account">
+              <span className="rs">₹</span>{Math.round(Math.abs(total)).toLocaleString('en-IN')} Adv
+            </span>
+          );
+        }
+        return <span className="settled-tag">Cleared</span>;
       },
     },
     // (Per-row actions column removed — all bill actions live in the

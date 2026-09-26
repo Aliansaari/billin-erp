@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { themeTokens, resolveMode } from '../theme/tokens';
+import { createPrefStorage, registerPrefStore } from './prefSync';
 
 /**
  * themeStore — theme style + appearance preferences.
@@ -15,7 +16,12 @@ import { themeTokens, resolveMode } from '../theme/tokens';
  */
 
 const defaults = {
-  themeStyle: 'classic',
+  // Modern is the default because it is terracotta — the same colour as the
+  // ZEHEN app icon. A fresh install therefore opens in the brand's own
+  // colour, and the sign-in screen (which reads these tokens) matches the
+  // mark sitting next to it. Classic teal stays one click away in
+  // Settings > Theme for anyone who prefers it.
+  themeStyle: 'modern',
   appearance: 'system',
   // menuOrientation: 'vertical' (sidebar, default) or 'horizontal' (top-nav).
   // Persisted like theme/appearance so the operator's layout choice survives
@@ -92,6 +98,10 @@ const useThemeStore = create(
     }),
     {
       name: 'erp-theme',
+      // Stored against the signed-in user and mirrored to the server, so
+      // appearance follows the person rather than the machine they
+      // happen to be standing at. See src/store/prefSync.js.
+      storage: createPrefStorage('theme'),
       // Migration: older stored values don't have themeStyle/appearance.
       // Fill them with defaults so rehydration never produces undefined.
       migrate: (persisted) => ({
@@ -110,5 +120,9 @@ const useThemeStore = create(
     },
   ),
 );
+
+// Reset target for a sign-in by someone who has never set a theme: they
+// get the app default, not the previous operator's.
+registerPrefStore('theme', useThemeStore, () => useThemeStore.setState(defaults));
 
 export default useThemeStore;

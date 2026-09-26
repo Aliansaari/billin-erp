@@ -405,6 +405,67 @@ export const REPORTS = [
     aliases: ['supplier ledger', 'creditor statement', 'vendor statement'],
     isNew: true,
   },
+  // Top Parties — the league table. One route, two directions, listed
+  // twice so each side is separately pinnable and searchable.
+  {
+    id: 'top_customers',
+    name: 'Top Customers',
+    subtitle: 'Ranked by sales · any date range · profit, growth, last sale',
+    category: 'parties',
+    route: '/reports/top-parties?direction=customer',
+    perm: 'reports.view',
+    aliases: [
+      'top', 'best', 'biggest', 'ranking', 'league', 'abc',
+      'top customers', 'best customers', 'customer ranking',
+      'concentration', 'who buys most', 'growth', 'profit by customer',
+    ],
+    isNew: true,
+  },
+  {
+    id: 'top_suppliers',
+    name: 'Top Suppliers',
+    subtitle: 'Ranked by purchases · any date range · styles, growth, last supply',
+    category: 'parties',
+    route: '/reports/top-parties?direction=supplier',
+    perm: 'reports.view',
+    aliases: [
+      'top', 'best', 'biggest', 'ranking', 'league', 'abc',
+      'top suppliers', 'vendor ranking', 'buying', 'purchase ranking',
+      'concentration', 'who i buy from', 'styles', 'variety',
+    ],
+    isNew: true,
+  },
+  // Party Lapse — the only report that answers "who stopped" rather
+  // than "who owes". One route, two directions (?direction=supplier |
+  // customer), registered twice so both land on the hub and are
+  // separately pinnable — operators check the two sides in different
+  // moods and shouldn't have to remember a toggle exists.
+  {
+    id: 'supplier_lapse',
+    name: 'Suppliers Who Stopped',
+    subtitle: 'Gone quiet · last supply, past volume, relationship depth',
+    category: 'parties',
+    route: '/reports/party-lapse?direction=supplier',
+    perm: 'reports.view',
+    aliases: [
+      'lapsed', 'lost supplier', 'stopped', 'quiet', 'inactive supplier',
+      'dormant', 'churn', 'supply gap', 'reorder contacts', 'call list',
+    ],
+    isNew: true,
+  },
+  {
+    id: 'customer_lapse',
+    name: 'Customers Who Stopped',
+    subtitle: 'Gone quiet · last purchase, past value, relationship depth',
+    category: 'parties',
+    route: '/reports/party-lapse?direction=customer',
+    perm: 'reports.view',
+    aliases: [
+      'lapsed', 'lost customer', 'stopped', 'quiet', 'inactive customer',
+      'dormant', 'churn', 'win back', 'retention', 'call list',
+    ],
+    isNew: true,
+  },
   // Chart-of-accounts ledger drill — Sales A/c, Bank, Office Rent,
   // every JV-targetable ledger. Listed under Financial because it's
   // an internal accountant tool, not a customer-facing document.

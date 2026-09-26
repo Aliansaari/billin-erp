@@ -8,6 +8,7 @@ import {
 import { reportAPI, categoryAPI, productAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './smart-stock.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 const fmt  = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const fmtN = (v) =>    parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -101,7 +102,7 @@ const LS_VIS = 'smart-stock-cat-cols-v3';
 
 function loadVis() {
   try {
-    const raw = localStorage.getItem(LS_VIS);
+    const raw = readRaw(LS_VIS);
     return raw ? { ...DEFAULT_VIS, ...JSON.parse(raw) } : { ...DEFAULT_VIS };
   } catch { return { ...DEFAULT_VIS }; }
 }
@@ -119,7 +120,7 @@ export default function SmartStockCategory() {
   const [sortKey, setSortKey] = useState('product_name');
   const [sortDir, setSortDir] = useState('ASC');
   const [colVis, setColVis] = useState(loadVis);
-  useEffect(() => { try { localStorage.setItem(LS_VIS, JSON.stringify(colVis)); } catch {} }, [colVis]);
+  useEffect(() => { try { writeRaw(LS_VIS, JSON.stringify(colVis)); } catch {} }, [colVis]);
 
   // ── single-row edit ──
   const [editingId, setEditingId] = useState(null);

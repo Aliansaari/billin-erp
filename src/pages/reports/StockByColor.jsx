@@ -23,6 +23,7 @@ import VirtualReportTable from '../../components/VirtualReportTable';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../inventory/stock-report.css';      // reuse .sbf-cust-* + .sbf-cols-* classes
+import { readRaw, writeRaw, clearPref } from '../../store/prefSync';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const fmtR = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -48,7 +49,7 @@ const DEFAULT_PREFS = Object.fromEntries(COL_DEFS.map(c => [c.key, true]));
 const LS_KEY = 'sbc-visible-cols-v1';
 const loadPrefs = () => {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = readRaw(LS_KEY);
     if (!raw) return DEFAULT_PREFS;
     const saved = JSON.parse(raw);
     return { ...DEFAULT_PREFS, ...saved };
@@ -68,7 +69,7 @@ export default function StockByColor() {
   // browser via localStorage so the operator's column choices stick.
   const [prefs, setPrefs] = useState(loadPrefs);
   useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)); } catch {}
+    try { writeRaw(LS_KEY, JSON.stringify(prefs)); } catch {}
   }, [prefs]);
   // Customize-columns modal state — same vocabulary as Stock Report
   // (centered Modal with Reset / Done footer).
@@ -477,7 +478,7 @@ export default function StockByColor() {
               className="sbf-cols-reset"
               onClick={() => {
                 setPrefs(DEFAULT_PREFS);
-                try { localStorage.removeItem(LS_KEY); } catch {}
+                try { clearPref(LS_KEY); } catch {}
               }}
             >
               Reset

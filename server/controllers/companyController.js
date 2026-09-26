@@ -1,6 +1,7 @@
 const { Client } = require('pg');
 const masterSequelize = require('../config/masterDatabase');
 const Company = require('../models/Company');
+const { getCompanyConnection } = require('../services/companyConnections');
 
 /* ── Companies controller ──────────────────────────────────────────────
  *
@@ -42,13 +43,63 @@ const DB_PASSWORD = process.env.DB_PASSWORD || 'postgres';
 // Strip a row down to fields the login picker is allowed to see. The
 // picker fires unauthenticated, so we never expose gstin / address /
 // audit timestamps to anyone with network reach.
-function publicShape(row) {
+/* Display name for the sign-in picker.
+ *
+ * `companies.name` in the master DB is whatever was typed when the book was
+ * created (often the stock "My Company"). The name the firm actually trades
+ * under lives in that company's own DB, in system_settings.company_name —
+ * it is what Settings > Company Profile edits and what prints on every
+ * invoice. That is the name the operator recognises, so the picker and the
+ * hand-off animation use it and fall back to the master name only when the
+ * profile is empty or its DB cannot be read.
+ *
+ * Cached briefly: the login screen lists companies on every mount, and this
+ * otherwise opens one connection per company each time. */
+const NAME_TTL_MS = 30_000;
+const nameCache = new Map();
+
+async function profileName(row) {
+  const hit = nameCache.get(row.company_id);
+  if (hit && Date.now() - hit.at < NAME_TTL_MS) return hit.name;
+  let name = null;
+  try {
+    // getCompanyConnection returns { sequelize, models }, not a Sequelize.
+    const conn = await getCompanyConnection(row.company_id);
+    const seq = conn.sequelize || conn;
+    const [rows] = await seq.query(
+      'SELECT company_name FROM system_settings ORDER BY setting_id ASC LIMIT 1'
+    );
+    const raw = rows && rows[0] ? String(rows[0].company_name || '').trim() : '';
+    if (raw) name = raw;
+  } catch (e) {
+    // A company whose DB is missing, still restoring, or on a different
+    // schema version must not break the sign-in picker for the others.
+    name = null;
+  }
+  nameCache.set(row.company_id, { name, at: Date.now() });
+  return name;
+}
+
+/** Drop a cached display name so a profile rename shows up immediately. */
+function forgetCompanyName(companyId) {
+  nameCache.delete(Number(companyId));
+}
+
+function publicShape(row, displayName) {
   return {
     company_id:   row.company_id,
-    name:         row.name,
+    name:         displayName || row.name,
     logo_path:    row.logo_path,
     accent_color: row.accent_color,
     is_primary:   row.is_primary,
+    // GSTIN is shown on the sign-in company picker and is searchable there,
+    // so an operator with several books can find the right one by typing the
+    // number off an invoice. It is deliberate that this is readable before
+    // sign-in: a GSTIN is printed on every invoice the firm issues, so it is
+    // public business information, not a secret. Nothing else about the
+    // company is exposed here.
+    gstin:        row.gstin,
+    fy_start_month: row.fy_start_month,
   };
 }
 
@@ -58,7 +109,14 @@ exports.listPublic = async (req, res) => {
       where: { is_active: true, db_dropped_at: null },
       order: [['is_primary', 'DESC'], ['name', 'ASC']],
     });
-    res.json({ data: rows.map(publicShape) });
+    const names = await Promise.all(rows.map(profileName));
+    const data = rows.map((r, i) => publicShape(r, names[i]));
+    // Re-sort on the resolved names (the SQL ORDER BY sorted the master
+    // ones), keeping the primary book at the top.
+    data.sort((a, b) =>
+      (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0)
+      || String(a.name).localeCompare(String(b.name)));
+    res.json({ data });
   } catch (e) {
     console.error('[companies] listPublic:', e.message);
     res.status(500).json({ error: 'Could not load companies' });
@@ -454,3 +512,5 @@ exports.setMaxCompaniesCap = async (req, res) => {
     res.status(500).json({ error: 'Could not update setting' });
   }
 };
+
+exports.forgetCompanyName = forgetCompanyName;

@@ -27,6 +27,7 @@ import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 const fmtAmt = (v) => {
   const n = Number(v) || 0;
@@ -98,10 +99,10 @@ export default function MonthlyRegister({ mode }) {
     const url = searchParams.get('with_tax');
     if (url === 'true' || url === '1') return true;
     if (url === 'false' || url === '0') return false;
-    try { return localStorage.getItem(WITH_TAX_KEY) === 'true'; } catch { return false; }
+    try { return readRaw(WITH_TAX_KEY) === 'true'; } catch { return false; }
   });
   useEffect(() => {
-    try { localStorage.setItem(WITH_TAX_KEY, String(withTax)); } catch {}
+    try { writeRaw(WITH_TAX_KEY, String(withTax)); } catch {}
   }, [withTax, WITH_TAX_KEY]);
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(false);

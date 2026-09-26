@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_TILE_IDS, getTileById } from '../config/dashboardTiles';
+import { createPrefStorage, registerPrefStore } from './prefSync';
 
 /**
  * dashboardSettingsStore — per-user tile selection, ordering, AND
@@ -96,6 +97,8 @@ const useDashboardSettingsStore = create(
     }),
     {
       name: 'erp-dashboard-settings',
+      // Per-user, server-backed — see src/store/prefSync.js.
+      storage: createPrefStorage('dashboard'),
       version: 2,
       /* Drop unknown ids and orphaned config entries at hydrate time so
        * a catalog rename never leaves the dashboard with broken state. */
@@ -117,6 +120,8 @@ const useDashboardSettingsStore = create(
     },
   ),
 );
+
+registerPrefStore('dashboard', useDashboardSettingsStore, () => useDashboardSettingsStore.setState(defaults()));
 
 export default useDashboardSettingsStore;
 

@@ -29,6 +29,7 @@ import BarcodePrintModal from '../../components/BarcodePrintModal';
 import ProductFormModal from '../../components/ProductFormModal';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import './purchase-bill-form.css';
+import { getPref, setPref, clearPref } from '../../store/prefSync';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 // Derive margin from purchase_rate/sale_rate when the stored value is 0/missing
@@ -294,21 +295,19 @@ export default function PurchaseBillForm() {
   // Items table column visibility — operator picks via the Customize
   // popover in the top header. Required columns are pinned on; default
   // visible set covers all the optional pricing columns since purchase
-  // entry typically wants the full pricing rhythm. Persists per-browser
-  // via localStorage so the choice survives reloads.
+  // entry typically wants the full pricing rhythm. Stored against the
+  // signed-in user so the choice survives reloads and follows them to
+  // another machine.
   const PBF_COL_DEFAULTS = ['barcode','size','article','qpb','margin','sale_rate','mrp','gst'];
   const [pbfVisibleCols, setPbfVisibleCols] = useState(() => {
-    try {
-      const raw = localStorage.getItem('pbf_visible_cols');
-      if (raw) return new Set(JSON.parse(raw));
-    } catch {}
-    return new Set(PBF_COL_DEFAULTS);
+    const saved = getPref('pbf_visible_cols', null);
+    return Array.isArray(saved) ? new Set(saved) : new Set(PBF_COL_DEFAULTS);
   });
   const togglePbfCol = (key) => {
     setPbfVisibleCols(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
-      try { localStorage.setItem('pbf_visible_cols', JSON.stringify([...next])); } catch {}
+      setPref('pbf_visible_cols', [...next]);
       return next;
     });
   };
@@ -2235,7 +2234,7 @@ export default function PurchaseBillForm() {
             type="button"
             onClick={() => {
               setPbfVisibleCols(new Set(PBF_COL_DEFAULTS));
-              try { localStorage.removeItem('pbf_visible_cols'); } catch {}
+              clearPref('pbf_visible_cols');
             }}
           >Reset</button>
         </div>
@@ -2910,7 +2909,7 @@ export default function PurchaseBillForm() {
             the operator types in the Payment Card. */}
         <ActionStrip
           actions={[
-            { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+            { id: 'back', key: 'Esc', label: 'Back',
               onAction: () => confirmLeave(goBack) },
             { id: 'date', key: 'F2', label: 'Date',
               onAction: f2DatePopup,

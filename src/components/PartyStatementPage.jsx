@@ -47,6 +47,7 @@ import { useDatePopup } from './keyboard/DatePopup';
 import './ledger-statement.css';
 import './party-picker.css';
 import './party-statement-page.css';
+import { getPref, setPref } from '../store/prefSync';
 
 const { RangePicker } = DatePicker;
 
@@ -243,16 +244,16 @@ export default function PartyStatementPage({
   const clearVoucherFilter = () => setVoucherFilter(new Set());
 
   // ── Column visibility ─────────────────────────────────────────────
-  // Persisted to localStorage so the operator's preference survives
-  // refresh + cross-page navigation. Defaults come from ALL_COLUMNS;
+  // Saved against the operator's login so the preference survives
+  // refresh, cross-page navigation and a move to another machine —
+  // and so the next person to sign in here gets their own set.
+  // Defaults come from ALL_COLUMNS;
   // required columns (date, particulars, debit, credit, balance) are
   // always rendered regardless of the saved set.
-  const COLS_LS_KEY = 'psp_visible_cols_v1';
+  const COLS_PREF_KEY = 'psp_visible_cols';
   const [colVis, setColVis] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(COLS_LS_KEY) || 'null');
-      if (saved && typeof saved === 'object') return saved;
-    } catch { /* fall through to default */ }
+    const saved = getPref(COLS_PREF_KEY, null);
+    if (saved && typeof saved === 'object' && !Array.isArray(saved)) return saved;
     return ALL_COLUMNS.reduce((acc, c) => ({ ...acc, [c.key]: c.default }), {});
   });
 
@@ -261,7 +262,7 @@ export default function PartyStatementPage({
       const def = ALL_COLUMNS.find(c => c.key === key);
       if (def?.required) return prev;        // can't hide required columns
       const next = { ...prev, [key]: !prev[key] };
-      try { localStorage.setItem(COLS_LS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      setPref(COLS_PREF_KEY, next);
       return next;
     });
   };

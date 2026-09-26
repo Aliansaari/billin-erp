@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { resolveBack } from '../../utils/escBack';
 import './ActionStrip.css';
 
 // Classic accounting-style bottom action strip.
@@ -25,14 +26,14 @@ import './ActionStrip.css';
 // Actions with `disabled: true` ARE rendered (greyed) but the key
 //   binding is suppressed — both click and keypress are no-ops.
 //
-// The action with `id: 'back'` is special: it is history-aware. When
-//   there's a previous in-app screen to return to, triggering it does
-//   navigate(-1) so the user lands back exactly where they came from;
-//   its declared `onAction` is the fallback used only when there's no
-//   history (deep link / hard refresh / first screen). Pages whose Back
-//   must run side effects first (an unsaved-changes confirm, or a
-//   multi-level in-page drill-up) opt out with `historyBack: false` and
-//   keep their own handler.
+// The action with `id: 'back'` closes this screen and moves ONE step up
+//   the menu tree. The page's own `onAction` is the authority — that is
+//   where an unsaved-changes confirm or an in-page drill-up lives. A
+//   page that declares no handler falls back to src/utils/escBack.js,
+//   which knows every screen's parent. Back is never browser history:
+//   the destination depends on WHERE YOU ARE, never on how you got
+//   there, so the same key on the same screen always lands in the same
+//   place and a few presses always reach Home.
 //
 // Tone presets:
 //   default — neutral panel
@@ -92,36 +93,26 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
   const actionsRef = useRef(actions);
   useEffect(() => { actionsRef.current = actions; });
 
-  // History-aware "Back". The action with `id: 'back'` returns the user
-  // to the exact screen they came from (navigate(-1)) whenever there's
-  // an in-app history entry to go back to; its declared `onAction` is
-  // used only as a fallback for the no-history case (deep link, hard
-  // refresh, first screen of the session). location.key is the string
-  // 'default' only for that first entry, so key !== 'default' ⇔ there's
-  // somewhere to go back to.
-  //
-  // Pages whose Back must run side effects first — an unsaved-changes
-  // confirm, or a multi-level in-page drill-up — opt out with
-  // `historyBack: false` on the action and keep their own handler.
+  // "Back" = one step up the tree. The page's declared onAction wins;
+  // only a page that declares none gets the map's answer.
   //
   // Refs are used so the once-attached keydown listener always reads the
-  // freshest navigate fn + history state without re-binding.
+  // freshest navigate fn + current path without re-binding.
   const navigate = useNavigate();
-  const { key: locationKey } = useLocation();
+  const { pathname } = useLocation();
   const navigateRef = useRef(navigate);
-  const canGoBackRef = useRef(locationKey !== 'default');
+  const pathRef = useRef(pathname);
   useEffect(() => { navigateRef.current = navigate; });
-  useEffect(() => { canGoBackRef.current = locationKey !== 'default'; }, [locationKey]);
+  useEffect(() => { pathRef.current = pathname; }, [pathname]);
 
-  // Natural "Back": return to the exact previous in-app screen. Returns true
-  // when it handled the navigation, false (no history) to fall through to the
-  // caller's declared onAction fallback. History chaining across unrelated
-  // tabs is prevented at the source — the sidebar replaces history when you
-  // switch to a different section — so plain navigate(-1) is the right,
-  // natural behaviour here.
+  // Returns true when it navigated. `replace` keeps the session's history
+  // shallow: going up CLOSES a screen, it does not stack another copy of
+  // the parent on top of the one already behind us.
   const runBack = () => {
-    if (canGoBackRef.current) { navigateRef.current(-1); return true; }
-    return false;
+    const to = resolveBack(pathRef.current);
+    if (to === pathRef.current) return false;   // already at the top
+    navigateRef.current(to, { replace: true });
+    return true;
   };
 
   // Pre-parse bindings once per render so the keydown handler doesn't
@@ -158,11 +149,11 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
         // contract). `hidden` actions stay active so they can alias a
         // visible button.
         if (a.disabled) return;
-        // History-aware Back (see note above the navigate refs). runBack
-        // returns false only when there's no in-app history AND this isn't a
-        // top-level tab — in which case we fall through to the page's onAction.
-        if (a.id === 'back' && a.historyBack !== false) {
-          if (runBack()) return;
+        // Back: the page's own handler is the authority. Only a Back with
+        // no handler falls through to the parent map.
+        if (a.id === 'back' && !a.onAction) {
+          runBack();
+          return;
         }
         try { a.onAction?.(e); }
         catch (err) { console.error('[ActionStrip]', a.id, err); }
@@ -186,9 +177,7 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
             className={`astrip-btn tone-${a.tone || 'default'}`}
             onClick={(e) => {
               e.preventDefault();
-              if (a.id === 'back' && a.historyBack !== false) {
-                if (runBack()) return;
-              }
+              if (a.id === 'back' && !a.onAction) { runBack(); return; }
               a.onAction?.(e);
             }}
             disabled={!!a.disabled}

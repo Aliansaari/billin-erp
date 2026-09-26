@@ -81,6 +81,20 @@ const productItemsController = require('../controllers/productItemsController');
 router.get('/product-sales-items',    requirePermission('reports.view'), productItemsController.productSalesItems);
 router.get('/product-purchase-items', requirePermission('reports.view'), productItemsController.productPurchaseItems);
 
+// Party Lapse — who stopped trading with us. Reads purchase_bills
+// (suppliers) or sales_bills (customers) and buckets each party by
+// days since their last bill. Sits under reports.view like the other
+// party-facing operational reports.
+const partyLapseController = require('../controllers/partyLapseController');
+router.get('/party-lapse',        requirePermission('reports.view'),  partyLapseController.partyLapse);
+router.get('/party-lapse/export', requirePermission('reports.view'),  partyLapseController.exportPartyLapse);
+
+// Top Parties — ranked league table of biggest customers / suppliers
+// over any date range, with previous-period comparison.
+const topPartiesController = require('../controllers/topPartiesController');
+router.get('/top-parties',        requirePermission('reports.view'),  topPartiesController.topParties);
+router.get('/top-parties/export', requirePermission('reports.view'),  topPartiesController.exportTopParties);
+
 router.get('/bills-receivable',  requirePermission('reports.view'),  billsOutstandingController.billsReceivable);
 router.get('/bills-payable',     requirePermission('reports.view'),  billsOutstandingController.billsPayable);
 router.get('/bills-receivable/export', requirePermission('reports.view'), (req, res) => {

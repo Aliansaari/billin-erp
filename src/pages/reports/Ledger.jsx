@@ -36,6 +36,7 @@ import { useDatePopup } from '../../components/keyboard/DatePopup';
 import '../../components/ledger-statement.css';
 import '../../components/party-statement-page.css';
 import './ledger.css';
+import { getPref, setPref } from '../../store/prefSync';
 
 const { RangePicker } = DatePicker;
 
@@ -196,12 +197,10 @@ export default function Ledger() {
 
   // Column visibility — same key as PartyStatementPage so the
   // operator's preference flows across all three statement pages.
-  const COLS_LS_KEY = 'psp_visible_cols_v1';
+  const COLS_PREF_KEY = 'psp_visible_cols';
   const [colVis, setColVis] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(COLS_LS_KEY) || 'null');
-      if (saved && typeof saved === 'object') return saved;
-    } catch { /* fall through */ }
+    const saved = getPref(COLS_PREF_KEY, null);
+    if (saved && typeof saved === 'object' && !Array.isArray(saved)) return saved;
     return ALL_COLUMNS.reduce((acc, c) => ({ ...acc, [c.key]: c.default }), {});
   });
   const toggleCol = (key) => {
@@ -209,7 +208,7 @@ export default function Ledger() {
       const def = ALL_COLUMNS.find(c => c.key === key);
       if (def?.required) return prev;
       const next = { ...prev, [key]: !prev[key] };
-      try { localStorage.setItem(COLS_LS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      setPref(COLS_PREF_KEY, next);
       return next;
     });
   };

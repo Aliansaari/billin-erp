@@ -28,6 +28,7 @@ import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import './trial-balance.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 const fmtINR = (v) =>
   Number(v || 0).toLocaleString('en-IN', {
@@ -122,10 +123,10 @@ function midFor(primary, sub) {
 // remembered by the other.
 const EXPAND_PREF_KEY = 'erp_report_expand_default';
 function loadExpandPref() {
-  try { return localStorage.getItem(EXPAND_PREF_KEY) === 'expanded'; } catch { return false; }
+  try { return readRaw(EXPAND_PREF_KEY) === 'expanded'; } catch { return false; }
 }
 function saveExpandPref(v) {
-  try { localStorage.setItem(EXPAND_PREF_KEY, v ? 'expanded' : 'collapsed'); } catch {}
+  try { writeRaw(EXPAND_PREF_KEY, v ? 'expanded' : 'collapsed'); } catch {}
 }
 
 const PRIMARY_ORDER = ['Assets', 'Liabilities', 'Income', 'Expenses', 'Capital'];
@@ -262,8 +263,10 @@ export default function TrialBalance() {
   //   /reports/trial-balance               (TB page)
   //   /reports/trial-balance?group=…       (group page — pushed on drill)
   //   /reports/party-ledger?…              (ledger detail — pushed on click)
-  // Pressing Esc anywhere walks history.back() exactly one step, so:
-  // ledger → group → TB → /reports — without losing context at any layer.
+  // Esc closes exactly one layer: ledger → group → TB → /reports. Each
+  // layer navigates to the one above it by name rather than stepping
+  // through browser history, so the destination never depends on how the
+  // operator arrived.
   const openGroup = (name, parent, drcr, amount) => {
     const qs = new URLSearchParams({
       group: name,
@@ -273,7 +276,32 @@ export default function TrialBalance() {
     });
     navigate(`/reports/trial-balance?${qs.toString()}`);
   };
-  const goBack = () => navigate(-1);
+  // Close the Group Summary and return to the Trial Balance itself —
+  // what this view's hint row promises. Same path, so the report keeps
+  // its loaded data and chosen period; only the drill params go. It is
+  // NOT navigate(-1): browser history would send the operator wherever
+  // they happened to be before, which on this screen could be anything.
+  const goBack = useCallback(() => {
+    navigate('/reports/trial-balance', { replace: true });
+  }, [navigate]);
+
+  // The Group Summary renders no ActionStrip of its own, so claim Esc
+  // here. preventDefault tells AppLayout's up-one-level fallback that
+  // this Esc is spoken for, which keeps it to ONE step: group → Trial
+  // Balance, and only the next Esc leaves for /reports.
+  useEffect(() => {
+    if (page !== 'group') return;
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const ae = document.activeElement;
+      // A search box with text in it owns Esc first (clear, then close).
+      if (ae && ae.tagName === 'INPUT' && ae.value) return;
+      e.preventDefault();
+      goBack();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [page, goBack]);
 
   // The ledger rows shown in Group Summary, filtered by search.
   // activeGroup.name can be:
@@ -419,10 +447,9 @@ export default function TrialBalance() {
 
   // Derive page state from the URL. `?group=Sundry+Debtors&parent=…&drcr=dr
   // &amount=…` puts us on the Group Summary; no params puts us on the
-  // top-level TB page. This makes the browser back-button (and Esc, which
-  // AppLayout maps to history.back()) Just Work — going back from a
-  // ledger drill returns the user to the group they came from, not the
-  // top-level TB.
+  // top-level TB page. Keeping the sub-view in the URL means a drill can
+  // be linked and reloaded, and closing it is just dropping the params —
+  // see goBack below.
   useEffect(() => {
     const groupName = searchParams.get('group');
     if (groupName) {

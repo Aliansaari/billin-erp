@@ -10,6 +10,7 @@ import useListSelection from '../../hooks/useListSelection';
 import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 const fmt = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
@@ -116,13 +117,13 @@ export default function PurchaseReport() {
   const [preset, setPreset] = useState(initialFrom && initialTo ? 'custom' : 'this_fy');
   const [colsVisible, setColsVisible] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY) || 'null');
+      const saved = JSON.parse(readRaw(COLS_STORAGE_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...DEFAULT_COLS, ...saved } : DEFAULT_COLS;
     } catch { return DEFAULT_COLS; }
   });
   const [kpisVisible, setKpisVisible] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(KPIS_STORAGE_KEY) || 'null');
+      const saved = JSON.parse(readRaw(KPIS_STORAGE_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...DEFAULT_KPIS, ...saved } : DEFAULT_KPIS;
     } catch { return DEFAULT_KPIS; }
   });
@@ -159,11 +160,11 @@ export default function PurchaseReport() {
   }, [preset, fyStart, fyEnd]);
 
   useEffect(() => {
-    try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(colsVisible)); } catch {}
+    try { writeRaw(COLS_STORAGE_KEY, JSON.stringify(colsVisible)); } catch {}
   }, [colsVisible]);
 
   useEffect(() => {
-    try { localStorage.setItem(KPIS_STORAGE_KEY, JSON.stringify(kpisVisible)); } catch {}
+    try { writeRaw(KPIS_STORAGE_KEY, JSON.stringify(kpisVisible)); } catch {}
   }, [kpisVisible]);
 
   const handleExport = async () => {

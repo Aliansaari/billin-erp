@@ -679,7 +679,7 @@ export default function PaymentEntry() {
           bill form's F6 = jump-to-money convention. */}
       <ActionStrip
         actions={[
-          { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+          { id: 'back', key: 'Esc', label: 'Back',
             onAction: () => confirmLeave(goBack) },
           { id: 'reset', key: 'F5', label: 'Reset',
             onAction: handleReset },

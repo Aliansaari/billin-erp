@@ -549,7 +549,7 @@ function FundFlowMonthView() {
 
       <ActionStrip
         actions={[
-          { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+          { id: 'back', key: 'Esc', label: 'Back',
             onAction: goBack },
           { id: 'print', key: 'F9', label: 'Print',
             onAction: () => window.print() },

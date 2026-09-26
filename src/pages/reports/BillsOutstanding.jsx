@@ -53,6 +53,7 @@ import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './bills-outstanding.css';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 // ─── Format helpers ──────────────────────────────────────────────────
 const fmtINR = (v) => {
@@ -234,11 +235,11 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
   // genuine imbalance and stays per-session.
   const ALLOC_BANNER_KEY = `erp_bo_alloc_banner_dismissed_${side}`;
   const [allocBannerDismissed, setAllocBannerDismissedState] = useState(() => {
-    try { return localStorage.getItem(ALLOC_BANNER_KEY) === 'true'; } catch { return false; }
+    try { return readRaw(ALLOC_BANNER_KEY) === 'true'; } catch { return false; }
   });
   const setAllocBannerDismissed = useCallback((v) => {
     setAllocBannerDismissedState(v);
-    try { localStorage.setItem(ALLOC_BANNER_KEY, v ? 'true' : 'false'); } catch {}
+    try { writeRaw(ALLOC_BANNER_KEY, v ? 'true' : 'false'); } catch {}
   }, [ALLOC_BANNER_KEY]);
   const [reconBannerDismissed, setReconBannerDismissed] = useState(false);
   const [advancedOpen, setAdvancedOpen]                 = useState(false);
@@ -246,12 +247,12 @@ export default function BillsOutstanding({ side, defaultView = 'bill' }) {
   // Column-picker state — persisted, same pattern as Sales Report.
   const [colsVisible, setColsVisible] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(COLS_KEY) || 'null');
+      const saved = JSON.parse(readRaw(COLS_KEY) || 'null');
       return saved && typeof saved === 'object' ? { ...DEFAULT_COLS, ...saved } : DEFAULT_COLS;
     } catch { return DEFAULT_COLS; }
   });
   useEffect(() => {
-    try { localStorage.setItem(COLS_KEY, JSON.stringify(colsVisible)); } catch {}
+    try { writeRaw(COLS_KEY, JSON.stringify(colsVisible)); } catch {}
   }, [colsVisible]);
 
   // Party-search options for the multi-select. Loaded once per side

@@ -10,6 +10,7 @@ import {
 import api from '../api';
 import { useSystemSettings } from '../hooks/useSystemSettings';
 import './globalSearch.css';
+import { readRaw, writeRaw, clearPref } from '../store/prefSync';
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Static action / page index — anything reachable inside the app that
@@ -436,7 +437,7 @@ const TELEMETRY_KEY = 'gs_telemetry_v1';
 const TELEMETRY_MAX = 200;
 function telemetryRead() {
   try {
-    const raw = localStorage.getItem(TELEMETRY_KEY);
+    const raw = readRaw(TELEMETRY_KEY);
     const arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr) ? arr : [];
   } catch { return []; }
@@ -448,7 +449,7 @@ function telemetryPush(event) {
     // Drop the oldest when over the cap. The buffer is intentionally a
     // sliding window — we only need recent signal, not all-time history.
     while (list.length > TELEMETRY_MAX) list.shift();
-    localStorage.setItem(TELEMETRY_KEY, JSON.stringify(list));
+    writeRaw(TELEMETRY_KEY, JSON.stringify(list));
   } catch { /* swallow — Safari private mode etc. */ }
 }
 // Dev surface — typing `__gsTelemetry()` in the console returns the
@@ -456,7 +457,7 @@ function telemetryPush(event) {
 // don't choke on the assignment.
 if (typeof window !== 'undefined') {
   window.__gsTelemetry = (limit = 50) => telemetryRead().slice(-limit);
-  window.__gsTelemetryClear = () => { try { localStorage.removeItem(TELEMETRY_KEY); } catch {} };
+  window.__gsTelemetryClear = () => { try { clearPref(TELEMETRY_KEY); } catch {} };
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -639,12 +640,12 @@ const PINS_KEY = 'gs_pins_v1';
 const PINS_MAX = 12;
 function readPins() {
   try {
-    const raw = localStorage.getItem(PINS_KEY);
+    const raw = readRaw(PINS_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
 }
 function writePins(list) {
-  try { localStorage.setItem(PINS_KEY, JSON.stringify(list)); } catch { /* swallow */ }
+  try { writeRaw(PINS_KEY, JSON.stringify(list)); } catch { /* swallow */ }
 }
 function isPinned(id, pins) {
   return Array.isArray(pins) ? pins.some((p) => p.id === id) : false;

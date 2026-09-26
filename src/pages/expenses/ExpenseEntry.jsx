@@ -50,6 +50,7 @@ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import useBack from '../../hooks/useBack';
 import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
+import { readRaw, writeRaw } from '../../store/prefSync';
 
 const { Title, Text } = Typography;
 const MONO = 'Geist Mono, ui-monospace, monospace';
@@ -84,12 +85,12 @@ const GST_OPTIONS = [
 const RECENT_KEY = 'exp_recent_heads_v1';
 const RECENT_MAX = 6;
 const loadRecent = () => {
-  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
+  try { return JSON.parse(readRaw(RECENT_KEY) || '[]'); } catch { return []; }
 };
 const pushRecent = (ids) => {
   try {
     const merged = [...new Set([...ids, ...loadRecent()])].slice(0, RECENT_MAX);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(merged));
+    writeRaw(RECENT_KEY, JSON.stringify(merged));
   } catch { /* quota — ignore */ }
 };
 
@@ -677,7 +678,7 @@ export default function ExpenseEntry() {
 
       <ActionStrip
         actions={[
-          { id: 'back', key: 'Esc', label: 'Back', historyBack: false,
+          { id: 'back', key: 'Esc', label: 'Back',
             onAction: () => confirmLeave(goBack) },
           { id: 'date', key: 'F2', label: 'Date',
             onAction: () => openDate({

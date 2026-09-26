@@ -1,409 +1,310 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, message } from 'antd';
-import {
-  LockOutlined, SafetyOutlined, LogoutOutlined, ExclamationCircleFilled,
-} from '@ant-design/icons';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../api';
 import useAuthStore from '../store/authStore';
+import {
+  AuthShell, I, useClock, usePrefersReducedMotion,
+} from './authShell';
 
 /**
- * ChangePassword — matches the editorial Login aesthetic.
+ * ChangePassword — the same room as the sign-in screen.
  *
  * Two entry points:
- *   (1) forced  — first login with default admin/admin123 credentials.
- *                 Only escape is Sign Out.
- *   (2) voluntary — user menu → Change Password.
+ *   (1) forced    — first sign-in on the factory admin password. The only
+ *                   way out is Sign out.
+ *   (2) voluntary — user menu > Change Password.
  *
- * Behavior (preserved from the previous implementation):
- *   - Validates new ≠ current, min length, blocks common defaults
- *   - Calls authAPI.changePassword
- *   - On success: clears flag, logs out, redirects to /login
+ * It shares AuthShell with Login, so it inherits the dot grid, the header
+ * clock and the footer, and it recolours with the theme exactly as the
+ * sign-in screen does. It previously carried a private copy of an older,
+ * dark, always-terracotta login design and looked like a different app.
+ *
+ * Behaviour is unchanged from that version: new must differ from current,
+ * at least 4 characters, confirmation must match, then log out and return
+ * to sign-in so the new password is actually used.
  */
+
+const MIN_LEN = 4;
+
+/** Three coarse bands. Deliberately not a score out of 100 — the point is
+ *  to nudge, not to grade, and a precise-looking number invites gaming. */
+function strengthOf(pw) {
+  if (!pw) return null;
+  const long = pw.length >= 12;
+  const medium = pw.length >= 8;
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(pw)).length;
+  if (long && classes >= 3) return { level: 3, label: 'Strong' };
+  if (medium && classes >= 2) return { level: 2, label: 'Fair' };
+  return { level: 1, label: 'Weak' };
+}
+
+/** Passwords that are effectively no password at all. */
+const BANNED = new Set([
+  'admin123', 'admin', 'password', '123456', '1234', '12345678',
+  'qwerty', 'zehen', 'zehen123', '0000', '1111',
+]);
+
+function Field({
+  id, label, value, onChange, placeholder, autoFocus, disabled,
+  show, onToggleShow, bad, onCaps, trailing,
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div className="zl-field">
+      <div className="zl-lrow">
+        <label className={`zl-label${focused ? ' on' : ''}`} htmlFor={id}>{label}</label>
+      </div>
+      <div className="zl-inwrap">
+        <input
+          id={id}
+          className={`zl-in pass${bad ? ' bad' : ''}`}
+          type={show ? 'text' : 'password'}
+          value={value}
+          placeholder={placeholder}
+          autoFocus={autoFocus}
+          disabled={disabled}
+          autoComplete={id === 'cp-cur' ? 'current-password' : 'new-password'}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => { setFocused(false); onCaps?.(false); }}
+          onKeyDown={(e) => {
+            if (typeof e.getModifierState === 'function') onCaps?.(e.getModifierState('CapsLock'));
+          }}
+          onKeyUp={(e) => {
+            if (typeof e.getModifierState === 'function') onCaps?.(e.getModifierState('CapsLock'));
+          }}
+        />
+        <span className={`zl-sweep${focused ? ' on' : ''}`} aria-hidden="true" />
+        <button
+          type="button"
+          className="zl-eye"
+          onClick={onToggleShow}
+          aria-label={show ? 'Hide password' : 'Show password'}
+          tabIndex={-1}
+        >
+          {show ? <I.eyeOff /> : <I.eye />}
+        </button>
+      </div>
+      {trailing}
+    </div>
+  );
+}
+
 export default function ChangePassword() {
-  const [loading, setLoading] = useState(false);
-  const [form] = Form.useForm();
   const navigate = useNavigate();
-  const mustChangePassword = useAuthStore((s) => s.mustChangePassword);
-  const clearMustChangePassword = useAuthStore((s) => s.clearMustChangePassword);
+  const reduced = usePrefersReducedMotion();
+  const { now, timePhase } = useClock();
+
+  const mustChange = useAuthStore((s) => s.mustChangePassword);
+  const clearMustChange = useAuthStore((s) => s.clearMustChangePassword);
   const logout = useAuthStore((s) => s.logout);
 
-  const onFinish = async (values) => {
-    const { current_password, new_password, confirm_password } = values;
-    if (new_password !== confirm_password) {
-      message.error('New password and confirmation do not match.');
+  const [cur, setCur] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [show, setShow] = useState(false);
+  const [caps, setCaps] = useState(false);
+  const [error, setError] = useState('');
+  const [bad, setBad] = useState({ cur: false, next: false, confirm: false });
+  const [shake, setShake] = useState(false);
+  const [phase, setPhase] = useState('idle');     // idle | loading | ok
+  const [enterDown, setEnterDown] = useState(false);
+  const curRef = useRef(null);
+
+  const busy = phase !== 'idle';
+  const strength = strengthOf(next);
+  const match = confirm.length > 0 && confirm === next;
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Enter') setEnterDown(true);
+      if (e.key === 'Escape' && !mustChange && !busy) navigate(-1);
+    };
+    const onUp = (e) => { if (e.key === 'Enter') setEnterDown(false); };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onUp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onUp);
+    };
+  }, [mustChange, busy, navigate]);
+
+  const fail = (msg, fields) => {
+    setError(msg);
+    setBad({ cur: false, next: false, confirm: false, ...(fields || {}) });
+    if (!reduced) { setShake(true); setTimeout(() => setShake(false), 340); }
+  };
+
+  const submit = async (e) => {
+    e?.preventDefault?.();
+    if (busy) return;
+
+    if (!cur) { fail('Enter your current password.', { cur: true }); return; }
+    if (!next) { fail('Enter a new password.', { next: true }); return; }
+    if (next.length < MIN_LEN) {
+      fail(`The new password must be at least ${MIN_LEN} characters.`, { next: true });
       return;
     }
-    if (new_password === current_password) {
-      message.error('New password must be different from the current password.');
+    if (next === cur) {
+      fail('The new password must be different from the current one.', { next: true });
       return;
     }
-    if (new_password.length < 4) {
-      message.error('Password must be at least 4 characters.');
+    if (BANNED.has(next.toLowerCase())) {
+      fail('That password is too common. Pick something only you would guess.', { next: true });
       return;
     }
-    setLoading(true);
+    if (next !== confirm) {
+      fail('The two new passwords do not match.', { confirm: true });
+      return;
+    }
+
+    setError('');
+    setBad({ cur: false, next: false, confirm: false });
+    setPhase('loading');
     try {
-      await authAPI.changePassword({ current_password, new_password });
-      clearMustChangePassword();
-      message.success('Password updated. Please sign in again.');
+      await authAPI.changePassword({ current_password: cur, new_password: next });
+      clearMustChange();
+      setCur(''); setNext(''); setConfirm('');
+      setPhase('ok');
+      // Sign out on purpose: the session was issued against the old
+      // password, and signing in again proves the new one works.
       setTimeout(() => {
         logout();
         window.location.href = '/login';
-      }, 800);
-    } catch (error) {
-      message.error(error.response?.data?.error || 'Failed to change password');
-      setLoading(false);
+      }, reduced ? 0 : 1100);
+    } catch (err) {
+      setPhase('idle');
+      const server = err.response?.data?.error;
+      const wrongCurrent = err.response?.status === 400 || err.response?.status === 401;
+      fail(
+        wrongCurrent ? (server || 'That current password is not right.') : (server || 'Could not update the password.'),
+        wrongCurrent ? { cur: true } : {},
+      );
+      setCur('');
+      curRef.current?.focus();
     }
   };
 
-  const handleSignOut = () => {
+  const signOut = () => {
     logout();
     window.location.href = '/login';
   };
 
   return (
-    <div className="erp-login-root">
-      <div className="erp-login-mesh" />
-      <div className="erp-login-grain" />
-
-      <div className="erp-login-stage">
-        <div className="erp-login-card" style={{ maxWidth: 480 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
-            <div style={{
-              width: 40, height: 40, borderRadius: 10,
-              background: 'linear-gradient(135deg, #E26A4C, #B1472F)',
-              display: 'grid', placeItems: 'center',
-              boxShadow: '0 6px 18px rgba(226,106,76,0.35)',
-            }}>
-              <SafetyOutlined style={{ color: '#FDFAF2', fontSize: 18 }} />
-            </div>
-            <div>
-              <h2 className="erp-login-h" style={{ fontSize: 26, margin: 0 }}>
-                {mustChangePassword ? 'Set a new password' : 'Change password'}
-              </h2>
-              <div className="erp-login-sub" style={{ margin: 0 }}>
-                {mustChangePassword
-                  ? 'For security, change the default before continuing.'
-                  : 'Update your account password.'}
-              </div>
-            </div>
+    <AuthShell
+      now={now}
+      timePhase={timePhase}
+      reduced={reduced}
+      footerNote="All data on this computer"
+      overlay={phase === 'ok' ? (
+        <div className="zl-zoom" aria-hidden="true">
+          <div className="zl-zoom-in">
+            <I.tick width={44} height={44} />
+            <span className="t">Password updated</span>
+            <span className="s">Sign in again with your new password</span>
           </div>
+        </div>
+      ) : null}
+    >
+      {/* Why this screen is here. Shown only on the forced path, and as a
+          quiet chip rather than a red alarm — nothing is wrong yet. */}
+      {mustChange && (
+        <span className="zl-note">
+          <I.shield /> First sign-in — the factory password still works on this account
+        </span>
+      )}
 
-          {mustChangePassword && (
-            // Custom callout — Ant Design's Alert paints message/description
-            // with its own light-theme warning palette that washes out on
-            // the dark login canvas (the original orange-on-dark was almost
-            // unreadable). Bespoke markup keeps every text colour under our
-            // direct control and matches the warm-amber accent the rest of
-            // the login page uses.
-            <div className="erp-login-callout">
-              <span className="erp-login-callout-icon" aria-hidden="true">
-                <ExclamationCircleFilled />
-              </span>
-              <div className="erp-login-callout-body">
-                <div className="erp-login-callout-title">Default password detected</div>
-                <div className="erp-login-callout-text">
-                  You are signed in with the factory-default admin password.
-                  Please set a new one to secure your account.
-                </div>
+      <div className={`zl-card${error ? ' err' : ''}${shake ? ' shake' : ''}`}>
+        <form onSubmit={submit} noValidate>
+          <h1 className="zl-title">
+            {mustChange ? 'Set your password' : 'Change password'}
+          </h1>
+          <p className="zl-sub">
+            {mustChange
+              ? 'Pick something only you know. You will sign in again with it.'
+              : 'You will be signed out and asked to sign in with the new one.'}
+          </p>
+
+          <Field
+            id="cp-cur"
+            label="Current password"
+            value={cur}
+            onChange={(v) => { setCur(v); if (error) { setError(''); setBad({ cur: false, next: false, confirm: false }); } }}
+            placeholder={mustChange ? 'The password you just used' : ''}
+            autoFocus
+            disabled={busy}
+            show={show}
+            onToggleShow={() => setShow((v) => !v)}
+            bad={bad.cur}
+            onCaps={setCaps}
+          />
+
+          <Field
+            id="cp-new"
+            label="New password"
+            value={next}
+            onChange={(v) => { setNext(v); if (error) { setError(''); setBad({ cur: false, next: false, confirm: false }); } }}
+            placeholder={`At least ${MIN_LEN} characters`}
+            disabled={busy}
+            show={show}
+            onToggleShow={() => setShow((v) => !v)}
+            bad={bad.next}
+            onCaps={setCaps}
+            trailing={strength && (
+              <div className="zl-meter" data-level={strength.level}>
+                <i /><i /><i />
+                <span>{strength.label}</span>
               </div>
+            )}
+          />
+
+          <Field
+            id="cp-confirm"
+            label="Confirm new password"
+            value={confirm}
+            onChange={(v) => { setConfirm(v); if (error) { setError(''); setBad({ cur: false, next: false, confirm: false }); } }}
+            placeholder="Type it once more"
+            disabled={busy}
+            show={show}
+            onToggleShow={() => setShow((v) => !v)}
+            bad={bad.confirm}
+            onCaps={setCaps}
+            trailing={match ? (
+              <div className="zl-ok-row"><I.tick /> Both match</div>
+            ) : null}
+          />
+
+          {error && (
+            <div className="zl-msg error" role="alert">
+              <I.alert />{error}
             </div>
           )}
+          {caps && !error && (
+            <div className="zl-msg warn" role="status">Caps Lock is on</div>
+          )}
 
-          <Form form={form} layout="vertical" requiredMark={false} onFinish={onFinish}>
-            <Form.Item
-              name="current_password"
-              label={<span className="erp-login-label">Current password</span>}
-              rules={[{ required: true, message: 'Enter your current password' }]}
-              style={{ marginBottom: 16 }}
-            >
-              <Input.Password
-                className="erp-login-input"
-                prefix={<LockOutlined style={{ color: '#8F8372' }} />}
-                placeholder="Current password"
-                autoFocus
-              />
-            </Form.Item>
+          <button type="submit" className={`zl-btn${phase === 'ok' ? ' ok' : ''}`} disabled={busy}>
+            {phase === 'loading' && <I.spin className="zl-spin" />}
+            {phase === 'ok' && (
+              <svg className="zl-check" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M5 12l5 5 9-10" />
+              </svg>
+            )}
+            <span>
+              {phase === 'ok' ? 'Updated' : phase === 'loading' ? 'Updating…' : 'Update password'}
+            </span>
+            {phase === 'idle' && <span className={`zl-kbd${enterDown ? ' down' : ''}`} aria-hidden="true">↵</span>}
+          </button>
 
-            <Form.Item
-              name="new_password"
-              label={<span className="erp-login-label">New password</span>}
-              hasFeedback
-              rules={[
-                { required: true, message: 'Enter a new password' },
-                { min: 4, message: 'Password must be at least 4 characters' },
-              ]}
-              style={{ marginBottom: 16 }}
-            >
-              <Input.Password
-                className="erp-login-input"
-                prefix={<LockOutlined style={{ color: '#8F8372' }} />}
-                placeholder="At least 4 characters"
-              />
-            </Form.Item>
-
-            <Form.Item
-              name="confirm_password"
-              label={<span className="erp-login-label">Confirm new password</span>}
-              dependencies={['new_password']}
-              hasFeedback
-              rules={[
-                { required: true, message: 'Confirm the new password' },
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    if (!value || getFieldValue('new_password') === value) return Promise.resolve();
-                    return Promise.reject(new Error('Passwords do not match'));
-                  },
-                }),
-              ]}
-              style={{ marginBottom: 22 }}
-            >
-              <Input.Password
-                className="erp-login-input"
-                prefix={<LockOutlined style={{ color: '#8F8372' }} />}
-                placeholder="Re-enter new password"
-              />
-            </Form.Item>
-
-            <Form.Item style={{ marginBottom: 10 }}>
-              <Button type="primary" htmlType="submit" loading={loading} block className="erp-login-btn">
-                {loading ? 'Updating…' : 'Update password'}
-              </Button>
-            </Form.Item>
-
-            <Form.Item style={{ marginBottom: 0 }}>
-              {mustChangePassword ? (
-                <Button
-                  icon={<LogoutOutlined />}
-                  block
-                  onClick={handleSignOut}
-                  style={{
-                    height: 44, borderRadius: 9,
-                    background: 'transparent',
-                    border: '1px solid rgba(245,238,226,0.14)',
-                    color: '#B2A791',
-                  }}
-                >
-                  Sign out
-                </Button>
-              ) : (
-                <Button
-                  block
-                  onClick={() => navigate(-1)}
-                  style={{
-                    height: 44, borderRadius: 9,
-                    background: 'transparent',
-                    border: '1px solid rgba(245,238,226,0.14)',
-                    color: '#B2A791',
-                  }}
-                >
-                  Cancel
-                </Button>
-              )}
-            </Form.Item>
-          </Form>
-        </div>
+          <button type="button" className="zl-ghost" onClick={mustChange ? signOut : () => navigate(-1)} disabled={busy}>
+            {mustChange ? 'Sign out instead' : (<><I.back /> Back</>)}
+          </button>
+        </form>
       </div>
 
-      {/* Shared login styles already defined by Login.jsx when rendered;
-          inline them here too so this page works on direct navigation. */}
-      <style>{chgCss}</style>
-    </div>
+      <span className="zl-note">
+        <I.key /> Nobody else can see this password, not even from Settings
+      </span>
+    </AuthShell>
   );
 }
-
-const chgCss = `
-.erp-login-root {
-  position: fixed; inset: 0;
-  background: #0B0807;
-  color: #F5EEE2;
-  font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif;
-  overflow: auto;
-}
-.erp-login-mesh {
-  position: fixed; inset: 0;
-  pointer-events: none; z-index: 0;
-  background:
-    radial-gradient(800px 600px at 18% 20%, rgba(226, 106, 76, 0.22), transparent 60%),
-    radial-gradient(700px 500px at 85% 10%, rgba(212, 165, 116, 0.16), transparent 60%),
-    radial-gradient(900px 700px at 70% 90%, rgba(154, 76, 56, 0.18), transparent 60%),
-    radial-gradient(600px 500px at 10% 90%, rgba(86, 50, 38, 0.22), transparent 60%);
-  animation: erpLoginDrift 24s ease-in-out infinite alternate;
-  filter: saturate(1.1);
-}
-@keyframes erpLoginDrift {
-  0%   { transform: translate3d(0, 0, 0) scale(1); }
-  50%  { transform: translate3d(-18px, 10px, 0) scale(1.04); }
-  100% { transform: translate3d(12px, -8px, 0) scale(1); }
-}
-.erp-login-grain {
-  position: fixed; inset: 0;
-  pointer-events: none; z-index: 0;
-  opacity: .06; mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.9'/></svg>");
-}
-.erp-login-stage {
-  position: relative; z-index: 5;
-  min-height: 100vh;
-  display: flex; align-items: center; justify-content: center;
-  padding: 40px 20px;
-}
-.erp-login-card {
-  width: 100%; max-width: 440px;
-  padding: 40px 38px 32px;
-  background: rgba(26, 23, 19, 0.72);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  border: 1px solid rgba(245, 238, 226, 0.10);
-  border-radius: 20px;
-  box-shadow:
-    0 30px 80px rgba(0, 0, 0, 0.50),
-    inset 0 1px 0 rgba(245, 238, 226, 0.05);
-  position: relative;
-  overflow: hidden;
-  opacity: 0;
-  transform: translateY(18px) scale(.985);
-  animation: erpLoginCardIn 1.1s cubic-bezier(.2, .7, .2, 1) .15s forwards;
-}
-.erp-login-card::before {
-  content: '';
-  position: absolute; inset: 0 0 auto 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(226, 106, 76, 0.55), transparent);
-}
-@keyframes erpLoginCardIn { to { opacity: 1; transform: translateY(0) scale(1); } }
-.erp-login-h {
-  font-family: 'Source Sans 3', sans-serif;
-  font-optical-sizing: auto;
-  font-size: 28px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  color: #F5EEE2;
-}
-.erp-login-sub {
-  font-family: 'Source Sans 3', sans-serif;
-  font-style: italic;
-  font-size: 14px;
-  color: #8F8372;
-}
-.erp-login-label {
-  font-size: 11px !important; letter-spacing: 1.5px !important; text-transform: uppercase !important;
-  color: #8F8372 !important; font-weight: 500 !important;
-}
-/* ── Input.Password / Input.affix-wrapper — single source of border.
- *
- * Background + border + radius live on the OUTER affix-wrapper only.
- * Earlier the same rule applied to both wrapper and inner .ant-input,
- * which gave the password fields a double border (wrapper-border around
- * an inner-bordered input) — visually broken on the password-change
- * page where every field is a Password input. Inner input is now
- * transparent with no border so prefix lock + suffix eye-icon sit
- * cleanly inside one rounded shell. */
-.erp-login-input.ant-input-affix-wrapper {
-  background: rgba(11, 8, 7, 0.55) !important;
-  border: 1px solid rgba(245, 238, 226, 0.12) !important;
-  border-radius: 9px !important;
-  height: 46px !important;
-  padding: 0 14px !important;
-  color: #F5EEE2 !important;
-  box-shadow: none !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 10px !important;
-}
-.erp-login-input.ant-input-affix-wrapper .ant-input {
-  background: transparent !important;
-  border: none !important;
-  height: auto !important;
-  padding: 0 !important;
-  color: #F5EEE2 !important;
-  font-size: 14px !important;
-  box-shadow: none !important;
-}
-.erp-login-input.ant-input-affix-wrapper .ant-input-prefix,
-.erp-login-input.ant-input-affix-wrapper .ant-input-suffix {
-  margin: 0 !important;
-  display: inline-flex;
-  align-items: center;
-}
-/* AntD wraps the eye-toggle in a span.ant-input-suffix > .anticon. Keep
-   the icon legible against the dark canvas. */
-.erp-login-input.ant-input-affix-wrapper .ant-input-suffix .anticon {
-  color: #8F8372 !important;
-}
-.erp-login-input.ant-input-affix-wrapper .ant-input-suffix .anticon:hover {
-  color: #C8B89F !important;
-}
-.erp-login-input.ant-input-affix-wrapper:hover {
-  border-color: rgba(245, 238, 226, 0.22) !important;
-}
-.erp-login-input.ant-input-affix-wrapper-focused,
-.erp-login-input.ant-input-affix-wrapper:focus-within {
-  border-color: rgba(226, 106, 76, 0.6) !important;
-  box-shadow: 0 0 0 3px rgba(226, 106, 76, 0.14) !important;
-  background: rgba(11, 8, 7, 0.75) !important;
-}
-.erp-login-input.ant-input-affix-wrapper input::placeholder,
-.erp-login-input.ant-input-affix-wrapper .ant-input::placeholder {
-  color: #6D6355 !important;
-}
-.erp-login-btn.ant-btn {
-  height: 48px !important;
-  background: linear-gradient(135deg, #E26A4C, #B1472F) !important;
-  border: none !important;
-  border-radius: 9px !important;
-  color: #FDFAF2 !important;
-  font-weight: 600 !important;
-  font-size: 15px !important;
-  box-shadow:
-    0 14px 30px rgba(226, 106, 76, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
-}
-.erp-login-btn.ant-btn:hover {
-  filter: brightness(1.03);
-  transform: translateY(-1px);
-}
-.erp-login-root .ant-form-item-label > label {
-  color: #8F8372 !important;
-  font-size: 11px !important; letter-spacing: 1.5px !important;
-  text-transform: uppercase !important; font-weight: 500 !important;
-}
-
-/* ── Default-password callout ──────────────────────────────────
- * Warm-amber tinted card so the warning reads at a glance against
- * the dark login canvas without fighting the page's primary orange
- * accent. Title sits at the page's main text colour (#F5EEE2) so
- * it's the most legible thing in the box; description drops one
- * step in luminance so the title holds focus.
- */
-.erp-login-callout {
-  display: flex; align-items: flex-start; gap: 12px;
-  padding: 14px 16px;
-  margin-bottom: 20px;
-  background: rgba(212, 165, 116, 0.10);
-  border: 1px solid rgba(212, 165, 116, 0.28);
-  border-radius: 12px;
-}
-.erp-login-callout-icon {
-  flex-shrink: 0;
-  width: 22px; height: 22px;
-  display: grid; place-items: center;
-  color: #E8A45F;
-  font-size: 18px;
-  line-height: 1;
-  margin-top: 1px;
-}
-.erp-login-callout-body { flex: 1; min-width: 0; }
-.erp-login-callout-title {
-  color: #F5EEE2;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  margin-bottom: 3px;
-}
-.erp-login-callout-text {
-  color: #C8B89F;
-  font-size: 13px;
-  line-height: 1.5;
-}
-`;
