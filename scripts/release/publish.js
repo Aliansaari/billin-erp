@@ -33,6 +33,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const OUT = path.join(ROOT, 'dist-electron');
 const BUCKET = 'zehen-downloads';
 const KEY_PATH = path.join(os.homedir(), '.zehen-release', 'update-signing-key.pem');
+const WRANGLER = path.join(ROOT, 'cloud', 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 const args = new Set(process.argv.slice(2));
 const PUBLISH = args.has('--publish');
 const WEBSITE = !args.has('--no-website');
@@ -89,6 +90,8 @@ console.log(`  sha512     ${digest.slice(0, 24)}…`);
 console.log('  signature  valid for the app\'s embedded key');
 for (const u of uploads) console.log(`  → ${BUCKET}/${u.key}  (${mb(u.file)})`);
 
+if (!fs.existsSync(WRANGLER)) fail('wrangler is not installed in cloud/. Run npm install in cloud/ first.');
+
 if (!PUBLISH) {
   console.log('\nDry run: nothing uploaded. Re-run with --publish to release.');
   process.exit(0);
@@ -98,10 +101,12 @@ if (!PUBLISH) {
 let feedLive = false;
 for (const u of uploads) {
   console.log(`\nUploading ${u.key}…`);
-  const r = spawnSync('npx', [
-    'wrangler', 'r2', 'object', 'put', `${BUCKET}/${u.key}`,
+  // Run wrangler's JS entry with node directly: no shell, so a path with a
+  // space ("Billing ERP") or a cache header with commas stays one argument.
+  const r = spawnSync(process.execPath, [
+    WRANGLER, 'r2', 'object', 'put', `${BUCKET}/${u.key}`,
     '--file', u.file, '--remote', '--content-type', u.type, '--cache-control', u.cache,
-  ], { cwd: path.join(ROOT, 'cloud'), stdio: 'inherit', shell: process.platform === 'win32' });
+  ], { cwd: path.join(ROOT, 'cloud'), stdio: 'inherit' });
   if (r.status !== 0) {
     fail(feedLive
       ? `Upload of ${u.key} failed. The update itself IS live (latest.yml is out); re-run to retry the rest.`
