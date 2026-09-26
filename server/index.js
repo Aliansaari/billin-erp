@@ -235,6 +235,7 @@ app.use('/api/backup', require('./routes/backup'));
 app.use('/api/print', require('./routes/print'));
 app.use('/api/godowns', require('./routes/godowns'));
 app.use('/api/salesmen', require('./routes/salesmen'));
+app.use('/api/staff-attendance', require('./routes/staffAttendance'));
 app.use('/api/membership', require('./routes/membership'));
 app.use('/api/whatsapp', require('./routes/whatsapp'));
 app.use('/api/states', require('./routes/states'));
@@ -3531,6 +3532,13 @@ async function startServer() {
         require('./services/snapshotPush').start();
       } catch (e) {
         console.error('[remoteAccess] boot skipped:', e.message);
+      }
+      try {
+        // Staff attendance sync. A no-op for any company that never turned
+        // attendance on; failures are recorded, never thrown.
+        require('./services/staffAttendance').start();
+      } catch (e) {
+        console.error('[attendance] boot skipped:', e.message);
       }
 
       // Start auto-backup scheduler

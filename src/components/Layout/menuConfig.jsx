@@ -35,6 +35,7 @@ import {
   FileAddOutlined, ProfileOutlined, AccountBookOutlined, ContainerOutlined,
   UserAddOutlined, ShopOutlined, AppstoreAddOutlined, FolderAddOutlined,
   DeploymentUnitOutlined, BlockOutlined, TransactionOutlined, ScheduleOutlined,
+  FieldTimeOutlined, IdcardOutlined,
 } from '@ant-design/icons';
 import { hasPermission, hasAnyPermission } from '../../utils/perms';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -151,6 +152,17 @@ export const menuItems = [
       { key: '/expenses/new',    icon: <PlusCircleOutlined />,    label: 'New Expense',     perm: 'expenses.create' },
       { key: '/expenses',        icon: <ProfileOutlined />,       label: 'Expense List',    perm: 'expenses.view' },
       { key: '/expenses/report', icon: <BarChartOutlined />,      label: 'Expense Report',  perm: 'expenses.view' },
+    ],
+  },
+  // Staff — attendance punched from staff phones (and, in a later phase,
+  // payroll). Manager-only: the register shows staff selfies and locations.
+  {
+    key: 'staff-menu',
+    icon: <IdcardOutlined />,
+    label: 'Staff',
+    children: [
+      { key: '/staff-attendance',          icon: <FieldTimeOutlined />, label: 'Attendance',    perm: 'settings.manage_company' },
+      { key: '/settings/staff-attendance', icon: <TeamOutlined />,      label: 'Staff & Rules', perm: 'settings.manage_company' },
     ],
   },
   // Bank — top-level dropdown covering bank accounts AND loans.

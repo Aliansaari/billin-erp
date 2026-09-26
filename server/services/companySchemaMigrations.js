@@ -539,6 +539,92 @@ async function runCompanySchemaMigrations(sequelize) {
       END IF;
     END $membership_settings$;
   `);
+
+  // ── Staff attendance ────────────────────────────────────────────────
+  // Staff punch in/out from their own phones through the control plane
+  // (cloud/src/attendance.js); services/staffAttendance.js syncs the staff
+  // list + settings up and the punches down. No Sequelize models on purpose:
+  // everything goes through raw SQL in that service, so these CREATE TABLEs
+  // are the single definition and there is no model/migration pair to drift.
+  // Runs on the primary DB every boot (index.js additive-schema guard) and on
+  // every company DB. Nothing here touches any money figure — payroll is a
+  // later phase and will post through the ledger services like everything else.
+  await sequelize.query(`
+    DO $staff_att$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'staff_members') THEN
+        CREATE TABLE staff_members (
+          staff_id            SERIAL PRIMARY KEY,
+          name                VARCHAR(100) NOT NULL,
+          phone               VARCHAR(20),
+          -- Optional link to the salesman this person bills as. Used to read
+          -- their last bill of the day (auto punch-out) and, later, commission.
+          salesman_id         INTEGER,
+          attendance_enabled  BOOLEAN NOT NULL DEFAULT true,
+          -- PBKDF2 hash in the control plane's format; the PIN itself is
+          -- never stored anywhere.
+          pin_hash            TEXT,
+          pin_set_at          TIMESTAMP WITH TIME ZONE,
+          -- Bumped by "Reset phone"; the control plane forgets the bound phone,
+          -- its passkey and its sessions when it sees a higher number.
+          device_reset_seq    INTEGER NOT NULL DEFAULT 0,
+          cloud_status        JSONB,
+          is_active           BOOLEAN NOT NULL DEFAULT true,
+          joined_on           DATE,
+          notes               TEXT,
+          created_date        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          modified_date       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'staff_attendance_settings') THEN
+        CREATE TABLE staff_attendance_settings (
+          id               INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+          enabled          BOOLEAN NOT NULL DEFAULT false,
+          config           JSONB NOT NULL DEFAULT '{}'::jsonb,
+          shop_code        VARCHAR(12),
+          network          JSONB,
+          last_sync_at     TIMESTAMP WITH TIME ZONE,
+          last_sync_error  TEXT,
+          modified_date    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'staff_punches') THEN
+        CREATE TABLE staff_punches (
+          -- 'pch_…' from the control plane for phone punches, 'man_…' for
+          -- entries the owner adds by hand.
+          punch_id       VARCHAR(40) PRIMARY KEY,
+          staff_id       INTEGER NOT NULL,
+          kind           VARCHAR(8)  NOT NULL,            -- in | out
+          punched_at     TIMESTAMP WITH TIME ZONE NOT NULL,
+          source         VARCHAR(12) NOT NULL DEFAULT 'phone',  -- phone | manual
+          net_status     VARCHAR(12),                     -- match | pending | mismatch | off
+          geo_status     VARCHAR(12),                     -- inside | outside | none | off
+          distance_m     NUMERIC(10,1),
+          lat            NUMERIC(10,6),
+          lng            NUMERIC(10,6),
+          accuracy_m     NUMERIC(10,1),
+          passkey        BOOLEAN NOT NULL DEFAULT false,
+          device_shared  BOOLEAN NOT NULL DEFAULT false,
+          prompt         VARCHAR(60),
+          selfie         BYTEA,
+          reason         TEXT,                            -- required for manual entries
+          created_by     INTEGER,
+          -- Punches are never deleted or edited; a wrong one is voided with a
+          -- reason, and the staff member sees that it was.
+          voided_at      TIMESTAMP WITH TIME ZONE,
+          void_reason    TEXT,
+          voided_by      INTEGER,
+          received_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX idx_staff_punches_staff_time ON staff_punches(staff_id, punched_at);
+        CREATE INDEX idx_staff_punches_time       ON staff_punches(punched_at);
+      END IF;
+    END $staff_att$;
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };

@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ZEHEN Staff</title>
+<meta name="description" content="Check in and out at work from your own phone.">
+<meta name="theme-color" content="#4F46E5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ZEHEN Staff">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="/staff/manifest.webmanifest">
+<link rel="apple-touch-icon" href="https://zehenapp.com/apple-touch-icon.png">
+<link rel="icon" href="https://zehenapp.com/favicon-32.png">
+<style>
+  :root {
+    --bg: #f5f6fa; --card: #ffffff; --text: #16181d; --muted: #6b7080; --line: #e4e6ee;
+    --brand: #4F46E5; --brand-ink: #ffffff; --ok: #0f9d58; --ok-bg: #e7f6ee;
+    --warn: #b26a00; --warn-bg: #fff4e0; --bad: #c62828; --bad-bg: #fdecec;
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #181b22; --text: #eef0f5; --muted: #9aa0b0; --line: #262a34;
+      --brand: #7c75ff; --ok: #3ccf82; --ok-bg: #12301f; --warn: #ffb74d; --warn-bg: #33270f;
+      --bad: #ff6b6b; --bad-bg: #3a1717;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+    -webkit-tap-highlight-color: transparent; }
+  body { min-height: 100vh; padding: env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); }
+  main { max-width: 440px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 18px 2px 10px; }
+  .brand { font-weight: 800; letter-spacing: .08em; font-size: 15px; }
+  .brand span { color: var(--brand); }
+  .shopname { color: var(--muted); font-size: 13px; text-align: right; max-width: 60%; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin: 12px 0; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  input { width: 100%; font-size: 18px; padding: 14px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--text); outline: none; }
+  input:focus { border-color: var(--brand); }
+  button { font: inherit; border: 0; cursor: pointer; }
+  .btn { width: 100%; padding: 16px; border-radius: 14px; font-size: 17px; font-weight: 700;
+    background: var(--brand); color: var(--brand-ink); margin-top: 18px; }
+  .btn[disabled] { opacity: .55; }
+  .btn.ghost { background: transparent; color: var(--brand); border: 1px solid var(--line); font-weight: 600; }
+  .link { background: none; color: var(--brand); padding: 8px 0; font-size: 14px; }
+  .punch { display: grid; place-items: center; text-align: center; padding: 26px 20px 22px; }
+  .clock { font-size: 44px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .date { color: var(--muted); margin-bottom: 18px; }
+  .big { width: 190px; height: 190px; border-radius: 50%; font-size: 22px; font-weight: 800; color: #fff;
+    background: var(--brand); box-shadow: 0 10px 30px rgba(79,70,229,.35); display: grid; place-items: center; line-height: 1.2; }
+  .big.out { background: #e85d3f; box-shadow: 0 10px 30px rgba(232,93,63,.32); }
+  .big small { display: block; font-size: 13px; font-weight: 600; opacity: .9; margin-top: 4px; }
+  .status { margin-top: 16px; font-size: 15px; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); gap: 10px; }
+  .row:first-of-type { border-top: 0; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+  .ok { background: var(--ok-bg); color: var(--ok); }
+  .warn { background: var(--warn-bg); color: var(--warn); }
+  .bad { background: var(--bad-bg); color: var(--bad); }
+  .msg { border-radius: 12px; padding: 12px 14px; font-size: 14px; margin-top: 14px; }
+  .steps { padding-left: 20px; margin: 8px 0 0; } .steps li { margin: 8px 0; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+  .stats div { background: var(--bg); border-radius: 12px; padding: 10px 4px; }
+  .stats b { display: block; font-size: 22px; }
+  .stats span { font-size: 12px; color: var(--muted); }
+  .result { text-align: center; }
+  .tick { width: 76px; height: 76px; border-radius: 50%; margin: 6px auto 12px; display: grid; place-items: center;
+    background: var(--ok-bg); color: var(--ok); font-size: 40px; font-weight: 800; }
+  #cam { position: fixed; inset: 0; background: #000; z-index: 20; display: none; flex-direction: column; }
+  #cam video { flex: 1; width: 100%; object-fit: cover; transform: scaleX(-1); }
+  #cam .prompt { position: absolute; top: calc(18px + env(safe-area-inset-top)); left: 16px; right: 16px; text-align: center;
+    color: #fff; font-size: 24px; font-weight: 800; text-shadow: 0 2px 10px rgba(0,0,0,.7); }
+  #cam .prompt small { display: block; font-size: 14px; font-weight: 500; opacity: .85; }
+  #cam .bar { display: flex; gap: 12px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); background: #000; }
+  #cam .bar button { flex: 1; padding: 16px; border-radius: 14px; font-size: 17px; font-weight: 700; }
+  .shutter { background: #fff; color: #000; } .cancel { background: #2a2a2a; color: #fff; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand">ZEHEN <span>STAFF</span></div>
+    <div class="shopname" id="shopName"></div>
+  </header>
+  <div id="view"></div>
+</main>
+
+<div id="cam">
+  <video id="video" playsinline autoplay muted></video>
+  <div class="prompt"><span id="camPrompt"></span><small>Keep your face and hand in the picture</small></div>
+  <div class="bar">
+    <button class="cancel" id="camCancel" type="button">Cancel</button>
+    <button class="shutter" id="camShoot" type="button">Take photo</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ── storage (every access guarded: private mode can throw) ─────────
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
+    del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
+  };
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('s')) store.set('zs_shop', params.get('s').toUpperCase());
+
+  // One id per browser install. The server binds a staff account to it on
+  // first login, so it must survive reloads and never be regenerated.
+  let deviceId = store.get('zs_device');
+  if (!deviceId) {
+    const b = crypto.getRandomValues(new Uint8Array(18));
+    deviceId = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+    store.set('zs_device', deviceId);
+  }
+
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.navigator.standalone === true
+    || window.matchMedia('(display-mode: standalone)').matches;
+
+  const $view = document.getElementById('view');
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let me = null;
+  let clockTimer = null;
+
+  // ── API ─────────────────────────────────────────────────────────────
+  async function api(path, body) {
+    const headers = { 'content-type': 'application/json' };
+    const token = store.get('zs_token');
+    if (token) headers.authorization = 'Bearer ' + token;
+    let res;
+    try {
+      res = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    } catch {
+      throw Object.assign(new Error('No internet connection. Check your data or Wi-Fi and try again.'), { code: 'offline' });
+    }
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 && token && path !== '/v1/staff/login') {
+      store.del('zs_token');
+      render();
+      throw Object.assign(new Error('Please sign in again.'), { code: 'unauthorized' });
+    }
+    if (!res.ok) throw Object.assign(new Error(data.error || 'Something went wrong.'), { code: data.code });
+    return data;
+  }
+
+  // ── WebAuthn plumbing ───────────────────────────────────────────────
+  const b64uToBuf = (s) => {
+    const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4);
+    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
+  };
+  const bufToB64u = (buf) => {
+    let bin = ''; const a = new Uint8Array(buf);
+    for (let i = 0; i < a.length; i++) bin += String.fromCharCode(a[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  const passkeysSupported = () => !!(window.PublicKeyCredential && navigator.credentials);
+
+  // ── time, shown in the shop's timezone whatever the phone is set to ─
+  const tz = () => (me?.settings?.tz_offset_min ?? 330);
+  const shift = (ms) => new Date(ms + tz() * 60000);
+  const fmtTime = (ms) => shift(ms).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+  const fmtDate = (ms) => shift(ms).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+  const dayKey = (ms) => shift(ms).toISOString().slice(0, 10);
+  let clockSkew = 0;   // server clock minus phone clock, for display only
+
+  // ── screens ─────────────────────────────────────────────────────────
+  function render() {
+    clearInterval(clockTimer);
+    if (!store.get('zs_token')) {
+      document.getElementById('shopName').textContent = '';
+      if (isIOS && !standalone && !store.get('zs_ios_browser_ok')) return renderInstallIOS();
+      return renderLogin();
+    }
+    return loadHome();
+  }
+
+  function renderInstallIOS() {
+    $view.innerHTML = `
+      <div class="card">
+        <h1>Add to Home Screen first</h1>
+        <p class="muted">Your attendance is linked to one app on your phone. Set it up from the home screen icon so it keeps working every day.</p>
+        <ol class="steps">
+          <li>Tap the <b>Share</b> button at the bottom of Safari.</li>
+          <li>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+          <li>Open <b>ZEHEN Staff</b> from your home screen and sign in there.</li>
+        </ol>
+      </div>
+      <button class="link" id="skip" type="button">I will use it in Safari instead</button>`;
+    document.getElementById('skip').onclick = () => { store.set('zs_ios_browser_ok', '1'); render(); };
+  }
+
+  function renderLogin(error) {
+    $view.innerHTML = `
+      <div class="card">
+        <h1>Sign in</h1>
+        <p class="muted">Use the shop code, your mobile number and the PIN your manager gave you.</p>
+        <form id="f" autocomplete="off">
+          <label for="shop">Shop code</label>
+          <input id="shop" autocapitalize="characters" maxlength="6" value="${esc(store.get('zs_shop') || '')}" required>
+          <label for="phone">Mobile number</label>
+          <input id="phone" type="tel" inputmode="tel" maxlength="15" value="${esc(store.get('zs_phone') || '')}" required>
+          <label for="pin">PIN</label>
+          <input id="pin" type="password" inputmode="numeric" maxlength="8" required>
+          <button class="btn" id="go" type="submit">Sign in</button>
+        </form>
+        ${error ? `<div class="msg bad">${esc(error)}</div>` : ''}
+      </div>`;
+    document.getElementById('f').onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('go');
+      btn.disabled = true; btn.textContent = 'Signing in…';
+      const shop = document.getElementById('shop').value.trim().toUpperCase();
+      const phone = document.getElementById('phone').value.trim();
+      try {
+        const r = await api('/v1/staff/login', { shop_code: shop, phone, pin: document.getElementById('pin').value, device_id: deviceId });
+        store.set('zs_token', r.token); store.set('zs_shop', shop); store.set('zs_phone', phone);
+        render();
+      } catch (err) { renderLogin(err.message); }
+    };
+  }
+
+  async function loadHome(flash) {
+    try {
+      me = await api('/v1/staff/me');
+    } catch (err) {
+      if (err.code === 'unauthorized') return;
+      $view.innerHTML = `<div class="card"><h1>Could not load</h1><p class="muted">${esc(err.message)}</p>
+        <button class="btn" id="retry" type="button">Try again</button></div>`;
+      document.getElementById('retry').onclick = () => loadHome();
+      return;
+    }
+    clockSkew = me.server_time - Date.now();
+    document.getElementById('shopName').textContent = me.company_name || '';
+
+    if (!me.has_passkey && passkeysSupported() && !(me.settings.passkey === 'optional' && store.get('zs_pk_skip'))) {
+      return renderEnroll();
+    }
+    renderHome(flash);
+  }
+
+  function renderEnroll(error) {
+    const required = me.settings.passkey === 'required';
+    $view.innerHTML = `
+      <div class="card">
+        <h1>Set up ${isIOS ? 'Face ID / Touch ID' : 'fingerprint'}</h1>
+        <p class="muted">Once, on this phone. After this, every check-in is one touch, and nobody else can check in for you.</p>
+        <button class="btn" id="enroll" type="button">Set up now</button>
+        ${required ? '' : '<button class="btn ghost" id="later" type="button">Not now</button>'}
+        ${error ? `<div class="msg bad">${esc(error)}</div>` : ''}
+      </div>`;
+    document.getElementById('enroll').onclick = enroll;
+    if (!required) document.getElementById('later').onclick = () => { store.set('zs_pk_skip', '1'); renderHome(); };
+  }
+
+  async function enroll() {
+    const btn = document.getElementById('enroll');
+    btn.disabled = true; btn.textContent = 'Waiting for your phone…';
+    try {
+      const { publicKey: o } = await api('/v1/staff/passkey/begin', {});
+      const cred = await navigator.credentials.create({
+        publicKey: { ...o, challenge: b64uToBuf(o.challenge), user: { ...o.user, id: b64uToBuf(o.user.id) } },
+      });
+      await api('/v1/staff/passkey/finish', {
+        challenge: o.challenge,
+        credential: {
+          id: cred.id,
+          response: {
+            clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+            attestationObject: bufToB64u(cred.response.attestationObject),
+          },
+        },
+      });
+      loadHome({ ok: 'All set. Checking in is now one touch.' });
+    } catch (err) {
+      renderEnroll(err.name === 'NotAllowedError' ? 'Setup was cancelled. Tap "Set up now" to try again.' : err.message);
+    }
+  }
+
+  function renderHome(flash) {
+    const today = dayKey(Date.now() + clockSkew);
+    const todays = me.punches.filter((p) => dayKey(p.at) === today).sort((a, b) => a.at - b.at);
+    const last = todays[todays.length - 1];
+    const isOut = me.next_kind === 'out';
+
+    $view.innerHTML = `
+      ${flash?.ok ? `<div class="msg ok">${esc(flash.ok)}</div>` : ''}
+      <div class="card punch">
+        <div class="clock" id="clock"></div>
+        <div class="date" id="date"></div>
+        <button class="big ${isOut ? 'out' : ''}" id="punch" type="button">
+          <div>${isOut ? 'Check OUT' : 'Check IN'}<small>${isOut ? 'Leaving work' : 'Starting work'}</small></div>
+        </button>
+        <div class="status muted">${last
+          ? (last.kind === 'in' ? `Checked in at <b>${fmtTime(last.at)}</b>` : `Checked out at <b>${fmtTime(last.at)}</b>`)
+          : 'Not checked in yet today'}</div>
+        <div id="punchMsg"></div>
+      </div>
+      ${todays.length ? `<div class="card"><h2>Today</h2>${todays.map(punchRow).join('')}</div>` : ''}
+      ${historyCard()}
+      <button class="link" id="logout" type="button">Sign out</button>`;
+
+    const tick = () => {
+      const clock = document.getElementById('clock');
+      if (!clock) { clearInterval(clockTimer); return; }   // screen changed under us
+      const now = Date.now() + clockSkew;
+      clock.textContent = fmtTime(now);
+      document.getElementById('date').textContent = fmtDate(now);
+    };
+    tick(); clockTimer = setInterval(tick, 10_000);
+    document.getElementById('punch').onclick = punch;
+    document.getElementById('logout').onclick = async () => {
+      if (!confirm('Sign out? You will need your PIN to sign in again.')) return;
+      try { await api('/v1/staff/logout', {}); } catch { /* signing out locally anyway */ }
+      store.del('zs_token'); render();
+    };
+  }
+
+  function netPill(p) {
+    if (p.net_status === 'match') return '<span class="pill ok">Shop Wi-Fi</span>';
+    if (p.net_status === 'pending') return '<span class="pill warn">Wi-Fi check pending</span>';
+    if (p.net_status === 'mismatch') return '<span class="pill bad">Not on shop Wi-Fi</span>';
+    return '';
+  }
+
+  function punchRow(p) {
+    return `<div class="row"><div><b>${p.kind === 'in' ? 'IN' : 'OUT'}</b> &nbsp;${fmtTime(p.at)}</div><div>${netPill(p)}</div></div>`;
+  }
+
+  // "My Attendance". Prefers the summary computed on the shop PC (it
+  // includes the owner's corrections); falls back to raw punches.
+  function historyCard() {
+    const v = me.view;
+    if (v && v.month) {
+      const s = v.summary || {};
+      const days = (v.days || []).slice().reverse().slice(0, 31);
+      return `<div class="card"><h2>My attendance: ${esc(v.month_label || v.month)}</h2>
+        <div class="stats">
+          <div><b>${s.present ?? 0}</b><span>Present</span></div>
+          <div><b>${s.late ?? 0}</b><span>Late</span></div>
+          <div><b>${s.absent ?? 0}</b><span>Absent</span></div>
+        </div>
+        ${days.map((d) => `<div class="row"><div>${esc(d.label || d.date)}<div class="muted">${esc([d.in, d.out].filter(Boolean).join(' to ') || '')}${d.note ? ' · ' + esc(d.note) : ''}</div></div>
+          <span class="pill ${d.tone || ''}">${esc(d.status || '')}</span></div>`).join('')}
+        ${me.view_updated_at ? `<p class="muted" style="margin-top:10px">Updated by the shop at ${fmtTime(me.view_updated_at)}, ${esc(dayKey(me.view_updated_at))}</p>` : ''}
+      </div>`;
+    }
+    const byDay = new Map();
+    for (const p of me.punches) {
+      const k = dayKey(p.at);
+      if (!byDay.has(k)) byDay.set(k, []);
+      byDay.get(k).push(p);
+    }
+    const today = dayKey(Date.now() + clockSkew);
+    const rows = [...byDay.entries()].slice(0, 20).map(([k, ps]) => {
+      ps.sort((a, b) => a.at - b.at);
+      const inP = ps.find((p) => p.kind === 'in');
+      const last = ps[ps.length - 1];
+      const outText = last.kind === 'out' ? fmtTime(last.at) : (k === today ? 'still in' : 'no check-out');
+      return `<div class="row"><div>${esc(fmtDate(ps[0].at))}</div><div class="muted">${inP ? fmtTime(inP.at) : '?'} to ${outText}</div></div>`;
+    });
+    return rows.length ? `<div class="card"><h2>Recent days</h2>${rows.join('')}</div>` : '';
+  }
+
+  // ── punching ────────────────────────────────────────────────────────
+  function showPunchMsg(text, tone) {
+    const el = document.getElementById('punchMsg');
+    if (el) el.innerHTML = `<div class="msg ${tone}">${esc(text)}</div>`;
+  }
+
+  function getLocation() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+      );
+    });
+  }
+
+  // Live camera only: the gallery is never offered, so an old photo cannot
+  // be picked. The prompt comes from the server and changes every time.
+  function takeSelfie(prompt) {
+    return new Promise(async (resolve, reject) => {
+      const cam = document.getElementById('cam');
+      const video = document.getElementById('video');
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 } }, audio: false });
+      } catch {
+        return reject(new Error('Camera permission is needed for the attendance photo. Allow it in your browser settings.'));
+      }
+      document.getElementById('camPrompt').textContent = prompt || 'Look at the camera';
+      video.srcObject = stream;
+      cam.style.display = 'flex';
+      const done = (fn) => {
+        stream.getTracks().forEach((t) => t.stop());
+        video.srcObject = null;
+        cam.style.display = 'none';
+        fn();
+      };
+      document.getElementById('camCancel').onclick = () => done(() => reject(new Error('Photo cancelled.')));
+      document.getElementById('camShoot').onclick = () => {
+        const w = video.videoWidth || 480; const h = video.videoHeight || 640;
+        const scale = Math.min(1, 480 / w);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        const data = canvas.toDataURL('image/jpeg', 0.72);
+        done(() => resolve(data));
+      };
+    });
+  }
+
+  async function punch() {
+    const btn = document.getElementById('punch');
+    btn.disabled = true;
+    showPunchMsg('Starting…', 'muted');
+    try {
+      const b = await api('/v1/staff/punch/begin', {});
+      const locP = b.needs.geo ? getLocation() : Promise.resolve(null);
+
+      let selfie = null;
+      if (b.needs.selfie) selfie = await takeSelfie(b.prompt);
+
+      let assertion = null;
+      if (b.needs.passkey) {
+        showPunchMsg(isIOS ? 'Confirm with Face ID / Touch ID…' : 'Confirm with your fingerprint…', 'muted');
+        const o = b.publicKey;
+        const cred = await navigator.credentials.get({
+          publicKey: {
+            ...o,
+            challenge: b64uToBuf(o.challenge),
+            allowCredentials: o.allowCredentials.map((c) => ({ ...c, id: b64uToBuf(c.id) })),
+          },
+        });
+        assertion = {
+          id: cred.id,
+          response: {
+            clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+            authenticatorData: bufToB64u(cred.response.authenticatorData),
+            signature: bufToB64u(cred.response.signature),
+          },
+        };
+      }
+
+      showPunchMsg('Saving…', 'muted');
+      const geo = await locP;
+      const r = await api('/v1/staff/punch/finish', { challenge: b.challenge, kind: b.kind, assertion, geo, selfie });
+      renderResult(r.punch);
+    } catch (err) {
+      const text = err.name === 'NotAllowedError'
+        ? 'The fingerprint / Face ID check was cancelled. Tap the button to try again.'
+        : err.message;
+      showPunchMsg(text, 'bad');
+      if (err.code === 'passkey_required') return renderEnroll();
+      btn.disabled = false;
+    }
+  }
+
+  function renderResult(p) {
+    const net = p.net_status === 'match'
+      ? '<div class="msg ok">Verified on the shop Wi-Fi.</div>'
+      : p.net_status === 'pending'
+        ? '<div class="msg warn">Recorded. The Wi-Fi check will finish when the shop computer is switched on.</div>'
+        : p.net_status === 'mismatch'
+          ? '<div class="msg bad">Recorded, but you were not on the shop Wi-Fi. Your manager will see this.</div>'
+          : '';
+    $view.innerHTML = `
+      <div class="card result">
+        <div class="tick">✓</div>
+        <h1>${p.kind === 'in' ? 'Checked IN' : 'Checked OUT'}</h1>
+        <p class="clock" style="font-size:34px">${fmtTime(p.at)}</p>
+        <p class="muted">${fmtDate(p.at)}</p>
+        ${net}
+        <button class="btn" id="done" type="button">Done</button>
+      </div>`;
+    document.getElementById('done').onclick = () => loadHome();
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

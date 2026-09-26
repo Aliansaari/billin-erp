@@ -7,7 +7,7 @@ import {
   AppstoreOutlined, CodeOutlined, KeyOutlined, BellOutlined,
   CalendarOutlined, TeamOutlined, InboxOutlined, ImportOutlined,
   IdcardOutlined, WifiOutlined, WhatsAppOutlined, RobotOutlined,
-  CreditCardOutlined, GlobalOutlined,
+  CreditCardOutlined, GlobalOutlined, FieldTimeOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -51,6 +51,9 @@ const SETTINGS_GROUPS = [
       // Salesmen — master list of sales staff credited on bills. No flag
       // gate; always available to company-settings managers.
       { path: 'salesmen',       icon: <IdcardOutlined />,   label: 'Salesmen',        perm: 'settings.manage_company' },
+      // Staff Attendance — staff check in from their own phones; roster, PINs
+      // and the checks (Wi-Fi / fingerprint / selfie / location) live here.
+      { path: 'staff-attendance', icon: <FieldTimeOutlined />, label: 'Staff Attendance', perm: 'settings.manage_company' },
       // Membership Plans — loyalty tiers. Flag-gated on the membership master
       // switch (Features → Membership), so the entry only appears once the
       // module is turned on.

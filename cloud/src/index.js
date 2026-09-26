@@ -26,6 +26,11 @@
  *   POST /v1/device/manage    desktop → list / revoke this licence's devices
  *   GET  /v1/gate             mobile  → current entitlements
  *   POST /v1/admin/*          vendor  → flip entitlements, revoke devices
+ *
+ *   Staff attendance (see attendance.js):
+ *   GET  /staff/                 staff   → the check-in page
+ *   POST /v1/staff/*             staff   → login, passkey, punch
+ *   POST /v1/att/sync|beacon     desktop → staff list + settings up, punches down
  */
 
 /* CORS.
@@ -41,6 +46,8 @@
  * ambient credential for another origin to ride on. `Allow-Credentials` is
  * deliberately absent, which is also what makes the wildcard legal.
  */
+import { routeAttendance } from './attendance.js';
+
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
@@ -1024,6 +1031,12 @@ export default {
     if (path === '/health') return json({ status: 'ok', service: 'zehen-control-plane' });
 
     try {
+      // Attendance reads its own body, so it must run before the read below.
+      const att = await routeAttendance(request, env, url, {
+        json, fail, verifyLicense, randHex, sha256Hex, verifyPassword,
+      });
+      if (att) return att;
+
       const body = request.method === 'POST'
         ? await request.json().catch(() => ({}))
         : {};

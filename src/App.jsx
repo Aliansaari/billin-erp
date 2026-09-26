@@ -105,6 +105,8 @@ import GodownList from './pages/settings/GodownList';
 import SalesmanList from './pages/settings/SalesmanList';
 import MembershipPlans from './pages/settings/MembershipPlans';
 import MembershipSettings from './pages/settings/MembershipSettings';
+import StaffAttendanceSettings from './pages/settings/StaffAttendanceSettings';
+import AttendanceRegister from './pages/staff/AttendanceRegister';
 import MembershipList from './pages/membership/MembershipList';
 import MembershipReport from './pages/membership/MembershipReport';
 import LanSettings from './pages/settings/LanSettings';
@@ -712,6 +714,7 @@ export default function App() {
               membership_enabled flag; the route itself only needs parties.view. */}
           <Route path="members"      element={<RoleRoute perm="parties.view"><MembershipList /></RoleRoute>} />
           <Route path="members/report" element={<RoleRoute perm="parties.view"><MembershipReport /></RoleRoute>} />
+          <Route path="staff-attendance" element={<RoleRoute perm="settings.manage_company"><AttendanceRegister /></RoleRoute>} />
           {/* /parties/:id — legacy detail page retired. The redirect below
               resolves party type and bounces to Customer / Supplier
               Statement (with ?id= so the picker pre-selects). */}
@@ -877,6 +880,7 @@ export default function App() {
             <Route path="salesmen"            element={<RoleRoute perm="settings.manage_company"><SalesmanList /></RoleRoute>} />
             <Route path="membership"          element={<RoleRoute perm="settings.manage_company"><MembershipSettings /></RoleRoute>} />
             <Route path="membership-plans"    element={<RoleRoute perm="settings.manage_company"><MembershipPlans /></RoleRoute>} />
+            <Route path="staff-attendance"    element={<RoleRoute perm="settings.manage_company"><StaffAttendanceSettings /></RoleRoute>} />
             <Route path="network"             element={<RoleRoute perm="settings.manage_company"><LanSettings /></RoleRoute>} />
             <Route path="remote-access"       element={<RoleRoute perm="settings.manage_company"><RemoteAccess /></RoleRoute>} />
             <Route path="whatsapp"            element={<RoleRoute perm="settings.manage_company"><WhatsappSettings /></RoleRoute>} />

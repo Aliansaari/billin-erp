@@ -5,6 +5,21 @@ compatibility_date = "2026-09-01"
 # Ed25519 via WebCrypto needs no flags on modern compat dates; nodejs_compat
 # is deliberately NOT enabled — this Worker uses only standard web APIs.
 
+# Every installed desktop reaches this Worker at its workers.dev address
+# (CONTROL_PLANE_URL in server/services/remoteAccess.js). Declaring `routes`
+# below must never switch that address off, so it is pinned explicitly.
+workers_dev = true
+
+# The staff check-in page (attendance.js) is served at staff.zehenapp.com.
+routes = [
+  { pattern = "staff.zehenapp.com", custom_domain = true },
+]
+
+# The staff page ships as a plain HTML file imported as a string.
+rules = [
+  { type = "Text", globs = ["**/*.html"], fallthrough = true },
+]
+
 [vars]
 SITE_DOMAIN = "zehenapp.com"
 CF_ACCOUNT_ID = "802d6855f63eef0c8b3bbf62b55c8cfb"
@@ -15,6 +30,13 @@ LICENSE_PUBLIC_KEY = "C05347K65klJ3v6gFae8Pbha/jsi3ZsreSfdm/++ucY="
 # Public half of the control plane's SSO signing key. Desktops verify
 # login assertions with it. SSO_PRIVATE_KEY is a secret (wrangler secret put).
 SSO_PUBLIC_KEY = "3ZIaCvgPUXHNcKsdL/PbByxEga4ioZveK1AEyAkC7n8="
+# Staff passkeys are bound to STAFF_RP_ID for good — changing it later
+# invalidates every enrolled phone — so it is the registrable domain, not the
+# subdomain. For `wrangler dev`, override both in .dev.vars:
+#   STAFF_RP_ID=localhost
+#   STAFF_ORIGINS=http://localhost:8787
+STAFF_RP_ID = "zehenapp.com"
+STAFF_ORIGINS = "https://staff.zehenapp.com"
 
 # CF_API_TOKEN is a SECRET, never a var. Set with:
 #   wrangler secret put CF_API_TOKEN

@@ -904,6 +904,24 @@ export const salesmanAPI = {
   delete:  (id) => api.delete(`/salesmen/${id}`),
 };
 
+// Staff attendance — staff punch from their own phones (staff.zehenapp.com);
+// this is the owner's side: rules, roster, register and corrections.
+export const staffAttendanceAPI = {
+  getSettings:    () => api.get('/staff-attendance/settings'),
+  saveSettings:   (data) => api.put('/staff-attendance/settings', data),
+  syncNow:        () => api.post('/staff-attendance/sync'),
+  listStaff:      () => api.get('/staff-attendance/staff'),
+  createStaff:    (data) => api.post('/staff-attendance/staff', data),
+  updateStaff:    (id, data) => api.put(`/staff-attendance/staff/${id}`, data),
+  setPin:         (id, pin) => api.post(`/staff-attendance/staff/${id}/pin`, { pin }),
+  resetDevice:    (id) => api.post(`/staff-attendance/staff/${id}/reset-device`),
+  importSalesmen: () => api.post('/staff-attendance/staff/import-salesmen'),
+  getRegister:    (params) => api.get('/staff-attendance/register', { params }),
+  getSelfie:      (punchId) => api.get(`/staff-attendance/punches/${punchId}/selfie`, { responseType: 'blob' }),
+  addPunch:       (data) => api.post('/staff-attendance/punches', data),
+  voidPunch:      (punchId, reason) => api.post(`/staff-attendance/punches/${punchId}/void`, { reason }),
+};
+
 // Membership (loyalty) module. Plans are the reusable tiers (managed in
 // Settings → Membership Plans); memberships are per-customer enrolments.
 // `plans.getAll` without params returns only active plans (what the enrolment

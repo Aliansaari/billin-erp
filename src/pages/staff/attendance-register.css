@@ -1,0 +1,51 @@
+.ar-page {
+  padding: 18px clamp(16px, 3vw, 32px) 32px;
+  background: var(--bg-app);
+  min-height: 100%;
+}
+.ar-header {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+  flex-wrap: wrap; margin-bottom: 16px;
+}
+.ar-header h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; color: var(--fg-primary); }
+.ar-header p { margin: 0; font-size: 13px; color: var(--fg-secondary); }
+.ar-muted { color: var(--fg-secondary); font-size: 13px; }
+
+.ar-selfie {
+  border-radius: 8px; object-fit: cover; cursor: zoom-in; display: block;
+  border: 1px solid var(--border-subtle); background: var(--bg-panel);
+}
+.ar-selfie-empty { display: grid; place-items: center; color: var(--fg-secondary); cursor: default; }
+
+.ar-punches { display: flex; flex-direction: column; gap: 8px; }
+.ar-punch {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 10px; border-radius: 8px; background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+}
+.ar-punch.is-void { opacity: .55; }
+.ar-punch.is-void .ar-time { text-decoration: line-through; }
+.ar-kind { width: 36px; }
+.ar-time { font-variant-numeric: tabular-nums; min-width: 70px; }
+.ar-spacer { flex: 1; }
+
+.ar-form { display: flex; flex-direction: column; gap: 6px; }
+.ar-form label { font-size: 12px; color: var(--fg-secondary); margin-top: 8px; }
+
+.ar-month .ant-table-cell { padding: 6px 4px !important; }
+.ar-dayhead { font-size: 11px; line-height: 1.2; text-align: center; }
+.ar-dayhead.is-sun { color: var(--fg-secondary); }
+.ar-cell {
+  display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px;
+  font-size: 12px; font-weight: 700; cursor: pointer; position: relative;
+}
+.ar-cell.has-flag::after {
+  content: ''; position: absolute; top: 2px; right: 2px; width: 5px; height: 5px;
+  border-radius: 50%; background: #f59e0b;
+}
+.ar-present    { background: rgba(16, 185, 129, .15); color: #059669; }
+.ar-late       { background: rgba(245, 158, 11, .18); color: #b45309; }
+.ar-absent     { background: rgba(239, 68, 68, .14);  color: #dc2626; }
+.ar-unverified { background: rgba(219, 39, 119, .14); color: #be185d; }
+.ar-off        { background: var(--bg-panel); color: var(--fg-secondary); }
+.ar-working    { background: rgba(59, 130, 246, .15); color: #2563eb; }
