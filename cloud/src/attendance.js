@@ -276,19 +276,109 @@ async function handleStaffLogin(env, body, deps) {
     );
   }
 
+  const token = await openSession(env, staff.staff_uid, deviceId, deps);
+  return deps.json({ token, name: staff.name, company_name: staff.company_name });
+}
+
+/**
+ * Bind the account to `deviceId` and start a session there. Any session on a
+ * previously bound device stops working at once (staffFromRequest compares
+ * the session's device with the account's).
+ */
+async function openSession(env, staffUid, deviceId, deps) {
+  const now = Date.now();
   const token = deps.randHex(32);
   await env.DB.batch([
     env.DB.prepare(
       `UPDATE att_staff SET failed_count = 0, locked_until = NULL, last_login = ?,
-              device_id = ?, device_bound_at = COALESCE(device_bound_at, ?)
+              device_id = ?, device_bound_at = CASE WHEN device_id = ? THEN COALESCE(device_bound_at, ?) ELSE ? END
         WHERE staff_uid = ?`,
-    ).bind(now, deviceId, now, staff.staff_uid),
+    ).bind(now, deviceId, deviceId, now, now, staffUid),
     env.DB.prepare(
       'INSERT INTO att_sessions (token_hash, staff_uid, device_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)',
-    ).bind(await deps.sha256Hex(token), staff.staff_uid, deviceId, now, now + SESSION_TTL_MS),
+    ).bind(await deps.sha256Hex(token), staffUid, deviceId, now, now + SESSION_TTL_MS),
   ]);
+  return token;
+}
 
-  return deps.json({ token, name: staff.name, company_name: staff.company_name });
+/**
+ * GET /v1/staff/shop?code=XXXXXX → { company_name }
+ *
+ * Lets the sign-in screen say "Signing in to Aafiya Dresses" instead of
+ * asking staff to type a code the link already carried. Returns the shop
+ * name only, and nothing for a shop that has attendance switched off.
+ */
+async function handleShopLookup(env, url, deps) {
+  const code = String(url.searchParams.get('code') || '').trim().toUpperCase();
+  if (!/^[A-Z2-9]{6}$/.test(code)) return deps.fail('not_found', 'Shop not found.', 404);
+  const shop = await env.DB.prepare('SELECT company_name, enabled FROM att_shops WHERE shop_code = ?').bind(code).first();
+  if (!shop || !shop.enabled) return deps.fail('not_found', 'Shop not found.', 404);
+  return deps.json({ shop_code: code, company_name: shop.company_name || 'Your shop' });
+}
+
+/**
+ * Sign in with the phone's fingerprint / Face ID alone — no shop code,
+ * mobile number or PIN.
+ *
+ * POST /v1/staff/login/passkey/begin   { credential_id? } → WebAuthn options
+ * POST /v1/staff/login/passkey/finish  { challenge, assertion, device_id }
+ *
+ * The passkey IS the identity: it was enrolled after a PIN sign-in on a phone
+ * the account was bound to, and only the enrolled person's biometric unlocks
+ * it. So a verified passkey may also move the binding to a new browser
+ * context on that person's phone — which is exactly what an iPhone needs,
+ * where Safari and the home-screen app keep separate storage and so look
+ * like two different devices. "Reset phone" deletes the passkey, so after a
+ * reset only the PIN path (and the owner) can bind a phone again.
+ */
+async function handlePasskeyLoginBegin(env, body, deps) {
+  const { rpId } = rpConfig(env);
+  // Anyone can ask for a sign-in challenge, so expired ones are swept here
+  // too rather than waiting for a desktop sync.
+  if (Math.random() < 0.05) {
+    await env.DB.prepare('DELETE FROM att_challenges WHERE expires_at < ?').bind(Date.now() - 3_600_000).run();
+  }
+  const challenge = await issueChallenge(env, '', 'login');
+  const hint = typeof body.credential_id === 'string' && /^[A-Za-z0-9_-]{16,512}$/.test(body.credential_id)
+    ? [{ type: 'public-key', id: body.credential_id }] : [];
+  return deps.json({
+    publicKey: { challenge, rpId, allowCredentials: hint, userVerification: 'required', timeout: 60_000 },
+  });
+}
+
+async function handlePasskeyLoginFinish(env, body, deps) {
+  const DENY = (msg = 'That fingerprint / Face ID is not set up for ZEHEN Staff on this phone. Sign in with your PIN.') =>
+    deps.fail('passkey_unknown', msg, 401);
+  const deviceId = cleanDeviceId(body.device_id);
+  if (!deviceId) return deps.fail('bad_device', 'This browser could not be identified. Reload and try again.');
+  const challengeRow = await consumeChallenge(env, body.challenge, '', 'login');
+  if (!challengeRow) return deps.fail('challenge_expired', 'That took too long. Please try again.', 400);
+
+  const stored = await env.DB.prepare('SELECT * FROM att_passkeys WHERE credential_id = ?')
+    .bind(String(body.assertion?.id || '')).first();
+  if (!stored) return DENY();
+
+  const { rpId, origins } = rpConfig(env);
+  let res;
+  try {
+    res = await verifyAssertion(body.assertion, stored, { challenge: challengeRow.challenge, rpId, origins, requireUV: true });
+  } catch {
+    return DENY('Fingerprint / Face ID check failed. Try again, or sign in with your PIN.');
+  }
+
+  const staff = await env.DB.prepare(
+    `SELECT st.*, sh.enabled AS shop_enabled, sh.company_name
+       FROM att_staff st JOIN att_shops sh ON sh.shop_code = st.shop_code
+      WHERE st.staff_uid = ?`,
+  ).bind(stored.staff_uid).first();
+  if (!staff || !staff.enabled || !staff.shop_enabled) {
+    return deps.fail('disabled', 'Your attendance account is switched off. Ask your manager.', 403);
+  }
+
+  await env.DB.prepare('UPDATE att_passkeys SET sign_count = ?, last_used = ? WHERE credential_id = ?')
+    .bind(res.signCount, Date.now(), stored.credential_id).run();
+  const token = await openSession(env, staff.staff_uid, deviceId, deps);
+  return deps.json({ token, name: staff.name, company_name: staff.company_name, shop_code: staff.shop_code });
 }
 
 // ── staff: profile ──────────────────────────────────────────────────
@@ -318,6 +408,9 @@ async function handleStaffMe(env, staff, deps) {
   return deps.json({
     name: staff.name,
     company_name: staff.company_name,
+    shop_code: staff.shop_code,
+    // Last 4 digits only: enough for "is this my account?", nothing more.
+    phone_hint: staff.phone ? staff.phone.slice(-4) : null,
     has_passkey: (pk?.n || 0) > 0,
     next_kind: last?.kind === 'in' ? 'out' : 'in',
     server_time: now,
@@ -798,18 +891,45 @@ async function handleAttBeacon(env, body, request, deps) {
 // ── staff page ──────────────────────────────────────────────────────
 
 const MANIFEST = {
+  id: '/staff/',
   name: 'ZEHEN Staff',
   short_name: 'ZEHEN Staff',
+  description: 'Check in and out at work, and see your attendance.',
   start_url: '/staff/',
   scope: '/staff/',
   display: 'standalone',
-  background_color: '#0f1115',
-  theme_color: '#4F46E5',
+  orientation: 'portrait',
+  background_color: '#F6F1E7',
+  theme_color: '#B0492A',
   icons: [
-    { src: 'https://zehenapp.com/android-chrome-192.png', sizes: '192x192', type: 'image/png' },
-    { src: 'https://zehenapp.com/android-chrome-512.png', sizes: '512x512', type: 'image/png' },
+    { src: '/staff/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+    { src: '/staff/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
   ],
 };
+
+// Keeps the app shell available so the icon opens instantly and can say
+// "you're offline" instead of the browser's error page. API calls are never
+// cached: a check-in must always reach the server.
+const SERVICE_WORKER = `
+const CACHE = 'zehen-staff-v2';
+const SHELL = ['/staff/', '/staff/manifest.webmanifest', '/staff/icon-192.png'];
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}));
+});
+self.addEventListener('activate', (e) => {
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+self.addEventListener('fetch', (e) => {
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/v1/')) return;
+  e.respondWith(fetch(e.request).then((res) => {
+    if (res.ok && SHELL.includes(url.pathname)) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(url.pathname, copy)); }
+    return res;
+  }).catch(() => caches.match(url.pathname).then((r) => r || caches.match('/staff/'))));
+});
+`;
 
 function staticResponse(body, type) {
   return new Response(body, {
@@ -841,6 +961,19 @@ export async function routeAttendance(request, env, url, deps) {
   if (method === 'GET' && path === '/staff/manifest.webmanifest') {
     return staticResponse(JSON.stringify(MANIFEST), 'application/manifest+json');
   }
+  if (method === 'GET' && path === '/staff/sw.js') {
+    return staticResponse(SERVICE_WORKER, 'text/javascript; charset=utf-8');
+  }
+  // App icons served from this origin: Android only offers "Install app"
+  // for a manifest whose icons it can fetch, and same-origin is the safe bet.
+  const icon = path.match(/^\/staff\/icon-(192|512)\.png$/);
+  if (method === 'GET' && icon) {
+    const upstream = await fetch(`https://zehenapp.com/android-chrome-${icon[1]}.png`, { cf: { cacheTtl: 86_400 } });
+    if (!upstream.ok) return new Response('not found', { status: 404 });
+    return new Response(upstream.body, {
+      headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=604800' },
+    });
+  }
 
   if (!path.startsWith('/v1/staff/') && !path.startsWith('/v1/att/')) return null;
 
@@ -849,6 +982,9 @@ export async function routeAttendance(request, env, url, deps) {
   if (path === '/v1/att/sync' && method === 'POST')   return handleAttSync(env, body, request, deps);
   if (path === '/v1/att/beacon' && method === 'POST') return handleAttBeacon(env, body, request, deps);
   if (path === '/v1/staff/login' && method === 'POST') return handleStaffLogin(env, body, deps);
+  if (path === '/v1/staff/shop' && method === 'GET') return handleShopLookup(env, url, deps);
+  if (path === '/v1/staff/login/passkey/begin' && method === 'POST') return handlePasskeyLoginBegin(env, body, deps);
+  if (path === '/v1/staff/login/passkey/finish' && method === 'POST') return handlePasskeyLoginFinish(env, body, deps);
 
   const staff = await staffFromRequest(env, request, deps);
   if (!staff) return deps.fail('unauthorized', 'Please sign in again.', 401);

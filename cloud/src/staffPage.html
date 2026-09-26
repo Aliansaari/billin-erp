@@ -2,113 +2,221 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>ZEHEN Staff</title>
-<meta name="description" content="Check in and out at work from your own phone.">
-<meta name="theme-color" content="#4F46E5">
+<meta name="description" content="Check in and out at work, and see your attendance.">
+<meta name="theme-color" content="#B0492A">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="ZEHEN Staff">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="/staff/manifest.webmanifest">
-<link rel="apple-touch-icon" href="https://zehenapp.com/apple-touch-icon.png">
-<link rel="icon" href="https://zehenapp.com/favicon-32.png">
+<link rel="apple-touch-icon" href="/staff/icon-192.png">
+<link rel="icon" href="/staff/icon-192.png">
 <style>
   :root {
-    --bg: #f5f6fa; --card: #ffffff; --text: #16181d; --muted: #6b7080; --line: #e4e6ee;
-    --brand: #4F46E5; --brand-ink: #ffffff; --ok: #0f9d58; --ok-bg: #e7f6ee;
-    --warn: #b26a00; --warn-bg: #fff4e0; --bad: #c62828; --bad-bg: #fdecec;
-    --radius: 16px;
+    --bg: #F6F1E7; --card: #FFFDF8; --text: #1D1814; --muted: #7A7066; --line: #E9E1D3;
+    --brand: #B0492A; --brand-2: #8E3A20; --brand-soft: #F4E3DA; --on-brand: #fff;
+    --ok: #16865A; --ok-soft: #E3F4EC; --warn: #A86400; --warn-soft: #FBEFD9;
+    --bad: #C2372B; --bad-soft: #FBE6E3; --off: #9C9388; --off-soft: #EFE9DF;
+    --shadow: 0 1px 2px rgba(40, 28, 16, .05), 0 8px 24px rgba(40, 28, 16, .06);
+    --r: 20px; --nav-h: 64px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1115; --card: #181b22; --text: #eef0f5; --muted: #9aa0b0; --line: #262a34;
-      --brand: #7c75ff; --ok: #3ccf82; --ok-bg: #12301f; --warn: #ffb74d; --warn-bg: #33270f;
-      --bad: #ff6b6b; --bad-bg: #3a1717;
+      --bg: #131110; --card: #1D1A18; --text: #F3EEE8; --muted: #A69C92; --line: #2C2724;
+      --brand: #E0714E; --brand-2: #C95B39; --brand-soft: #3A231A; --on-brand: #fff;
+      --ok: #45C98C; --ok-soft: #173326; --warn: #F0A73F; --warn-soft: #3A2A12;
+      --bad: #FF7B6E; --bad-soft: #3D1C18; --off: #8E857C; --off-soft: #26221F;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
     }
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif;
-    -webkit-tap-highlight-color: transparent; }
-  body { min-height: 100vh; padding: env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); }
-  main { max-width: 440px; margin: 0 auto; }
-  header { display: flex; align-items: center; justify-content: space-between; padding: 18px 2px 10px; }
-  .brand { font-weight: 800; letter-spacing: .08em; font-size: 15px; }
-  .brand span { color: var(--brand); }
-  .shopname { color: var(--muted); font-size: 13px; text-align: right; max-width: 60%; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin: 12px 0; }
-  h1 { font-size: 22px; margin: 0 0 6px; }
-  h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-  p { margin: 0 0 12px; }
-  .muted { color: var(--muted); font-size: 14px; }
-  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
-  input { width: 100%; font-size: 18px; padding: 14px; border-radius: 12px; border: 1px solid var(--line);
-    background: var(--bg); color: var(--text); outline: none; }
-  input:focus { border-color: var(--brand); }
-  button { font: inherit; border: 0; cursor: pointer; }
-  .btn { width: 100%; padding: 16px; border-radius: 14px; font-size: 17px; font-weight: 700;
-    background: var(--brand); color: var(--brand-ink); margin-top: 18px; }
-  .btn[disabled] { opacity: .55; }
-  .btn.ghost { background: transparent; color: var(--brand); border: 1px solid var(--line); font-weight: 600; }
-  .link { background: none; color: var(--brand); padding: 8px 0; font-size: 14px; }
-  .punch { display: grid; place-items: center; text-align: center; padding: 26px 20px 22px; }
-  .clock { font-size: 44px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-  .date { color: var(--muted); margin-bottom: 18px; }
-  .big { width: 190px; height: 190px; border-radius: 50%; font-size: 22px; font-weight: 800; color: #fff;
-    background: var(--brand); box-shadow: 0 10px 30px rgba(79,70,229,.35); display: grid; place-items: center; line-height: 1.2; }
-  .big.out { background: #e85d3f; box-shadow: 0 10px 30px rgba(232,93,63,.32); }
-  .big small { display: block; font-size: 13px; font-weight: 600; opacity: .9; margin-top: 4px; }
-  .status { margin-top: 16px; font-size: 15px; }
-  .row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); gap: 10px; }
-  .row:first-of-type { border-top: 0; }
-  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
-  .ok { background: var(--ok-bg); color: var(--ok); }
-  .warn { background: var(--warn-bg); color: var(--warn); }
-  .bad { background: var(--bad-bg); color: var(--bad); }
-  .msg { border-radius: 12px; padding: 12px 14px; font-size: 14px; margin-top: 14px; }
-  .steps { padding-left: 20px; margin: 8px 0 0; } .steps li { margin: 8px 0; }
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
-  .stats div { background: var(--bg); border-radius: 12px; padding: 10px 4px; }
-  .stats b { display: block; font-size: 22px; }
-  .stats span { font-size: 12px; color: var(--muted); }
-  .result { text-align: center; }
-  .tick { width: 76px; height: 76px; border-radius: 50%; margin: 6px auto 12px; display: grid; place-items: center;
-    background: var(--ok-bg); color: var(--ok); font-size: 40px; font-weight: 800; }
-  #cam { position: fixed; inset: 0; background: #000; z-index: 20; display: none; flex-direction: column; }
-  #cam video { flex: 1; width: 100%; object-fit: cover; transform: scaleX(-1); }
-  #cam .prompt { position: absolute; top: calc(18px + env(safe-area-inset-top)); left: 16px; right: 16px; text-align: center;
-    color: #fff; font-size: 24px; font-weight: 800; text-shadow: 0 2px 10px rgba(0,0,0,.7); }
-  #cam .prompt small { display: block; font-size: 14px; font-weight: 500; opacity: .85; }
-  #cam .bar { display: flex; gap: 12px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); background: #000; }
-  #cam .bar button { flex: 1; padding: 16px; border-radius: 14px; font-size: 17px; font-weight: 700; }
-  .shutter { background: #fff; color: #000; } .cancel { background: #2a2a2a; color: #fff; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
+  body { overscroll-behavior-y: none; -webkit-user-select: none; user-select: none; }
+  input { -webkit-user-select: text; user-select: text; }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; padding: 0; }
   .hidden { display: none !important; }
+
+  /* ── layout ── */
+  #app { max-width: 480px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
+  .topbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px;
+    padding: calc(12px + env(safe-area-inset-top)) 18px 12px; background: var(--bg); background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); }
+  .logo { width: 34px; height: 34px; border-radius: 10px; background: var(--brand); color: var(--on-brand);
+    display: grid; place-items: center; font-weight: 900; font-size: 17px; flex: none; }
+  .topbar .t { flex: 1; min-width: 0; }
+  .topbar .t b { display: block; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar .t span { display: block; font-size: 12.5px; color: var(--muted); }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--brand-soft); color: var(--brand);
+    display: grid; place-items: center; font-weight: 800; font-size: 14px; flex: none; }
+  main { flex: 1; padding: 4px 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom)); }
+  main.noNav { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+  .view { animation: in .28s cubic-bezier(.2, .8, .2, 1); }
+  @keyframes in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .card { background: var(--card); border-radius: var(--r); padding: 18px; margin: 12px 0; box-shadow: var(--shadow); }
+  .card h3 { margin: 0 0 12px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  h1 { font-size: 26px; line-height: 1.15; margin: 8px 0 6px; letter-spacing: -.02em; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13.5px; }
+
+  /* ── buttons & inputs ── */
+  .btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 54px;
+    border-radius: 16px; font-weight: 700; font-size: 16.5px; background: var(--brand); color: var(--on-brand);
+    transition: transform .12s, opacity .2s; }
+  .btn:active { transform: scale(.98); }
+  .btn[disabled] { opacity: .55; }
+  .btn.soft { background: var(--brand-soft); color: var(--brand); }
+  .btn.ghost { background: transparent; color: var(--brand); min-height: 44px; font-weight: 600; font-size: 15px; }
+  .btn svg { width: 22px; height: 22px; }
+  .field { margin-top: 14px; }
+  .field label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px 4px; font-weight: 600; }
+  .field input { width: 100%; font-size: 18px; padding: 15px 16px; border-radius: 14px; border: 1.5px solid var(--line);
+    background: var(--card); color: var(--text); outline: none; transition: border-color .2s; }
+  .field input:focus { border-color: var(--brand); }
+  .pin { letter-spacing: .5em; text-align: center; font-weight: 700; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; padding: 5px 10px;
+    border-radius: 99px; white-space: nowrap; }
+  .chip.ok { background: var(--ok-soft); color: var(--ok); } .chip.warn { background: var(--warn-soft); color: var(--warn); }
+  .chip.bad { background: var(--bad-soft); color: var(--bad); } .chip.off { background: var(--off-soft); color: var(--muted); }
+  .msg { border-radius: 14px; padding: 12px 14px; font-size: 14px; margin-top: 12px; line-height: 1.4; }
+  .msg.bad { background: var(--bad-soft); color: var(--bad); } .msg.ok { background: var(--ok-soft); color: var(--ok); }
+  .msg.warn { background: var(--warn-soft); color: var(--warn); } .msg.info { background: var(--brand-soft); color: var(--brand); }
+  .divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; margin: 18px 0 4px; }
+  .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  .shop-pill { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--brand-soft); margin-top: 14px; }
+  .shop-pill .ic { width: 38px; height: 38px; border-radius: 12px; background: var(--brand); color: var(--on-brand); display: grid; place-items: center; font-weight: 800; }
+  .shop-pill b { display: block; } .shop-pill span { font-size: 12.5px; color: var(--muted); }
+  .shop-pill button { margin-left: auto; color: var(--brand); font-weight: 700; font-size: 14px; }
+
+  /* ── home ── */
+  .hello { margin: 6px 4px 2px; }
+  .hello h1 { margin: 0; font-size: 25px; } .hello p { margin: 2px 0 0; color: var(--muted); font-size: 14.5px; }
+  .status { text-align: center; padding: 22px 18px 20px; }
+  .state { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; padding: 7px 13px; border-radius: 99px; }
+  .state i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .state.in { background: var(--ok-soft); color: var(--ok); } .state.in i { animation: pulse 1.6s infinite; }
+  .state.out { background: var(--off-soft); color: var(--muted); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); } 70% { box-shadow: 0 0 0 9px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+  .timer { font-size: 44px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; margin: 14px 0 2px; }
+  .timer small { font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+  .punch { position: relative; width: 176px; height: 176px; border-radius: 50%; margin: 18px auto 6px; display: grid; place-items: center;
+    background: var(--brand); box-shadow: 0 14px 34px rgba(176,73,42,.35);
+    background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--brand) 78%, #fff), var(--brand) 55%, var(--brand-2));
+    color: #fff; box-shadow: 0 14px 34px color-mix(in srgb, var(--brand) 38%, transparent), inset 0 -6px 14px rgba(0,0,0,.12);
+    transition: transform .15s; }
+  .punch:active { transform: scale(.96); }
+  .punch.out { background: #3a3531; background: radial-gradient(circle at 30% 25%, #5b5550, #3a3531 60%, #2a2623); box-shadow: 0 14px 34px rgba(0,0,0,.22), inset 0 -6px 14px rgba(0,0,0,.2); }
+  .punch svg { width: 38px; height: 38px; margin-bottom: 4px; }
+  .punch b { display: block; font-size: 19px; } .punch span { display: block; font-size: 12.5px; opacity: .85; font-weight: 500; }
+  .punch[disabled] { opacity: .6; }
+  .punch .ring { position: absolute; inset: -8px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--brand) 35%, transparent); animation: breathe 2.6s ease-in-out infinite; }
+  .punch.out .ring { border-color: rgba(120,110,100,.3); }
+  @keyframes breathe { 0%,100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.05); opacity: .35; } }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat { background: var(--bg); border-radius: 14px; padding: 12px 6px; text-align: center; }
+  .stat b { display: block; font-size: 24px; font-weight: 800; } .stat span { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 2px; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; }
+  .dot { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; font-weight: 800; font-size: 12px; flex: none; }
+  .dot.in { background: var(--ok-soft); color: var(--ok); } .dot.out { background: var(--off-soft); color: var(--muted); }
+  .row .grow { flex: 1; min-width: 0; } .row .grow b { display: block; } .row .grow span { font-size: 13px; color: var(--muted); }
+  .banner { display: flex; align-items: center; gap: 12px; }
+  .banner .grow { flex: 1; } .banner b { display: block; font-size: 15px; } .banner span { font-size: 13px; color: var(--muted); }
+  .banner button { background: var(--brand); color: #fff; padding: 9px 14px; border-radius: 12px; font-weight: 700; font-size: 14px; }
+
+  /* ── calendar ── */
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .cal-head b { font-size: 17px; }
+  .cal-head button { width: 36px; height: 36px; border-radius: 12px; background: var(--bg); display: grid; place-items: center; }
+  .cal-head button[disabled] { opacity: .3; }
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .wd { text-align: center; font-size: 11.5px; font-weight: 700; color: var(--muted); padding-bottom: 4px; }
+  .day { aspect-ratio: 1; border-radius: 12px; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: var(--bg); position: relative; }
+  .day.ok { background: var(--ok-soft); color: var(--ok); } .day.warn { background: var(--warn-soft); color: var(--warn); }
+  .day.bad { background: var(--bad-soft); color: var(--bad); } .day.off { background: var(--off-soft); color: var(--off); }
+  .day.blank { background: transparent; } .day.future { opacity: .4; }
+  .day.today { outline: 2px solid var(--brand); outline-offset: 1px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+  /* ── bottom nav ── */
+  nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; justify-content: center;
+    background: var(--card); background: color-mix(in srgb, var(--card) 92%, transparent); backdrop-filter: saturate(1.4) blur(16px); -webkit-backdrop-filter: saturate(1.4) blur(16px);
+    border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+  nav.tabs .in { display: flex; width: 100%; max-width: 480px; height: var(--nav-h); }
+  nav.tabs button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    font-size: 11.5px; font-weight: 700; color: var(--muted); transition: color .2s; }
+  nav.tabs button svg { width: 24px; height: 24px; }
+  nav.tabs button.on { color: var(--brand); }
+
+  /* ── sheet / overlays ── */
+  .scrim { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.35); display: flex; align-items: flex-end; justify-content: center; animation: fade .2s; }
+  @keyframes fade { from { opacity: 0; } }
+  .sheet { width: 100%; max-width: 480px; background: var(--card); border-radius: 24px 24px 0 0; padding: 10px 20px calc(24px + env(safe-area-inset-bottom)); animation: up .28s cubic-bezier(.2,.8,.2,1); }
+  @keyframes up { from { transform: translateY(100%); } }
+  .grab { width: 42px; height: 5px; border-radius: 3px; background: var(--line); margin: 0 auto 14px; }
+  .done { position: fixed; inset: 0; z-index: 30; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; animation: fade .2s; }
+  .done svg.check { width: 110px; height: 110px; }
+  .done svg.check circle { fill: var(--ok-soft); }
+  .done svg.check path { fill: none; stroke: var(--ok); stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 60; stroke-dashoffset: 60; animation: draw .45s .15s ease-out forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  .done h1 { margin-top: 18px; } .done .big { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .done .btn { max-width: 320px; margin-top: 26px; }
+  #cam { position: fixed; inset: 0; background: #000; z-index: 40; display: none; flex-direction: column; }
+  #cam video { flex: 1; width: 100%; object-fit: cover; transform: scaleX(-1); }
+  #cam .prompt { position: absolute; top: calc(22px + env(safe-area-inset-top)); left: 16px; right: 16px; text-align: center; color: #fff; }
+  #cam .prompt b { display: inline-block; font-size: 22px; background: rgba(0,0,0,.45); padding: 10px 16px; border-radius: 16px; }
+  #cam .prompt span { display: block; margin-top: 8px; font-size: 13.5px; opacity: .85; }
+  #cam .bar { display: flex; align-items: center; justify-content: space-around; padding: 18px 16px calc(22px + env(safe-area-inset-bottom)); background: #000; }
+  #cam .shutter { width: 74px; height: 74px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 5px rgba(255,255,255,.3); }
+  #cam .shutter:active { transform: scale(.94); }
+  #cam .cancel { color: #fff; font-weight: 600; width: 80px; }
+  .offline { position: fixed; top: env(safe-area-inset-top); left: 50%; transform: translateX(-50%); z-index: 50; margin-top: 10px;
+    background: #2b2622; color: #fff; font-size: 13.5px; font-weight: 600; padding: 8px 14px; border-radius: 99px; box-shadow: var(--shadow); }
+  .spin { width: 22px; height: 22px; border: 3px solid rgba(255,255,255,.35); border-top-color: #fff; border-radius: 50%; animation: rot .8s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .skel { background: linear-gradient(90deg, var(--line), color-mix(in srgb, var(--line) 50%, var(--card)), var(--line)); background-size: 200% 100%; animation: sh 1.2s infinite; border-radius: 14px; }
+  @keyframes sh { to { background-position: -200% 0; } }
+  .steps { margin: 12px 0 0; padding: 0; list-style: none; counter-reset: s; }
+  .steps li { counter-increment: s; display: flex; gap: 12px; align-items: flex-start; margin: 14px 0; }
+  .steps li::before { content: counter(s); width: 28px; height: 28px; border-radius: 50%; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; font-weight: 800; flex: none; font-size: 14px; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 13px 2px; border-top: 1px solid var(--line); }
+  .kv:first-of-type { border-top: 0; } .kv span { color: var(--muted); }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <div class="brand">ZEHEN <span>STAFF</span></div>
-    <div class="shopname" id="shopName"></div>
+<div id="app">
+  <header class="topbar hidden" id="topbar">
+    <div class="logo">Z</div>
+    <div class="t"><b id="tbShop">ZEHEN Staff</b><span id="tbSub"></span></div>
+    <div class="avatar" id="tbAvatar"></div>
   </header>
-  <div id="view"></div>
-</main>
+  <main id="main"></main>
+</div>
+<nav class="tabs hidden" id="tabs"><div class="in">
+  <button data-tab="home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+  <button data-tab="calendar" aria-label="Attendance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="3"/><path d="M8 3v3M16 3v3M3 10h18"/></svg>Attendance</button>
+  <button data-tab="profile" aria-label="Profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Profile</button>
+</div></nav>
 
 <div id="cam">
   <video id="video" playsinline autoplay muted></video>
-  <div class="prompt"><span id="camPrompt"></span><small>Keep your face and hand in the picture</small></div>
+  <div class="prompt"><b id="camPrompt"></b><span>Keep your face and hand in the picture</span></div>
   <div class="bar">
     <button class="cancel" id="camCancel" type="button">Cancel</button>
-    <button class="shutter" id="camShoot" type="button">Take photo</button>
+    <button class="shutter" id="camShoot" type="button" aria-label="Take photo"></button>
+    <span style="width:80px"></span>
   </div>
 </div>
+<div class="offline hidden" id="offline">You're offline. Check-in needs internet.</div>
 
 <script>
 (() => {
   'use strict';
 
-  // ── storage (every access guarded: private mode can throw) ─────────
+  // ── storage: every access guarded (private mode can throw) ──────────
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
@@ -116,26 +224,43 @@
   };
 
   const params = new URLSearchParams(location.search);
-  if (params.get('s')) store.set('zs_shop', params.get('s').toUpperCase());
+  if (/^[A-Za-z2-9]{6}$/.test(params.get('s') || '')) store.set('zs_shop', params.get('s').toUpperCase());
+  if (params.has('s')) history.replaceState(null, '', location.pathname);
 
-  // One id per browser install. The server binds a staff account to it on
-  // first login, so it must survive reloads and never be regenerated.
+  // One id per browser install; the server binds an account to it.
   let deviceId = store.get('zs_device');
   if (!deviceId) {
-    const b = crypto.getRandomValues(new Uint8Array(18));
-    deviceId = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+    deviceId = Array.from(crypto.getRandomValues(new Uint8Array(18)), (x) => x.toString(16).padStart(2, '0')).join('');
     store.set('zs_device', deviceId);
   }
 
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const standalone = window.navigator.standalone === true
-    || window.matchMedia('(display-mode: standalone)').matches;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  const bioName = isIOS ? 'Face ID' : 'fingerprint';
+  const bioLabel = isIOS ? 'Face ID' : 'Fingerprint';   // for labels that start a line
+  const passkeysOK = !!(window.PublicKeyCredential && navigator.credentials);
 
-  const $view = document.getElementById('view');
+  const $main = document.getElementById('main');
+  const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const buzz = (ms = 30) => { try { navigator.vibrate && navigator.vibrate(ms); } catch { /* ignore */ } };
+
+  const ICON = {
+    finger: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 11v3a8 8 0 0 1-2 5.3"/><path d="M8.5 9.5A4 4 0 0 1 16 11v1.5a12 12 0 0 1-1 4.8"/><path d="M5.5 14.5A7 7 0 0 1 5 12a7 7 0 0 1 12-4.9"/><path d="M19 12v1a15 15 0 0 1-.6 4"/></svg>',
+    face: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 9.5V13h-1M9.5 16a4 4 0 0 0 5 0"/></svg>',
+    in: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5M15 12H3"/></svg>',
+    out: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>',
+    left: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>',
+    right: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>',
+  };
+  const bioIcon = isIOS ? ICON.face : ICON.finger;
+
   let me = null;
-  let clockTimer = null;
+  let tab = 'home';
+  let calOffset = 0;          // months back from the current month
+  let tickTimer = null;
+  let installEvt = null;
+  let punching = false;       // a check-in is in progress: don't re-render under it
 
   // ── API ─────────────────────────────────────────────────────────────
   async function api(path, body) {
@@ -149,8 +274,9 @@
       throw Object.assign(new Error('No internet connection. Check your data or Wi-Fi and try again.'), { code: 'offline' });
     }
     const data = await res.json().catch(() => ({}));
-    if (res.status === 401 && token && path !== '/v1/staff/login') {
+    if (res.status === 401 && token && !path.startsWith('/v1/staff/login')) {
       store.del('zs_token');
+      me = null;
       render();
       throw Object.assign(new Error('Please sign in again.'), { code: 'unauthorized' });
     }
@@ -159,227 +285,438 @@
   }
 
   // ── WebAuthn plumbing ───────────────────────────────────────────────
-  const b64uToBuf = (s) => {
-    const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4);
-    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
-  };
-  const bufToB64u = (buf) => {
-    let bin = ''; const a = new Uint8Array(buf);
-    for (let i = 0; i < a.length; i++) bin += String.fromCharCode(a[i]);
-    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  };
-  const passkeysSupported = () => !!(window.PublicKeyCredential && navigator.credentials);
+  const b64uToBuf = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0)).buffer;
+  const bufToB64u = (buf) => { let b = ''; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i++) b += String.fromCharCode(a[i]); return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const assertionJSON = (cred) => ({
+    id: cred.id,
+    response: {
+      clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+      authenticatorData: bufToB64u(cred.response.authenticatorData),
+      signature: bufToB64u(cred.response.signature),
+    },
+  });
+  async function getAssertion(o) {
+    const cred = await navigator.credentials.get({
+      publicKey: { ...o, challenge: b64uToBuf(o.challenge), allowCredentials: (o.allowCredentials || []).map((c) => ({ ...c, id: b64uToBuf(c.id) })) },
+    });
+    store.set('zs_cred', cred.id);
+    return assertionJSON(cred);
+  }
+  const cancelled = (e) => e && (e.name === 'NotAllowedError' || e.name === 'AbortError');
 
-  // ── time, shown in the shop's timezone whatever the phone is set to ─
+  // ── time, always in the shop's timezone ─────────────────────────────
   const tz = () => (me?.settings?.tz_offset_min ?? 330);
+  let skew = 0;
+  const now = () => Date.now() + skew;
   const shift = (ms) => new Date(ms + tz() * 60000);
   const fmtTime = (ms) => shift(ms).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
-  const fmtDate = (ms) => shift(ms).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+  const fmtDay = (ms) => shift(ms).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
   const dayKey = (ms) => shift(ms).toISOString().slice(0, 10);
-  let clockSkew = 0;   // server clock minus phone clock, for display only
+  const hourNow = () => shift(now()).getUTCHours();
+  const dur = (ms) => { const m = Math.max(0, Math.floor(ms / 60000)); return { h: Math.floor(m / 60), m: m % 60 }; };
+  const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
 
-  // ── screens ─────────────────────────────────────────────────────────
-  function render() {
-    clearInterval(clockTimer);
-    if (!store.get('zs_token')) {
-      document.getElementById('shopName').textContent = '';
-      if (isIOS && !standalone && !store.get('zs_ios_browser_ok')) return renderInstallIOS();
-      return renderLogin();
+  // ── chrome ──────────────────────────────────────────────────────────
+  function chrome(on) {
+    $('topbar').classList.toggle('hidden', !on);
+    $('tabs').classList.toggle('hidden', !on);
+    $main.classList.toggle('noNav', !on);
+    if (on && me) {
+      $('tbShop').textContent = me.company_name || 'ZEHEN Staff';
+      $('tbSub').textContent = me.name;
+      $('tbAvatar').textContent = initials(me.name);
+      document.querySelectorAll('nav.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     }
-    return loadHome();
+  }
+  document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => {
+    if (tab === b.dataset.tab) return;
+    tab = b.dataset.tab; buzz(10); renderApp();
+  }));
+  const setOffline = () => $('offline').classList.toggle('hidden', navigator.onLine !== false);
+  window.addEventListener('online', setOffline); window.addEventListener('offline', setOffline); setOffline();
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; if (me && tab === 'home') renderApp(); });
+
+  // ── routing ─────────────────────────────────────────────────────────
+  function render() {
+    clearInterval(tickTimer);
+    if (!store.get('zs_token')) {
+      chrome(false);
+      if (isIOS && !standalone && !store.get('zs_ios_browser_ok')) return renderInstallIOS();
+      return renderSignIn();
+    }
+    return loadMe();
   }
 
   function renderInstallIOS() {
-    $view.innerHTML = `
-      <div class="card">
-        <h1>Add to Home Screen first</h1>
-        <p class="muted">Your attendance is linked to one app on your phone. Set it up from the home screen icon so it keeps working every day.</p>
-        <ol class="steps">
-          <li>Tap the <b>Share</b> button at the bottom of Safari.</li>
-          <li>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</li>
-          <li>Open <b>ZEHEN Staff</b> from your home screen and sign in there.</li>
-        </ol>
-      </div>
-      <button class="link" id="skip" type="button">I will use it in Safari instead</button>`;
-    document.getElementById('skip').onclick = () => { store.set('zs_ios_browser_ok', '1'); render(); };
+    $main.innerHTML = `<div class="view" style="padding-top:calc(28px + env(safe-area-inset-top))">
+      <div class="logo" style="width:56px;height:56px;border-radius:16px;font-size:26px">Z</div>
+      <h1 style="margin-top:18px">Put ZEHEN Staff on your home screen</h1>
+      <p class="muted">It then opens like an app, and you check in with one touch.</p>
+      <div class="card"><ol class="steps">
+        <li><div>Tap the <b>Share</b> button <span class="muted">(the square with an arrow)</span> at the bottom of Safari.</div></li>
+        <li><div>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</div></li>
+        <li><div>Open <b>ZEHEN Staff</b> from your home screen.</div></li>
+      </ol></div>
+      <button class="btn ghost" id="skip" type="button">Continue in Safari instead</button>
+    </div>`;
+    $('skip').onclick = () => { store.set('zs_ios_browser_ok', '1'); render(); };
   }
 
-  function renderLogin(error) {
-    $view.innerHTML = `
-      <div class="card">
-        <h1>Sign in</h1>
-        <p class="muted">Use the shop code, your mobile number and the PIN your manager gave you.</p>
-        <form id="f" autocomplete="off">
-          <label for="shop">Shop code</label>
-          <input id="shop" autocapitalize="characters" maxlength="6" value="${esc(store.get('zs_shop') || '')}" required>
-          <label for="phone">Mobile number</label>
-          <input id="phone" type="tel" inputmode="tel" maxlength="15" value="${esc(store.get('zs_phone') || '')}" required>
-          <label for="pin">PIN</label>
-          <input id="pin" type="password" inputmode="numeric" maxlength="8" required>
-          <button class="btn" id="go" type="submit">Sign in</button>
+  // ── sign in ─────────────────────────────────────────────────────────
+  async function renderSignIn({ error, usePin } = {}) {
+    const shopCode = store.get('zs_shop') || '';
+    const hadPasskey = store.get('zs_had_passkey') === '1';
+    const showPin = usePin || !hadPasskey || !passkeysOK;
+    $main.innerHTML = `<div class="view" style="padding-top:calc(30px + env(safe-area-inset-top))">
+      <div class="logo" style="width:56px;height:56px;border-radius:16px;font-size:26px">Z</div>
+      <h1 style="margin-top:18px">${hadPasskey && !usePin ? 'Welcome back' : 'Sign in'}</h1>
+      <p class="muted" style="margin:0">${hadPasskey && !usePin ? `Use ${bioName} to continue.` : 'Check in and out at work from this phone.'}</p>
+      <div id="shopSlot"></div>
+      ${!showPin ? `
+        <div style="margin-top:22px"><button class="btn" id="pkBtn" type="button">${bioIcon}Sign in with ${bioName}</button></div>
+        <button class="btn ghost" id="toPin" type="button" style="margin-top:8px">Use mobile number and PIN</button>
+      ` : `
+        <form id="pinForm" autocomplete="off">
+          <div class="field ${shopCode ? 'hidden' : ''}" id="shopField"><label for="shop">Shop code</label>
+            <input id="shop" autocapitalize="characters" maxlength="6" value="${esc(shopCode)}" placeholder="From your manager"></div>
+          <div class="field"><label for="phone">Mobile number</label>
+            <input id="phone" type="tel" inputmode="numeric" maxlength="15" value="${esc(store.get('zs_phone') || '')}" placeholder="98765 43210"></div>
+          <div class="field"><label for="pin">PIN</label>
+            <input id="pin" class="pin" type="password" inputmode="numeric" maxlength="8" placeholder="••••"></div>
+          <div style="margin-top:20px"><button class="btn" id="goBtn" type="submit">Sign in</button></div>
         </form>
-        ${error ? `<div class="msg bad">${esc(error)}</div>` : ''}
-      </div>`;
-    document.getElementById('f').onsubmit = async (e) => {
-      e.preventDefault();
-      const btn = document.getElementById('go');
-      btn.disabled = true; btn.textContent = 'Signing in…';
-      const shop = document.getElementById('shop').value.trim().toUpperCase();
-      const phone = document.getElementById('phone').value.trim();
-      try {
-        const r = await api('/v1/staff/login', { shop_code: shop, phone, pin: document.getElementById('pin').value, device_id: deviceId });
-        store.set('zs_token', r.token); store.set('zs_shop', shop); store.set('zs_phone', phone);
-        render();
-      } catch (err) { renderLogin(err.message); }
-    };
+        ${passkeysOK ? `<div class="divider">or</div><button class="btn soft" id="pkBtn" type="button" style="margin-top:10px">${bioIcon}Sign in with ${bioName}</button>` : ''}
+      `}
+      ${error ? `<div class="msg bad">${esc(error)}</div>` : ''}
+    </div>`;
+
+    if ($('pkBtn')) $('pkBtn').onclick = passkeySignIn;
+    if ($('toPin')) $('toPin').onclick = () => renderSignIn({ usePin: true });
+    if ($('pinForm')) $('pinForm').onsubmit = pinSignIn;
+    if (shopCode) showShop(shopCode);
   }
 
-  async function loadHome(flash) {
+  async function showShop(code) {
+    const slot = $('shopSlot');
+    if (!slot) return;
+    slot.innerHTML = '<div class="skel" style="height:62px;margin-top:14px"></div>';
+    let name = null;
+    try { name = (await api(`/v1/staff/shop?code=${encodeURIComponent(code)}`)).company_name; } catch { /* unknown / offline */ }
+    if (!$('shopSlot')) return;
+    if (!name) { slot.innerHTML = ''; $('shopField')?.classList.remove('hidden'); return; }
+    slot.innerHTML = `<div class="shop-pill"><div class="ic">${esc(initials(name))}</div>
+      <div><b>${esc(name)}</b><span>Shop code ${esc(code)}</span></div>
+      ${$('pinForm') ? '<button type="button" id="chg">Change</button>' : ''}</div>`;
+    if ($('chg')) $('chg').onclick = () => { slot.innerHTML = ''; $('shopField').classList.remove('hidden'); $('shop').focus(); };
+  }
+
+  function busy(btn, on, label) {
+    if (!btn) return;
+    btn.disabled = on;
+    if (on) { btn.dataset.label = btn.innerHTML; btn.innerHTML = `<div class="spin"></div>${label || ''}`; }
+    else if (btn.dataset.label) btn.innerHTML = btn.dataset.label;
+  }
+
+  async function pinSignIn(e) {
+    e.preventDefault();
+    const btn = $('goBtn');
+    const shop = (($('shop') && $('shop').value) || store.get('zs_shop') || '').trim().toUpperCase();
+    const phone = $('phone').value.trim();
+    const pin = $('pin').value;
+    if (!shop) return renderSignIn({ usePin: true, error: 'Enter the shop code your manager gave you.' });
+    busy(btn, true, 'Signing in…');
+    try {
+      const r = await api('/v1/staff/login', { shop_code: shop, phone, pin, device_id: deviceId });
+      store.set('zs_token', r.token); store.set('zs_shop', shop); store.set('zs_phone', phone);
+      buzz(); render();
+    } catch (err) {
+      renderSignIn({ usePin: true, error: err.message });
+    }
+  }
+
+  async function passkeySignIn() {
+    const btn = $('pkBtn');
+    busy(btn, true, 'Waiting for your phone…');
+    try {
+      const b = await api('/v1/staff/login/passkey/begin', { credential_id: store.get('zs_cred') || undefined });
+      const assertion = await getAssertion(b.publicKey);
+      const r = await api('/v1/staff/login/passkey/finish', { challenge: b.publicKey.challenge, assertion, device_id: deviceId });
+      store.set('zs_token', r.token); store.set('zs_shop', r.shop_code); store.set('zs_had_passkey', '1');
+      buzz(); render();
+    } catch (err) {
+      busy(btn, false);
+      if (cancelled(err)) return;
+      renderSignIn({ usePin: true, error: err.message });
+    }
+  }
+
+  // ── signed in ───────────────────────────────────────────────────────
+  async function loadMe(flash) {
+    if (!me) {
+      chrome(false);
+      $main.innerHTML = `<div style="padding-top:calc(60px + env(safe-area-inset-top))"><div class="skel" style="height:40px;width:60%"></div>
+        <div class="skel" style="height:300px;margin-top:18px"></div><div class="skel" style="height:120px;margin-top:14px"></div></div>`;
+    }
     try {
       me = await api('/v1/staff/me');
     } catch (err) {
       if (err.code === 'unauthorized') return;
-      $view.innerHTML = `<div class="card"><h1>Could not load</h1><p class="muted">${esc(err.message)}</p>
-        <button class="btn" id="retry" type="button">Try again</button></div>`;
-      document.getElementById('retry').onclick = () => loadHome();
+      chrome(false);
+      $main.innerHTML = `<div class="view" style="padding-top:calc(60px + env(safe-area-inset-top));text-align:center">
+        <h1>Couldn't load</h1><p class="muted">${esc(err.message)}</p>
+        <button class="btn" id="retry" type="button" style="margin-top:18px">Try again</button></div>`;
+      $('retry').onclick = () => loadMe();
       return;
     }
-    clockSkew = me.server_time - Date.now();
-    document.getElementById('shopName').textContent = me.company_name || '';
-
-    if (!me.has_passkey && passkeysSupported() && !(me.settings.passkey === 'optional' && store.get('zs_pk_skip'))) {
-      return renderEnroll();
-    }
-    renderHome(flash);
+    skew = me.server_time - Date.now();
+    store.set('zs_shop', me.shop_code || store.get('zs_shop') || '');
+    if (me.has_passkey) store.set('zs_had_passkey', '1');
+    if (!me.has_passkey && passkeysOK && !(me.settings.passkey === 'optional' && store.get('zs_pk_skip'))) return renderEnroll();
+    renderApp(flash);
   }
 
   function renderEnroll(error) {
+    chrome(false);
     const required = me.settings.passkey === 'required';
-    $view.innerHTML = `
-      <div class="card">
-        <h1>Set up ${isIOS ? 'Face ID / Touch ID' : 'fingerprint'}</h1>
-        <p class="muted">Once, on this phone. After this, every check-in is one touch, and nobody else can check in for you.</p>
-        <button class="btn" id="enroll" type="button">Set up now</button>
-        ${required ? '' : '<button class="btn ghost" id="later" type="button">Not now</button>'}
-        ${error ? `<div class="msg bad">${esc(error)}</div>` : ''}
-      </div>`;
-    document.getElementById('enroll').onclick = enroll;
-    if (!required) document.getElementById('later').onclick = () => { store.set('zs_pk_skip', '1'); renderHome(); };
+    $main.innerHTML = `<div class="view" style="padding-top:calc(30px + env(safe-area-inset-top))">
+      <div style="width:72px;height:72px;border-radius:22px;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center">${bioIcon.replace('<svg', '<svg width="38" height="38"')}</div>
+      <h1 style="margin-top:18px">Turn on ${bioName}</h1>
+      <p class="muted">One time, on this phone. After this, checking in and signing in take one touch, and nobody else can check in for you.</p>
+      <div style="margin-top:24px"><button class="btn" id="enroll" type="button">${bioIcon}Turn on ${bioName}</button></div>
+      ${required ? '' : '<button class="btn ghost" id="later" type="button" style="margin-top:8px">Not now</button>'}
+      ${error ? `<div class="msg bad">${esc(error)}</div>` : ''}
+    </div>`;
+    $('enroll').onclick = enroll;
+    if (!required) $('later').onclick = () => { store.set('zs_pk_skip', '1'); renderApp(); };
   }
 
   async function enroll() {
-    const btn = document.getElementById('enroll');
-    btn.disabled = true; btn.textContent = 'Waiting for your phone…';
+    const btn = $('enroll');
+    busy(btn, true, 'Waiting for your phone…');
     try {
       const { publicKey: o } = await api('/v1/staff/passkey/begin', {});
-      const cred = await navigator.credentials.create({
-        publicKey: { ...o, challenge: b64uToBuf(o.challenge), user: { ...o.user, id: b64uToBuf(o.user.id) } },
-      });
+      const cred = await navigator.credentials.create({ publicKey: { ...o, challenge: b64uToBuf(o.challenge), user: { ...o.user, id: b64uToBuf(o.user.id) } } });
       await api('/v1/staff/passkey/finish', {
         challenge: o.challenge,
-        credential: {
-          id: cred.id,
-          response: {
-            clientDataJSON: bufToB64u(cred.response.clientDataJSON),
-            attestationObject: bufToB64u(cred.response.attestationObject),
-          },
-        },
+        credential: { id: cred.id, response: { clientDataJSON: bufToB64u(cred.response.clientDataJSON), attestationObject: bufToB64u(cred.response.attestationObject) } },
       });
-      loadHome({ ok: 'All set. Checking in is now one touch.' });
+      store.set('zs_cred', cred.id); store.set('zs_had_passkey', '1');
+      buzz(40);
+      me = null; loadMe({ ok: `${bioName} is on. Checking in is now one touch.` });
     } catch (err) {
-      renderEnroll(err.name === 'NotAllowedError' ? 'Setup was cancelled. Tap "Set up now" to try again.' : err.message);
+      renderEnroll(cancelled(err) ? 'That was cancelled. Tap the button to try again.' : err.message);
     }
   }
 
-  function renderHome(flash) {
-    const today = dayKey(Date.now() + clockSkew);
-    const todays = me.punches.filter((p) => dayKey(p.at) === today).sort((a, b) => a.at - b.at);
-    const last = todays[todays.length - 1];
-    const isOut = me.next_kind === 'out';
-
-    $view.innerHTML = `
-      ${flash?.ok ? `<div class="msg ok">${esc(flash.ok)}</div>` : ''}
-      <div class="card punch">
-        <div class="clock" id="clock"></div>
-        <div class="date" id="date"></div>
-        <button class="big ${isOut ? 'out' : ''}" id="punch" type="button">
-          <div>${isOut ? 'Check OUT' : 'Check IN'}<small>${isOut ? 'Leaving work' : 'Starting work'}</small></div>
-        </button>
-        <div class="status muted">${last
-          ? (last.kind === 'in' ? `Checked in at <b>${fmtTime(last.at)}</b>` : `Checked out at <b>${fmtTime(last.at)}</b>`)
-          : 'Not checked in yet today'}</div>
-        <div id="punchMsg"></div>
-      </div>
-      ${todays.length ? `<div class="card"><h2>Today</h2>${todays.map(punchRow).join('')}</div>` : ''}
-      ${historyCard()}
-      <button class="link" id="logout" type="button">Sign out</button>`;
-
-    const tick = () => {
-      const clock = document.getElementById('clock');
-      if (!clock) { clearInterval(clockTimer); return; }   // screen changed under us
-      const now = Date.now() + clockSkew;
-      clock.textContent = fmtTime(now);
-      document.getElementById('date').textContent = fmtDate(now);
-    };
-    tick(); clockTimer = setInterval(tick, 10_000);
-    document.getElementById('punch').onclick = punch;
-    document.getElementById('logout').onclick = async () => {
-      if (!confirm('Sign out? You will need your PIN to sign in again.')) return;
-      try { await api('/v1/staff/logout', {}); } catch { /* signing out locally anyway */ }
-      store.del('zs_token'); render();
-    };
+  function todays() {
+    const k = dayKey(now());
+    return me.punches.filter((p) => dayKey(p.at) === k).sort((a, b) => a.at - b.at);
   }
 
-  function netPill(p) {
-    if (p.net_status === 'match') return '<span class="pill ok">Shop Wi-Fi</span>';
-    if (p.net_status === 'pending') return '<span class="pill warn">Wi-Fi check pending</span>';
-    if (p.net_status === 'mismatch') return '<span class="pill bad">Not on shop Wi-Fi</span>';
+  function renderApp(flash) {
+    clearInterval(tickTimer);
+    chrome(true);
+    if (tab === 'calendar') return renderCalendar();
+    if (tab === 'profile') return renderProfile();
+    renderHome(flash);
+  }
+
+  function greeting() {
+    const h = hourNow();
+    return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  }
+
+  function netChip(p) {
+    if (p.net_status === 'match') return '<span class="chip ok">Shop Wi-Fi</span>';
+    if (p.net_status === 'pending') return '<span class="chip warn">Checking Wi-Fi</span>';
+    if (p.net_status === 'mismatch') return '<span class="chip bad">Not shop Wi-Fi</span>';
     return '';
   }
 
-  function punchRow(p) {
-    return `<div class="row"><div><b>${p.kind === 'in' ? 'IN' : 'OUT'}</b> &nbsp;${fmtTime(p.at)}</div><div>${netPill(p)}</div></div>`;
+  function workedToday(list) {
+    let total = 0; let open = null;
+    for (const p of list) {
+      if (p.kind === 'in' && open === null) open = p.at;
+      else if (p.kind === 'out' && open !== null) { total += p.at - open; open = null; }
+    }
+    return { total, open };
   }
 
-  // "My Attendance". Prefers the summary computed on the shop PC (it
-  // includes the owner's corrections); falls back to raw punches.
-  function historyCard() {
-    const v = me.view;
-    if (v && v.month) {
-      const s = v.summary || {};
-      const days = (v.days || []).slice().reverse().slice(0, 31);
-      return `<div class="card"><h2>My attendance: ${esc(v.month_label || v.month)}</h2>
-        <div class="stats">
-          <div><b>${s.present ?? 0}</b><span>Present</span></div>
-          <div><b>${s.late ?? 0}</b><span>Late</span></div>
-          <div><b>${s.absent ?? 0}</b><span>Absent</span></div>
-        </div>
-        ${days.map((d) => `<div class="row"><div>${esc(d.label || d.date)}<div class="muted">${esc([d.in, d.out].filter(Boolean).join(' to ') || '')}${d.note ? ' · ' + esc(d.note) : ''}</div></div>
-          <span class="pill ${d.tone || ''}">${esc(d.status || '')}</span></div>`).join('')}
-        ${me.view_updated_at ? `<p class="muted" style="margin-top:10px">Updated by the shop at ${fmtTime(me.view_updated_at)}, ${esc(dayKey(me.view_updated_at))}</p>` : ''}
-      </div>`;
+  function renderHome(flash) {
+    const list = todays();
+    const last = list[list.length - 1];
+    const isIn = me.next_kind === 'out';
+    const s = me.view?.summary;
+    const firstName = String(me.name || '').split(' ')[0];
+
+    let installCard = '';
+    if (!standalone && installEvt) {
+      installCard = `<div class="card banner"><div class="logo">Z</div><div class="grow"><b>Install ZEHEN Staff</b><span>Open it like an app, straight from your home screen.</span></div><button type="button" id="installBtn">Install</button></div>`;
     }
-    const byDay = new Map();
-    for (const p of me.punches) {
-      const k = dayKey(p.at);
-      if (!byDay.has(k)) byDay.set(k, []);
-      byDay.get(k).push(p);
+
+    $main.innerHTML = `<div class="view">
+      ${flash?.ok ? `<div class="msg ok">${esc(flash.ok)}</div>` : ''}
+      <div class="hello"><h1>${greeting()}, ${esc(firstName)}</h1><p>${fmtDay(now())}</p></div>
+      <div class="card status">
+        <span class="state ${isIn ? 'in' : 'out'}"><i></i>${isIn ? 'At work' : (last ? 'Checked out' : 'Not checked in')}</span>
+        <div class="timer" id="timer"></div>
+        <div class="muted small" id="timerSub"></div>
+        <button class="punch ${isIn ? 'out' : ''}" id="punch" type="button"><span class="ring"></span>
+          <div>${isIn ? ICON.out : ICON.in}<b>${isIn ? 'Check out' : 'Check in'}</b><span>${isIn ? 'Leaving work' : 'Starting work'}</span></div>
+        </button>
+        <div id="punchMsg"></div>
+      </div>
+      ${installCard}
+      ${list.length ? `<div class="card"><h3>Today</h3>${list.map((p) => `
+        <div class="row"><div class="dot ${p.kind}">${p.kind === 'in' ? 'IN' : 'OUT'}</div>
+          <div class="grow"><b>${fmtTime(p.at)}</b><span>${p.kind === 'in' ? 'Checked in' : 'Checked out'}</span></div>${netChip(p)}</div>`).join('')}</div>` : ''}
+      ${s ? `<div class="card"><h3>${esc(me.view.month_label || 'This month')}</h3><div class="stats">
+        <div class="stat"><b>${s.present ?? 0}</b><span>Present</span></div>
+        <div class="stat"><b>${s.late ?? 0}</b><span>Late</span></div>
+        <div class="stat"><b>${s.absent ?? 0}</b><span>Absent</span></div></div>
+        <button class="btn ghost" id="seeCal" type="button" style="margin-top:6px">See calendar</button></div>` : ''}
+    </div>`;
+
+    const paint = () => {
+      const t = $('timer'); if (!t) { clearInterval(tickTimer); return; }
+      const w = workedToday(todays());
+      const live = w.total + (w.open !== null ? now() - w.open : 0);
+      const d = dur(live);
+      t.innerHTML = `${d.h}<small>h</small> ${String(d.m).padStart(2, '0')}<small>m</small>`;
+      $('timerSub').textContent = isIn ? `Since ${fmtTime(w.open ?? last.at)} · worked today` : (list.length ? 'Worked today' : `Shop opens at ${me.settings.open_time || '10:00'}`);
+    };
+    paint(); tickTimer = setInterval(paint, 20000);
+    $('punch').onclick = punch;
+    if ($('seeCal')) $('seeCal').onclick = () => { tab = 'calendar'; renderApp(); };
+    if ($('installBtn')) $('installBtn').onclick = async () => { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; renderApp(); };
+  }
+
+  // ── attendance calendar ─────────────────────────────────────────────
+  function monthData(y, m) {
+    // Desktop-computed month (includes the owner's corrections) when it is
+    // for this month; otherwise derived from the raw punches we have.
+    const key = `${y}-${String(m + 1).padStart(2, '0')}`;
+    const map = {};
+    if (me.view && me.view.month === key) {
+      for (const d of me.view.days || []) map[d.date] = { tone: d.tone || 'off', status: d.status, in: d.in, out: d.out, note: d.note };
+      return map;
     }
-    const today = dayKey(Date.now() + clockSkew);
-    const rows = [...byDay.entries()].slice(0, 20).map(([k, ps]) => {
+    const byDay = {};
+    for (const p of me.punches) { const k = dayKey(p.at); if (k.startsWith(key)) (byDay[k] = byDay[k] || []).push(p); }
+    for (const [k, ps] of Object.entries(byDay)) {
       ps.sort((a, b) => a.at - b.at);
-      const inP = ps.find((p) => p.kind === 'in');
-      const last = ps[ps.length - 1];
-      const outText = last.kind === 'out' ? fmtTime(last.at) : (k === today ? 'still in' : 'no check-out');
-      return `<div class="row"><div>${esc(fmtDate(ps[0].at))}</div><div class="muted">${inP ? fmtTime(inP.at) : '?'} to ${outText}</div></div>`;
-    });
-    return rows.length ? `<div class="card"><h2>Recent days</h2>${rows.join('')}</div>` : '';
+      const first = ps.find((p) => p.kind === 'in'); const lastOut = [...ps].reverse().find((p) => p.kind === 'out');
+      map[k] = { tone: first ? 'ok' : 'off', status: first ? 'Present' : '', in: first ? fmtTime(first.at) : null, out: lastOut ? fmtTime(lastOut.at) : null };
+    }
+    return map;
+  }
+
+  function renderCalendar() {
+    const base = shift(now());
+    const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() - calOffset, 1));
+    const y = d.getUTCFullYear(); const m = d.getUTCMonth();
+    const days = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    const lead = d.getUTCDay();
+    const todayK = dayKey(now());
+    const data = monthData(y, m);
+    const label = d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const counts = { ok: 0, warn: 0, bad: 0 };
+    Object.values(data).forEach((v) => { if (counts[v.tone] !== undefined) counts[v.tone]++; });
+
+    let cells = ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w) => `<div class="wd">${w}</div>`).join('');
+    for (let i = 0; i < lead; i++) cells += '<div class="day blank"></div>';
+    for (let day = 1; day <= days; day++) {
+      const k = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const v = data[k];
+      const cls = [v ? v.tone : '', k === todayK ? 'today' : '', k > todayK ? 'future' : ''].join(' ');
+      cells += `<button class="day ${cls}" data-k="${k}" type="button">${day}</button>`;
+    }
+
+    $main.innerHTML = `<div class="view">
+      <div class="hello"><h1>Attendance</h1><p>Your days, as your shop sees them.</p></div>
+      <div class="card">
+        <div class="cal-head">
+          <button type="button" id="prev" ${calOffset >= 2 ? 'disabled' : ''} aria-label="Previous month">${ICON.left}</button>
+          <b>${esc(label)}</b>
+          <button type="button" id="next" ${calOffset === 0 ? 'disabled' : ''} aria-label="Next month">${ICON.right}</button>
+        </div>
+        <div class="grid">${cells}</div>
+        <div class="legend">
+          <span class="chip ok">${counts.ok} present</span><span class="chip warn">${counts.warn} late</span><span class="chip bad">${counts.bad} absent</span>
+        </div>
+      </div>
+      <p class="muted small" style="margin:4px 6px">Tap a day for its times.${me.view_updated_at ? ` Updated by your shop at ${fmtTime(me.view_updated_at)}.` : ''}</p>
+    </div>`;
+    $('prev').onclick = () => { calOffset++; renderCalendar(); };
+    $('next').onclick = () => { calOffset--; renderCalendar(); };
+    document.querySelectorAll('.day[data-k]').forEach((b) => b.addEventListener('click', () => daySheet(b.dataset.k, data[b.dataset.k])));
+  }
+
+  function daySheet(k, v) {
+    const date = new Date(`${k}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+    const tone = v?.tone || 'off';
+    openSheet(`<h1 style="font-size:21px;margin:0">${esc(date)}</h1>
+      ${v?.status ? `<span class="chip ${tone}" style="margin-top:8px">${esc(v.status)}</span>` : ''}
+      <div style="margin-top:12px">
+        <div class="kv"><span>Checked in</span><b>${esc(v?.in || '-')}</b></div>
+        <div class="kv"><span>Checked out</span><b>${esc(v?.out || '-')}</b></div>
+      </div>
+      ${v?.note ? `<div class="msg info">${esc(v.note)}</div>` : ''}
+      ${!v ? '<p class="muted">Nothing recorded for this day.</p>' : ''}`);
+  }
+
+  function openSheet(html) {
+    const s = document.createElement('div');
+    s.className = 'scrim';
+    s.innerHTML = `<div class="sheet"><div class="grab"></div>${html}<button class="btn soft" type="button" style="margin-top:18px">Close</button></div>`;
+    s.addEventListener('click', (e) => { if (e.target === s || e.target.closest('.btn')) s.remove(); });
+    document.body.appendChild(s);
+  }
+
+  // ── profile ─────────────────────────────────────────────────────────
+  function renderProfile() {
+    $main.innerHTML = `<div class="view">
+      <div class="card" style="text-align:center;padding:26px 18px">
+        <div class="avatar" style="width:72px;height:72px;font-size:26px;margin:0 auto">${esc(initials(me.name))}</div>
+        <h1 style="font-size:22px;margin-top:12px">${esc(me.name)}</h1>
+        <p class="muted" style="margin:0">${esc(me.company_name || '')}</p>
+      </div>
+      <div class="card">
+        <div class="kv"><span>Mobile</span><b>${me.phone_hint ? '•••• ' + esc(me.phone_hint) : '-'}</b></div>
+        <div class="kv"><span>Shop code</span><b>${esc(me.shop_code || '-')}</b></div>
+        <div class="kv"><span>${bioLabel}</span><b>${me.has_passkey ? '<span class="chip ok">On</span>' : '<span class="chip off">Off</span>'}</b></div>
+        <div class="kv"><span>Shop hours</span><b>${esc(me.settings.open_time || '')} to ${esc(me.settings.close_time || '')}</b></div>
+      </div>
+      ${!me.has_passkey && passkeysOK ? `<button class="btn soft" id="turnOn" type="button">${bioIcon}Turn on ${bioName}</button>` : ''}
+      ${!standalone ? `<div class="card"><h3>Use it like an app</h3><p class="small" style="margin:0">${isIOS
+        ? 'In Safari tap <b>Share</b>, then <b>Add to Home Screen</b>.'
+        : 'In your browser menu tap <b>Install app</b> or <b>Add to Home screen</b>.'}</p></div>` : ''}
+      <button class="btn ghost" id="logout" type="button" style="margin-top:10px;color:var(--bad)">Sign out</button>
+      <p class="muted small" style="text-align:center">Signing out on a phone you use every day isn't needed. You stay signed in.</p>
+    </div>`;
+    if ($('turnOn')) $('turnOn').onclick = () => { store.del('zs_pk_skip'); renderEnroll(); };
+    $('logout').onclick = () => openConfirmLogout();
+  }
+
+  function openConfirmLogout() {
+    const s = document.createElement('div');
+    s.className = 'scrim';
+    s.innerHTML = `<div class="sheet"><div class="grab"></div><h1 style="font-size:21px;margin:0">Sign out?</h1>
+      <p class="muted">${me.has_passkey ? `You can sign back in with ${bioName}.` : 'You will need your mobile number and PIN to sign back in.'}</p>
+      <button class="btn" id="yesOut" type="button" style="background:var(--bad);margin-top:14px">Sign out</button>
+      <button class="btn ghost" id="noOut" type="button" style="margin-top:6px">Cancel</button></div>`;
+    document.body.appendChild(s);
+    s.addEventListener('click', (e) => { if (e.target === s) s.remove(); });
+    s.querySelector('#noOut').onclick = () => s.remove();
+    s.querySelector('#yesOut').onclick = async () => {
+      try { await api('/v1/staff/logout', {}); } catch { /* signing out locally anyway */ }
+      store.del('zs_token'); me = null; tab = 'home'; s.remove(); render();
+    };
   }
 
   // ── punching ────────────────────────────────────────────────────────
   function showPunchMsg(text, tone) {
-    const el = document.getElementById('punchMsg');
-    if (el) el.innerHTML = `<div class="msg ${tone}">${esc(text)}</div>`;
+    const el = $('punchMsg'); if (el) el.innerHTML = text ? `<div class="msg ${tone}">${esc(text)}</div>` : '';
   }
 
   function getLocation() {
@@ -387,112 +724,77 @@
       if (!navigator.geolocation) return resolve(null);
       navigator.geolocation.getCurrentPosition(
         (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
-        () => resolve(null),
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
-      );
+        () => resolve(null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
     });
   }
 
-  // Live camera only: the gallery is never offered, so an old photo cannot
-  // be picked. The prompt comes from the server and changes every time.
+  // Live camera only, never the gallery; the instruction comes from the
+  // server and changes every time.
   function takeSelfie(prompt) {
     return new Promise(async (resolve, reject) => {
-      const cam = document.getElementById('cam');
-      const video = document.getElementById('video');
-      let stream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 } }, audio: false });
-      } catch {
-        return reject(new Error('Camera permission is needed for the attendance photo. Allow it in your browser settings.'));
-      }
-      document.getElementById('camPrompt').textContent = prompt || 'Look at the camera';
-      video.srcObject = stream;
-      cam.style.display = 'flex';
-      const done = (fn) => {
-        stream.getTracks().forEach((t) => t.stop());
-        video.srcObject = null;
-        cam.style.display = 'none';
-        fn();
-      };
-      document.getElementById('camCancel').onclick = () => done(() => reject(new Error('Photo cancelled.')));
-      document.getElementById('camShoot').onclick = () => {
-        const w = video.videoWidth || 480; const h = video.videoHeight || 640;
-        const scale = Math.min(1, 480 / w);
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
-        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-        const data = canvas.toDataURL('image/jpeg', 0.72);
+      const cam = $('cam'); const video = $('video'); let stream;
+      try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 } }, audio: false }); }
+      catch { return reject(new Error('Allow the camera for ZEHEN Staff to take your check-in photo.')); }
+      $('camPrompt').textContent = prompt || 'Look at the camera';
+      video.srcObject = stream; cam.style.display = 'flex';
+      const done = (fn) => { stream.getTracks().forEach((t) => t.stop()); video.srcObject = null; cam.style.display = 'none'; fn(); };
+      $('camCancel').onclick = () => done(() => reject(Object.assign(new Error('Photo cancelled.'), { name: 'AbortError' })));
+      $('camShoot').onclick = () => {
+        buzz(15);
+        const w = video.videoWidth || 480; const h = video.videoHeight || 640; const sc = Math.min(1, 480 / w);
+        const c = document.createElement('canvas'); c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+        c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+        const data = c.toDataURL('image/jpeg', 0.72);
         done(() => resolve(data));
       };
     });
   }
 
   async function punch() {
-    const btn = document.getElementById('punch');
-    btn.disabled = true;
-    showPunchMsg('Starting…', 'muted');
+    const btn = $('punch');
+    if (punching) return;
+    punching = true;
+    btn.disabled = true; buzz(10);
+    showPunchMsg('', '');
     try {
       const b = await api('/v1/staff/punch/begin', {});
       const locP = b.needs.geo ? getLocation() : Promise.resolve(null);
-
       let selfie = null;
       if (b.needs.selfie) selfie = await takeSelfie(b.prompt);
-
       let assertion = null;
-      if (b.needs.passkey) {
-        showPunchMsg(isIOS ? 'Confirm with Face ID / Touch ID…' : 'Confirm with your fingerprint…', 'muted');
-        const o = b.publicKey;
-        const cred = await navigator.credentials.get({
-          publicKey: {
-            ...o,
-            challenge: b64uToBuf(o.challenge),
-            allowCredentials: o.allowCredentials.map((c) => ({ ...c, id: b64uToBuf(c.id) })),
-          },
-        });
-        assertion = {
-          id: cred.id,
-          response: {
-            clientDataJSON: bufToB64u(cred.response.clientDataJSON),
-            authenticatorData: bufToB64u(cred.response.authenticatorData),
-            signature: bufToB64u(cred.response.signature),
-          },
-        };
-      }
-
-      showPunchMsg('Saving…', 'muted');
+      if (b.needs.passkey) { showPunchMsg(`Confirm with ${bioName}…`, 'info'); assertion = await getAssertion(b.publicKey); }
+      showPunchMsg('Saving…', 'info');
       const geo = await locP;
       const r = await api('/v1/staff/punch/finish', { challenge: b.challenge, kind: b.kind, assertion, geo, selfie });
-      renderResult(r.punch);
+      buzz([30, 40, 30]);
+      punching = false;
+      showDone(r.punch);
     } catch (err) {
-      const text = err.name === 'NotAllowedError'
-        ? 'The fingerprint / Face ID check was cancelled. Tap the button to try again.'
-        : err.message;
-      showPunchMsg(text, 'bad');
-      if (err.code === 'passkey_required') return renderEnroll();
+      punching = false;
       btn.disabled = false;
+      if (err.code === 'passkey_required') return renderEnroll();
+      showPunchMsg(cancelled(err) ? 'Cancelled. Tap the button to try again.' : err.message, cancelled(err) ? 'info' : 'bad');
     }
   }
 
-  function renderResult(p) {
-    const net = p.net_status === 'match'
-      ? '<div class="msg ok">Verified on the shop Wi-Fi.</div>'
-      : p.net_status === 'pending'
-        ? '<div class="msg warn">Recorded. The Wi-Fi check will finish when the shop computer is switched on.</div>'
-        : p.net_status === 'mismatch'
-          ? '<div class="msg bad">Recorded, but you were not on the shop Wi-Fi. Your manager will see this.</div>'
-          : '';
-    $view.innerHTML = `
-      <div class="card result">
-        <div class="tick">✓</div>
-        <h1>${p.kind === 'in' ? 'Checked IN' : 'Checked OUT'}</h1>
-        <p class="clock" style="font-size:34px">${fmtTime(p.at)}</p>
-        <p class="muted">${fmtDate(p.at)}</p>
-        ${net}
-        <button class="btn" id="done" type="button">Done</button>
-      </div>`;
-    document.getElementById('done').onclick = () => loadHome();
+  function showDone(p) {
+    const net = p.net_status === 'match' ? '<div class="msg ok">Verified on the shop Wi-Fi.</div>'
+      : p.net_status === 'pending' ? '<div class="msg warn">Saved. The Wi-Fi check finishes when the shop computer is on.</div>'
+        : p.net_status === 'mismatch' ? '<div class="msg bad">Saved, but you were not on the shop Wi-Fi. Your manager will see this.</div>' : '';
+    const d = document.createElement('div');
+    d.className = 'done';
+    d.innerHTML = `<svg class="check" viewBox="0 0 110 110"><circle cx="55" cy="55" r="52"/><path d="M34 57l14 14 28-30"/></svg>
+      <h1>${p.kind === 'in' ? 'You\'re checked in' : 'You\'re checked out'}</h1>
+      <div class="big">${fmtTime(p.at)}</div><p class="muted" style="margin:4px 0 0">${fmtDay(p.at)}</p>
+      <div style="width:100%;max-width:340px">${net}</div>
+      <button class="btn" type="button">Done</button>`;
+    document.body.appendChild(d);
+    d.querySelector('.btn').onclick = () => { d.remove(); tab = 'home'; loadMe(); };
   }
 
+  // ── boot ────────────────────────────────────────────────────────────
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/staff/sw.js', { scope: '/staff/' }).catch(() => {});
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && me && !punching && !document.querySelector('.done') && store.get('zs_token')) loadMe(); });
   render();
 })();
 </script>
