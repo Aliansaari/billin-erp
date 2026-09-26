@@ -175,6 +175,14 @@ async function buildRegister(fromIso, toIso, { staffIds = null, includeInactive 
     { replacements: { ids, from: new Date(fromMs), to: new Date(toMs) } },
   ) : [];
 
+  // Leave days (live ones only), keyed staff:date.
+  const leaveRows = ids.length ? await q(
+    `SELECT leave_id, staff_id, to_char(leave_date, 'YYYY-MM-DD') AS d, leave_type, reason
+       FROM staff_leaves WHERE staff_id IN (:ids) AND voided_at IS NULL AND leave_date BETWEEN :f AND :t`,
+    { replacements: { ids, f: fromIso, t: toIso } },
+  ).catch(() => []) : [];
+  const leaveAt = new Map(leaveRows.map((l) => [`${l.staff_id}:${l.d}`, l]));
+
   // Last bill per (salesman, day) — the presence signal for auto punch-out.
   const salesmanIds = staffRows.map((s) => s.salesman_id).filter(Boolean);
   const lastBill = new Map();
@@ -215,13 +223,16 @@ async function buildRegister(fromIso, toIso, { staffIds = null, includeInactive 
       const weekday = new Date(d * DAY_MS).getUTCDay();
 
       const day = { date: iso, punches: dayPunches.map(publicPunch), flags: [] };
+      const leave = leaveAt.get(`${s.staff_id}:${iso}`);
+      if (leave) day.leave = { leave_id: leave.leave_id, type: leave.leave_type, reason: leave.reason };
 
       if (d > todayDay || d < joinedDay) {
         day.status = 'none';
       } else {
         const firstIn = counted.find((p) => p.kind === 'in');
         if (!firstIn) {
-          if (judged.some((p) => p.trust === 'reject')) day.status = 'unverified';
+          if (leave) day.status = 'leave';
+          else if (judged.some((p) => p.trust === 'reject')) day.status = 'unverified';
           else if (weeklyOff.has(weekday)) day.status = 'off';
           else day.status = isToday ? 'not_in' : 'absent';
         } else {
@@ -258,7 +269,7 @@ async function buildRegister(fromIso, toIso, { staffIds = null, includeInactive 
       days[iso] = day;
     }
 
-    const summary = { present: 0, late: 0, absent: 0, off: 0, unverified: 0, worked_min: 0 };
+    const summary = { present: 0, late: 0, absent: 0, off: 0, unverified: 0, leave: 0, leave_paid: 0, leave_unpaid: 0, worked_min: 0 };
     for (const iso of dayList) {
       const day = days[iso];
       if (day.status === 'present' || day.status === 'late') summary.present++;
@@ -266,6 +277,7 @@ async function buildRegister(fromIso, toIso, { staffIds = null, includeInactive 
       if (day.status === 'absent') summary.absent++;
       if (day.status === 'off') summary.off++;
       if (day.status === 'unverified') summary.unverified++;
+      if (day.status === 'leave') { summary.leave++; summary[day.leave.type === 'unpaid' ? 'leave_unpaid' : 'leave_paid']++; }
       summary.worked_min += day.worked_min || 0;
     }
 
@@ -310,6 +322,7 @@ function publicPunch(p) {
 const STATUS_LABEL = {
   present: ['Present', 'ok'], late: ['Late', 'warn'], absent: ['Absent', 'bad'],
   off: ['Weekly off', ''], unverified: ['Not verified', 'bad'], not_in: ['Not in yet', ''],
+  leave: ['Leave', 'leave'],
 };
 
 function staffViews(register) {
@@ -323,6 +336,7 @@ function staffViews(register) {
       const [label, tone] = d.working ? ['Working', 'ok'] : (STATUS_LABEL[d.status] || [d.status, '']);
       const notes = [];
       if (d.auto_out) notes.push('auto check-out');
+      if (d.status === 'leave') notes.push(`${d.leave.type === 'unpaid' ? 'Unpaid' : 'Paid'} leave${d.leave.reason ? `: ${d.leave.reason}` : ''}`);
       for (const p of d.punches) {
         if (p.voided_at) notes.push(`${p.kind.toUpperCase()} removed by owner: ${p.void_reason || 'no reason'}`);
         else if (p.source === 'manual') notes.push(`${p.kind.toUpperCase()} added by owner: ${p.reason || 'no reason'}`);
@@ -342,7 +356,7 @@ function staffViews(register) {
     views[s.staff_id] = {
       month: register.days[0].slice(0, 7),
       month_label: monthLabel,
-      summary: { present: s.summary.present, late: s.summary.late, absent: s.summary.absent, worked_min: s.summary.worked_min },
+      summary: { present: s.summary.present, late: s.summary.late, absent: s.summary.absent, leave: s.summary.leave, worked_min: s.summary.worked_min },
       days,
     };
   }

@@ -626,6 +626,31 @@ async function runCompanySchemaMigrations(sequelize) {
     END $staff_att$;
   `);
 
+  // staff_leaves — a day an owner marked as leave (paid or unpaid). Leave is
+  // not absence: the register shows it as Leave and payroll (later) pays or
+  // deducts by type. Append-only like punches: a wrong one is voided with a
+  // reason, never deleted. One live leave per staff member per day.
+  await sequelize.query(`
+    DO $staff_leave$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'staff_leaves') THEN
+        CREATE TABLE staff_leaves (
+          leave_id     SERIAL PRIMARY KEY,
+          staff_id     INTEGER NOT NULL,
+          leave_date   DATE NOT NULL,
+          leave_type   VARCHAR(12) NOT NULL DEFAULT 'paid',   -- paid | unpaid
+          reason       TEXT,
+          created_by   INTEGER,
+          created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          voided_at    TIMESTAMP WITH TIME ZONE,
+          void_reason  TEXT,
+          voided_by    INTEGER
+        );
+        CREATE UNIQUE INDEX uq_staff_leaves_live ON staff_leaves(staff_id, leave_date) WHERE voided_at IS NULL;
+      END IF;
+    END $staff_leave$;
+  `);
+
   // user_preferences — the operator's own UI settings, keyed to their
   // login (see models/UserPreference.js). Created explicitly here rather
   // than left to sequelize.sync so that the boot-time additive-schema

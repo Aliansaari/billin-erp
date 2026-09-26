@@ -359,6 +359,20 @@ exports.bulkPunches = async (req, res) => {
     const nowMs = Date.now();
 
     const staff = await q('SELECT staff_id, joined_on, created_date FROM staff_members WHERE staff_id IN (:ids) AND is_active', { replacements: { ids } });
+    // Leave days chosen per staff member: { staff_id, dates: [...], leave_type }.
+    const leaveOf = new Map();
+    for (const l of Array.isArray(b.leaves) ? b.leaves : []) {
+      const type = l.leave_type === 'unpaid' ? 'unpaid' : 'paid';
+      for (const d of Array.isArray(l.dates) ? l.dates : []) {
+        if (iso.test(String(d)) && d >= b.from && d <= b.to) leaveOf.set(`${Number(l.staff_id)}:${d}`, type);
+      }
+    }
+    const liveLeaves = await q(
+      `SELECT staff_id, to_char(leave_date, 'YYYY-MM-DD') AS d FROM staff_leaves
+        WHERE staff_id IN (:ids) AND voided_at IS NULL AND leave_date BETWEEN :f AND :t`,
+      { replacements: { ids, f: b.from, t: b.to } },
+    );
+    const hasLeave = new Set(liveLeaves.map((r) => `${r.staff_id}:${r.d}`));
     const existing = await q(
       `SELECT DISTINCT staff_id, to_char(punched_at + (:off || ' minutes')::interval, 'YYYY-MM-DD') AS day
          FROM staff_punches WHERE staff_id IN (:ids) AND voided_at IS NULL
@@ -367,7 +381,7 @@ exports.bulkPunches = async (req, res) => {
     );
     const has = new Set(existing.map((r) => `${r.staff_id}:${r.day}`));
 
-    let created = 0; const skipped = { existing: 0, weekly_off: 0, before_joining: 0, future: 0 };
+    let created = 0; let leaveDays = 0; const skipped = { existing: 0, weekly_off: 0, before_joining: 0, future: 0, on_leave: 0 };
     await sequelize.transaction(async (t) => {
       for (let d = Date.parse(b.from); d <= Date.parse(b.to); d += 86_400_000) {
         const day = new Date(d).toISOString().slice(0, 10);
@@ -376,6 +390,18 @@ exports.bulkPunches = async (req, res) => {
           const joined = st.joined_on ? String(st.joined_on).slice(0, 10) : null;
           if (joined && day < joined) { skipped.before_joining++; continue; }
           if (has.has(`${st.staff_id}:${day}`)) { skipped.existing++; continue; }
+          const leaveType = leaveOf.get(`${st.staff_id}:${day}`);
+          if (leaveType) {
+            if (!hasLeave.has(`${st.staff_id}:${day}`)) {
+              await sequelize.query(
+                `INSERT INTO staff_leaves (staff_id, leave_date, leave_type, reason, created_by) VALUES (:sid, :d, :type, :reason, :uid)`,
+                { replacements: { sid: st.staff_id, d: day, type: leaveType, reason: reason.slice(0, 300), uid: req.user?.user_id || null }, transaction: t },
+              );
+              leaveDays++;
+            }
+            continue;
+          }
+          if (hasLeave.has(`${st.staff_id}:${day}`)) { skipped.on_leave++; continue; }
           if (weeklyOff.has(weekday) && !b.include_weekly_off) { skipped.weekly_off++; continue; }
           const inAt = at(day, b.in_time);
           if (inAt > nowMs) { skipped.future++; continue; }
@@ -392,8 +418,53 @@ exports.bulkPunches = async (req, res) => {
         }
       }
     });
-    if (created) kick();
-    res.json({ created_days: created, skipped });
+    if (created || leaveDays) kick();
+    res.json({ created_days: created, leave_days: leaveDays, skipped });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+/** Mark leave for one staff member on one or more days. */
+exports.addLeave = async (req, res) => {
+  try {
+    const b = req.body || {};
+    const staffId = Number(b.staff_id);
+    const type = b.leave_type === 'unpaid' ? 'unpaid' : 'paid';
+    const reason = String(b.reason || '').trim();
+    const dates = [...new Set((Array.isArray(b.dates) ? b.dates : []).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d))))].slice(0, 62);
+    if (!dates.length) return bad(res, 'Pick the leave days.');
+    if (reason.length < 3) return bad(res, 'Write the reason. The staff member will see it.');
+    const [staff] = await q('SELECT staff_id FROM staff_members WHERE staff_id = :id', { replacements: { id: staffId } });
+    if (!staff) return bad(res, 'Staff member not found.', 404);
+    let added = 0;
+    for (const d of dates) {
+      const [r] = await sequelize.query(
+        `INSERT INTO staff_leaves (staff_id, leave_date, leave_type, reason, created_by)
+         VALUES (:sid, :d, :type, :reason, :uid) ON CONFLICT DO NOTHING RETURNING leave_id`,
+        { replacements: { sid: staffId, d, type, reason: reason.slice(0, 300), uid: req.user?.user_id || null } },
+      );
+      if (r.length) added++;
+    }
+    if (added) kick();
+    res.status(201).json({ added, already: dates.length - added });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+exports.voidLeave = async (req, res) => {
+  try {
+    const reason = String(req.body?.reason || '').trim();
+    if (reason.length < 3) return bad(res, 'Write the reason. The staff member will see it.');
+    const [r] = await sequelize.query(
+      `UPDATE staff_leaves SET voided_at = NOW(), void_reason = :reason, voided_by = :uid
+        WHERE leave_id = :id AND voided_at IS NULL RETURNING leave_id`,
+      { replacements: { id: Number(req.params.id), reason: reason.slice(0, 300), uid: req.user?.user_id || null } },
+    );
+    if (!r.length) return bad(res, 'That leave was not found or is already removed.', 404);
+    kick();
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

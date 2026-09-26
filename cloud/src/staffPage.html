@@ -18,7 +18,7 @@
     --bg: #F6F1E7; --card: #FFFDF8; --text: #1D1814; --muted: #7A7066; --line: #E9E1D3;
     --brand: #B0492A; --brand-2: #8E3A20; --brand-soft: #F4E3DA; --on-brand: #fff;
     --ok: #16865A; --ok-soft: #E3F4EC; --warn: #A86400; --warn-soft: #FBEFD9;
-    --bad: #C2372B; --bad-soft: #FBE6E3; --off: #9C9388; --off-soft: #EFE9DF;
+    --bad: #C2372B; --bad-soft: #FBE6E3; --off: #9C9388; --off-soft: #EFE9DF; --leave: #2563EB; --leave-soft: #E6EEFD;
     --shadow: 0 1px 2px rgba(40, 28, 16, .05), 0 8px 24px rgba(40, 28, 16, .06);
     --r: 20px; --nav-h: 64px;
   }
@@ -27,7 +27,7 @@
       --bg: #131110; --card: #1D1A18; --text: #F3EEE8; --muted: #A69C92; --line: #2C2724;
       --brand: #E0714E; --brand-2: #C95B39; --brand-soft: #3A231A; --on-brand: #fff;
       --ok: #45C98C; --ok-soft: #173326; --warn: #F0A73F; --warn-soft: #3A2A12;
-      --bad: #FF7B6E; --bad-soft: #3D1C18; --off: #8E857C; --off-soft: #26221F;
+      --bad: #FF7B6E; --bad-soft: #3D1C18; --off: #8E857C; --off-soft: #26221F; --leave: #7FA8FF; --leave-soft: #1A2440;
       --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
     }
   }
@@ -57,6 +57,7 @@
   .week .pip { width: 34px; height: 34px; margin: 6px auto 0; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13.5px; background: var(--bg); }
   .week .pip.ok { background: var(--ok-soft); color: var(--ok); } .week .pip.warn { background: var(--warn-soft); color: var(--warn); }
   .week .pip.bad { background: var(--bad-soft); color: var(--bad); } .week .pip.off { background: var(--off-soft); color: var(--off); }
+  .week .pip.leave { background: var(--leave-soft); color: var(--leave); }
   .week .pip.today { outline: 2px solid var(--brand); outline-offset: 2px; }
   .topbar .t { flex: 1; min-width: 0; }
   .topbar .t b { display: block; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -93,6 +94,7 @@
     border-radius: 99px; white-space: nowrap; }
   .chip.ok { background: var(--ok-soft); color: var(--ok); } .chip.warn { background: var(--warn-soft); color: var(--warn); }
   .chip.bad { background: var(--bad-soft); color: var(--bad); } .chip.off { background: var(--off-soft); color: var(--muted); }
+  .chip.leave { background: var(--leave-soft); color: var(--leave); }
   .msg { border-radius: 14px; padding: 12px 14px; font-size: 14px; margin-top: 12px; line-height: 1.4; }
   .msg.bad { background: var(--bad-soft); color: var(--bad); } .msg.ok { background: var(--ok-soft); color: var(--ok); }
   .msg.warn { background: var(--warn-soft); color: var(--warn); } .msg.info { background: var(--brand-soft); color: var(--brand); }
@@ -149,6 +151,7 @@
   .day { aspect-ratio: 1; border-radius: 12px; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: var(--bg); position: relative; }
   .day.ok { background: var(--ok-soft); color: var(--ok); } .day.warn { background: var(--warn-soft); color: var(--warn); }
   .day.bad { background: var(--bad-soft); color: var(--bad); } .day.off { background: var(--off-soft); color: var(--off); }
+  .day.leave { background: var(--leave-soft); color: var(--leave); }
   .day.blank { background: transparent; } .day.future { opacity: .4; }
   .day.today { outline: 2px solid var(--brand); outline-offset: 1px; }
   .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
@@ -661,7 +664,7 @@
     const todayK = dayKey(now());
     const data = monthData(y, m);
     const label = d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-    const counts = { ok: 0, warn: 0, bad: 0 };
+    const counts = { ok: 0, warn: 0, bad: 0, leave: 0 };
     Object.values(data).forEach((v) => { if (counts[v.tone] !== undefined) counts[v.tone]++; });
 
     let cells = ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w) => `<div class="wd">${w}</div>`).join('');
@@ -683,7 +686,7 @@
         </div>
         <div class="grid">${cells}</div>
         <div class="legend">
-          <span class="chip ok">${counts.ok} present</span><span class="chip warn">${counts.warn} late</span><span class="chip bad">${counts.bad} absent</span>
+          <span class="chip ok">${counts.ok} present</span><span class="chip warn">${counts.warn} late</span><span class="chip bad">${counts.bad} absent</span><span class="chip leave">${counts.leave} leave</span>
         </div>
       </div>
       <p class="muted small" style="margin:4px 6px">Tap a day for its times.${me.view_updated_at ? ` Updated by your shop at ${fmtTime(me.view_updated_at)}.` : ''}</p>

@@ -29,6 +29,8 @@ router.get('/register',              c.getRegister);
 router.get('/punches/:id/selfie',    c.getSelfie);
 router.post('/punches',              c.addPunch);
 router.post('/punches/bulk',         c.bulkPunches);
+router.post('/leaves',               c.addLeave);
+router.post('/leaves/:id/void',      c.voidLeave);
 router.post('/punches/:id/void',     c.voidPunch);
 
 module.exports = router;
