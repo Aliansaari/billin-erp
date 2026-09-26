@@ -234,6 +234,7 @@ export default function AppLayout() {
     // Content scroller engages instead of the page's own.
     '/settings/home',
     '/products', '/stock-report', '/stock-report-pro', '/stock-movement', '/categories', '/customers', '/suppliers',
+    '/staff-attendance',
     '/sales', '/purchases', '/payments',
     '/sales-returns', '/purchase-returns',
     '/reports/sales', '/reports/purchases',
