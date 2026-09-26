@@ -31,6 +31,17 @@
   WriteRegStr HKCU "Software\\Sabina Software\\ZEHEN" "Vendor" "Sabina Software"
 !macroend
 
+; ZEHEN's bundled Postgres runs from inside the install folder and keeps
+; running after the app closes (a deliberate fast-startup choice, see
+; electron/embeddedPostgres.js). Its files are then locked, so an update
+; could not replace them. Stop exactly ZEHEN's own cluster (its own pg_ctl,
+; its own data dir) before copying anything; any other PostgreSQL on this PC
+; is untouched. The app starts it again on the next launch.
+!macro customInit
+  IfFileExists "$INSTDIR\resources\pgsql\bin\pg_ctl.exe" 0 +2
+    nsExec::Exec '"$INSTDIR\resources\pgsql\bin\pg_ctl.exe" -D "$PROFILE\.zehen\pgdata" stop -m fast -w -t 30'
+!macroend
+
 ; Hook that runs before files get copied. Detects an existing install
 ; and lays down a marker the running app can read on next launch.
 !macro customInstall
@@ -47,11 +58,18 @@
   FileClose $0
 !macroend
 
+; An update runs the OLD version's uninstaller silently before installing
+; the new one. The question below must never appear then: in silent mode a
+; bare MessageBox still pops up, so a background auto-update would stall on
+; it, and a "No" would abort the update half-done. Ask only on a real,
+; interactive uninstall; /SD IDYES covers any other silent run.
 !macro customUnInstall
-  MessageBox MB_YESNO|MB_ICONQUESTION \
-    "Removing ZEHEN will leave your customer data untouched in:$\r$\n$PROFILE\\.zehen$\r$\n$\r$\nThis includes your master database config, license file, and backups. Reinstalling later will pick up where you left off.$\r$\n$\r$\nUninstall now?" \
-    IDYES uninstall_yes IDNO uninstall_no
-  uninstall_no:
-    Abort
-  uninstall_yes:
+  ${ifNot} ${isUpdated}
+    MessageBox MB_YESNO|MB_ICONQUESTION \
+      "Removing ZEHEN will leave your customer data untouched in:$\r$\n$PROFILE\\.zehen$\r$\n$\r$\nThis includes your master database config, license file, and backups. Reinstalling later will pick up where you left off.$\r$\n$\r$\nUninstall now?" \
+      /SD IDYES IDYES uninstall_yes IDNO uninstall_no
+    uninstall_no:
+      Abort
+    uninstall_yes:
+  ${endIf}
 !macroend

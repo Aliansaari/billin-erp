@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // the WhatsApp flow so the operator can drag the fresh PDF into the chat.
   openPath:          (p) => ipcRenderer.invoke('shell:open-path', p),
   showItemInFolder:  (p) => ipcRenderer.invoke('shell:show-item', p),
+  // Opens https://zehenapp.com pages only (main enforces the domain).
+  openZehenUrl:      (url) => ipcRenderer.invoke('shell:open-zehen-url', url),
 
   // LAN thin-client mode: read / persist the host PC's server URL the
   // client connects to. Only used by client builds and the client setup
@@ -47,6 +49,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Full relaunch — used by the Retry button on the DB-port-conflict
   // screen, where a plain page reload can't re-attempt the database.
   restartApp: () => ipcRenderer.send('zehen:restart-app'),
+
+  // Software updates (electron/updater.js). Present only in the desktop
+  // app; the Settings page checks for it and explains otherwise.
+  updates: {
+    getState:   () => ipcRenderer.invoke('updates:get-state'),
+    check:      () => ipcRenderer.invoke('updates:check'),
+    setAuto:    (on) => ipcRenderer.invoke('updates:set-auto', !!on),
+    download:   () => ipcRenderer.invoke('updates:download'),
+    installNow: () => ipcRenderer.invoke('updates:install-now'),
+    onState: (cb) => {
+      const handler = (_e, s) => cb(s);
+      ipcRenderer.on('updates:state', handler);
+      return () => ipcRenderer.removeListener('updates:state', handler);
+    },
+  },
 });
 
 // ── UI-settings persistence mirror ──────────────────────────────────

@@ -7,7 +7,7 @@ import {
   AppstoreOutlined, CodeOutlined, KeyOutlined, BellOutlined,
   CalendarOutlined, TeamOutlined, InboxOutlined, ImportOutlined,
   IdcardOutlined, WifiOutlined, WhatsAppOutlined, RobotOutlined,
-  CreditCardOutlined, GlobalOutlined, FieldTimeOutlined,
+  CreditCardOutlined, GlobalOutlined, FieldTimeOutlined, CloudDownloadOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -115,6 +115,8 @@ const SETTINGS_GROUPS = [
       { path: 'import',        icon: <ImportOutlined />,      label: 'Import (queued)',   perm: 'settings.import_export', flag: 'dev_show_import_export', localOnly: true },
       { path: 'tally',         icon: <ApiOutlined />,         label: 'TallyPrime Sync',   perm: 'settings.tally',         flag: 'dev_show_tally_sync' },
       { path: 'backup',        icon: <CloudServerOutlined />, label: 'Backup & Recovery', perm: 'settings.backup', localOnly: true },
+      // Software Update — auto-update switch + status (electron/updater.js).
+      { path: 'software-update', icon: <CloudDownloadOutlined />, label: 'Software Update', perm: 'settings.manage_company', localOnly: true },
     ],
   },
   {

@@ -3,7 +3,12 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
-const { startEmbeddedPostgres } = require('./embeddedPostgres');
+const { startEmbeddedPostgres, stopEmbeddedPostgres } = require('./embeddedPostgres');
+const updater = require('./updater');
+
+// Set when an update is about to install: the window must close without the
+// exit-confirm round trip, or the installer's quit would be cancelled.
+let installingUpdate = false;
 
 // ── userData folder ──────────────────────────────────────────────────
 //
@@ -452,7 +457,7 @@ async function createWindow() {
   // so the user is never trapped.
   let exitConfirmed = false;
   mainWindow.on('close', (e) => {
-    if (exitConfirmed) return;
+    if (exitConfirmed || installingUpdate) return;
     e.preventDefault();
     try { mainWindow.webContents.send('app:confirm-exit'); }
     catch { exitConfirmed = true; mainWindow.close(); }
@@ -824,6 +829,20 @@ ipcMain.handle('shell:open-path', async (_ev, filePath) => {
 
 // Pop a File Explorer window with the file pre-selected so the user can
 // drag it into another app (e.g. a WhatsApp chat).
+// Open one of OUR web pages (release notes, help) in the real browser.
+// Deliberately limited to https://zehenapp.com and its subdomains: an
+// open-anything bridge would let any page the renderer ever shows launch
+// arbitrary URLs or protocols on the shop PC.
+ipcMain.handle('shell:open-zehen-url', async (_ev, raw) => {
+  try {
+    const u = new URL(String(raw));
+    const ok = u.protocol === 'https:' && (u.hostname === 'zehenapp.com' || u.hostname.endsWith('.zehenapp.com'));
+    if (!ok) return false;
+    await shell.openExternal(u.toString());
+    return true;
+  } catch { return false; }
+});
+
 ipcMain.handle('shell:show-item', async (_ev, filePath) => {
   if (!filePath) return { error: 'No path' };
   shell.showItemInFolder(filePath);
@@ -843,6 +862,19 @@ app.whenReady().then(async () => {
   // IPC that resolves that await, so the spinner appears almost instantly.
   createWindow();
   console.log(`[perf] window created +${Date.now() - bootStart}ms`);
+
+  // Software updates (electron/updater.js). Checks quietly in the
+  // background; installs only at close or when the owner asks.
+  updater.init({
+    window: () => mainWindow,
+    clientMode: CLIENT_MODE,
+    onBeforeInstall: () => {
+      installingUpdate = true;
+      // Postgres runs from inside the install folder and outlives the app;
+      // stop it so the installer can replace those files.
+      stopEmbeddedPostgres();
+    },
+  });
 
   // ── 2. Start embedded postgres (non-blocking) ────────────────────────
   // startEmbeddedPostgres now uses execFile + TCP polling instead of

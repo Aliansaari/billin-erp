@@ -106,6 +106,7 @@ import SalesmanList from './pages/settings/SalesmanList';
 import MembershipPlans from './pages/settings/MembershipPlans';
 import MembershipSettings from './pages/settings/MembershipSettings';
 import StaffAttendanceSettings from './pages/settings/StaffAttendanceSettings';
+import SoftwareUpdate from './pages/settings/SoftwareUpdate';
 import AttendanceRegister from './pages/staff/AttendanceRegister';
 import MembershipList from './pages/membership/MembershipList';
 import MembershipReport from './pages/membership/MembershipReport';
@@ -886,6 +887,7 @@ export default function App() {
             <Route path="whatsapp"            element={<RoleRoute perm="settings.manage_company"><WhatsappSettings /></RoleRoute>} />
             <Route path="whatsapp-bot"        element={<RoleRoute perm="settings.manage_company"><WhatsappBotSettings /></RoleRoute>} />
             <Route path="backup"              element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />
+            <Route path="software-update"     element={<RoleRoute perm="settings.manage_company"><SoftwareUpdate /></RoleRoute>} />
             {/* Theme is per-user UX — anyone can pick light/dark. */}
             <Route path="theme"               element={<ThemeSettings />} />
             <Route path="import-export"       element={<DevGatedRoute flag="import_export"><RoleRoute perm="settings.import_export"><ImportExport /></RoleRoute></DevGatedRoute>} />
