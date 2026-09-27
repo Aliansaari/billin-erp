@@ -9,7 +9,8 @@ export const inr0 = (n) => inr(Math.round(Number(n) || 0));
 export const monthLabel = (period) => dayjs(`${period}-01`).format('MMMM YYYY');
 export const cap = (n) => String(n || '').toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
 export const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
-export const errText = (e, fallback) => e?.response?.data?.error || fallback;
+// Fiscal-lock refusals carry a code in `error` and the sentence in `message`.
+export const errText = (e, fallback) => e?.response?.data?.message || e?.response?.data?.error || fallback;
 
 export const PAY_TYPES = {
   monthly: { label: 'Monthly salary', unit: '/ month', hint: 'Fixed pay; absences and unpaid leave are cut' },

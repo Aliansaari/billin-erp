@@ -826,6 +826,7 @@ async function runCompanySchemaMigrations(sequelize) {
   // owner's edit form; lists get the last four digits.
   await sequelize.query(`
     DO $staff_profile$ BEGIN
+      ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS posted_on DATE;
       ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS photo TEXT;
       ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS photo_thumb TEXT;
       ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS aadhaar VARCHAR(12);

@@ -132,6 +132,7 @@ function computePayslip(a) {
   const shiftMin = Math.max(60, ((hhmm(attCfg.close_time) ?? 1260) - (hhmm(attCfg.open_time) ?? 600)));
   const joined = staff.joined_on ? String(staff.joined_on).slice(0, 10) : null;
   const left = staff.left_on ? String(staff.left_on).slice(0, 10) : null;
+  const settled = staff.settled_until ? String(staff.settled_until).slice(0, 10) : null;
 
   const att = { days_in_month: D, present: 0, late: 0, half_days: 0, paid_leave: 0, unpaid_leave: 0, absent: 0, unverified: 0,
     weekly_off: 0, holidays: 0, not_employed: 0, not_employed_workdays: 0, assumed: 0, future: 0, worked_min: 0, ot_min: 0 };
@@ -142,7 +143,7 @@ function computePayslip(a) {
     const wd = new Date(Date.UTC(yy, mm - 1, d)).getUTCDay();
     const isOff = weeklyOff.has(wd);
     const hol = holidays.has(iso);
-    if ((joined && iso < joined) || (left && iso > left)) { att.not_employed++; if (!isOff && !hol) att.not_employed_workdays++; continue; }
+    if ((joined && iso < joined) || (left && iso > left) || (settled && iso <= settled)) { att.not_employed++; if (!isOff && !hol) att.not_employed_workdays++; continue; }
     const day = days[iso] || {};
     const leave = day.leave;
     const worked = day.status === 'present' || day.status === 'late';
@@ -169,6 +170,7 @@ function computePayslip(a) {
   const latePenalty = S.late_penalty.enabled && Number(S.late_penalty.every) > 0
     ? Math.floor(att.late / Number(S.late_penalty.every)) * Number(S.late_penalty.deduct_days || 0) : 0;
   att.late_penalty_days = latePenalty;
+  if (settled && settled >= `${period}-01`) notes.push(`Days up to ${settled} were already paid in Staff accounts.`);
   att.lop_days = r2(att.absent + att.unpaid_leave + unverifiedLop + att.half_days * 0.5 + latePenalty);
   if (att.future) notes.push(`${att.future} day${att.future === 1 ? '' : 's'} still to come counted as worked.`);
   if (att.assumed && tracked) notes.push(`${att.assumed} day${att.assumed === 1 ? '' : 's'} before attendance started counted as worked.`);
@@ -354,11 +356,32 @@ async function advancesWithBalance({ staffId = null, excludeRunId = null } = {})
   return adv.map((a) => ({ ...a, recovered: r2(got.get(a.advance_id) || 0), outstanding: r2(a.amount - (got.get(a.advance_id) || 0)) }));
 }
 
+/**
+ * Commission base per salesman: net sales before GST for bills dated in the
+ * range (line taxable_amount = after item and bill discounts), less the
+ * taxable value of returns dated in the range against that salesman's bills.
+ */
 async function salesBySalesman(from, to) {
-  const rows = await q(`SELECT salesman_id, COALESCE(SUM(sub_total),0)::float AS sales FROM sales_bills
-                         WHERE is_cancelled = false AND salesman_id IS NOT NULL AND bill_date BETWEEN :f AND :t GROUP BY salesman_id`,
-  { replacements: { f: from, t: to } }).catch(() => []);
-  return new Map(rows.map((r) => [r.salesman_id, r.sales]));
+  const sold = await q(`SELECT sb.salesman_id, COALESCE(SUM(i.taxable_amount),0)::float AS v
+                          FROM sales_bills sb JOIN sales_bill_items i ON i.sales_bill_id = sb.sales_bill_id
+                         WHERE sb.is_cancelled = false AND sb.salesman_id IS NOT NULL AND sb.bill_date BETWEEN :f AND :t
+                         GROUP BY sb.salesman_id`, { replacements: { f: from, t: to } }).catch(() => []);
+  const back = await q(`SELECT sb.salesman_id, COALESCE(SUM(ri.taxable_amount),0)::float AS v
+                          FROM sales_return_bills r
+                          JOIN sales_return_bill_items ri ON ri.sales_return_id = r.sales_return_id
+                          JOIN sales_bills sb ON sb.sales_bill_id = r.reference_bill_id
+                         WHERE COALESCE(r.is_cancelled, false) = false AND sb.salesman_id IS NOT NULL AND r.return_date BETWEEN :f AND :t
+                         GROUP BY sb.salesman_id`, { replacements: { f: from, t: to } }).catch(() => []);
+  const out = new Map(sold.map((r) => [r.salesman_id, r.v]));
+  for (const r of back) out.set(r.salesman_id, r2((out.get(r.salesman_id) || 0) - r.v));
+  for (const [k, v] of out) if (v < 0) out.set(k, 0);
+  return out;
+}
+
+/** Last settled date per staff in Staff accounts (live settlements only). */
+async function settledUntil() {
+  const rows = await q(`SELECT staff_id, to_char(MAX(to_date),'YYYY-MM-DD') AS d FROM staff_settlements WHERE voided_at IS NULL GROUP BY staff_id`).catch(() => []);
+  return new Map(rows.map((r) => [r.staff_id, r.d]));
 }
 
 /** Paid through Staff accounts (settle-up) rather than the monthly pay run. */
@@ -414,17 +437,21 @@ async function getRun(period) {
     const regBy = new Map(reg.staff.map((s) => [s.staff_id, s]));
     const sales = await salesBySalesman(from, to);
     const advances = await advancesWithBalance({ excludeRunId: run?.run_id });
-    for (const s of eligible) {
+    const settledMap = await settledUntil();
+    for (const s0 of eligible) {
+      const until = settledMap.get(s0.staff_id) || null;
+      if (until && until >= to) continue;                 // whole month already settled up
+      const s = until && until >= from ? { ...s0, settled_until: until } : s0;
       const slipRow = slipByStaff.get(s.staff_id);
       const tracked = !!attSettings.enabled && s.attendance_enabled !== false;
       const slip = computePayslip({
         period, todayIso: today, staff: s, days: regBy.get(s.staff_id)?.days || {}, tracked, attCfg,
         structure: current.get(s.staff_id), settings,
         sales: s.salesman_id ? sales.get(s.salesman_id) || 0 : 0,
-        advances: advances.filter((a) => a.staff_id === s.staff_id && a.given_on <= to),
+        advances: advances.filter((a) => a.staff_id === s.staff_id && a.given_on <= to && !(until && a.given_on <= until)),
         adjustments: slipRow?.adjustments || [], recoveries: slipRow?.recoveries || {},
       });
-      const mine = advances.filter((v) => v.staff_id === s.staff_id && v.given_on <= to && v.outstanding > 0);
+      const mine = advances.filter((v) => v.staff_id === s.staff_id && v.given_on <= to && v.outstanding > 0 && !(until && v.given_on <= until));
       lines.push({ payslip_id: slipRow?.payslip_id || null, staff_id: s.staff_id, hold: !!slipRow?.hold, slip,
         adjustments: slipRow?.adjustments || [], recoveries: slipRow?.recoveries || {}, advances: mine });
     }
@@ -489,6 +516,7 @@ async function cashOrBank(mode, bankLedgerId, t) {
   if (mode === 'Bank') {
     const b = await LedgerAccount.findByPk(Number(bankLedgerId), { transaction: t });
     if (!b) throw new Error('Choose the bank account the money went from.');
+    if (b.sub_group !== 'Bank Accounts' && b.sub_group !== 'Bank OD A/c') throw new Error(`"${b.ledger_name}" is not a bank account.`);
     return b.ledger_id;
   }
   const c = await LedgerAccount.findOne({ where: { ledger_name: 'Cash' }, transaction: t });
@@ -496,16 +524,22 @@ async function cashOrBank(mode, bankLedgerId, t) {
   return c.ledger_id;
 }
 
-async function finalize(period, userId) {
+async function finalize(period, userId, { postingDate } = {}) {
   const data = await getRun(period);
   if (data.status === 'finalized') throw new Error('This month is already finalized.');
   if (!data.lines.length) throw new Error('Nobody to pay this month. Set salaries first.');
+  const short = data.lines.filter((l) => r2(l.slip.gross - l.slip.total_deductions + (l.slip.round_off || 0)) < -0.005 || l.slip.net < 0);
+  const over = data.lines.filter((l) => r2(l.slip.gross - l.slip.total_deductions) < -0.5);
+  if (short.length || over.length) {
+    throw new Error(`Deductions are more than the pay for ${[...short, ...over].map((l) => l.slip.staff.name).filter((v, i, a) => a.indexOf(v) === i).join(', ')}. Reduce their deductions before finalizing.`);
+  }
   const settings = data.settings;
   const sequelize = db();
   const t = await sequelize.transaction();
   try {
-    const run = (await q('SELECT * FROM payroll_runs WHERE period = :p FOR UPDATE', { replacements: { p: period }, transaction: t }))[0]
-      || (await ensureRun(period));
+    await ensureRun(period);
+    const run = (await q('SELECT * FROM payroll_runs WHERE period = :p FOR UPDATE', { replacements: { p: period }, transaction: t }))[0];
+    if (run.status === 'finalized') throw new Error('This month is already finalized.');
     for (const l of data.lines) {
       const s = l.slip;
       await x(`INSERT INTO payslips (run_id, staff_id, snapshot, gross, deductions, net, employer_cost, hold)
@@ -534,13 +568,13 @@ async function finalize(period, userId) {
       await add('tds', 0, sum((s) => byCode(s.deductions, 'tds')));
       await add('advance', 0, sum((s) => byCode(s.deductions, 'advance')));
       if (lines.length >= 2) {
-        await postVoucher({ voucherType: 'Journal', sourceType: 'payroll_run', sourceId: run.run_id, voucherDate: data.to,
+        await postVoucher({ voucherType: 'Journal', sourceType: 'payroll_run', sourceId: run.run_id, voucherDate: postingDate || data.to,
           referenceNumber: `Payroll ${period}`, lines, narration: `Salaries for ${period} (${data.lines.length} staff)`, userId, transaction: t });
         posted = true;
       }
     }
-    await x(`UPDATE payroll_runs SET status = 'finalized', finalized_at = NOW(), finalized_by = :u, posted = :p WHERE run_id = :r`,
-      { u: userId || null, p: posted, r: run.run_id }, t);
+    await x(`UPDATE payroll_runs SET status = 'finalized', finalized_at = NOW(), finalized_by = :u, posted = :p, posted_on = :d WHERE run_id = :r`,
+      { u: userId || null, p: posted, d: posted ? (postingDate || data.to) : null, r: run.run_id }, t);
     await t.commit();
   } catch (err) { await t.rollback().catch(() => {}); throw err; }
   return getRun(period);
@@ -574,13 +608,20 @@ async function pay(period, { items, paid_on, payment_mode = 'Cash', bank_ledger_
   const t = await db().transaction();
   let count = 0; let total = 0;
   try {
-    const credit = data.settings.post_to_accounts ? await cashOrBank(payment_mode, bank_ledger_id, t) : null;
+    const book = data.posted || data.settings.post_to_accounts;
+    const credit = book ? await cashOrBank(payment_mode, bank_ledger_id, t) : null;
+    if (!book && payment_mode === 'Bank') await cashOrBank(payment_mode, bank_ledger_id, t);   // still validate the bank
     for (const it of items || []) {
       const line = byId.get(Number(it.payslip_id));
       if (!line) throw new Error('A payslip in this payment is not part of the month.');
-      const amt = r2(it.amount != null && it.amount !== '' ? it.amount : line.due);
-      if (amt <= 0) continue;
-      if (amt > line.due + 0.005) throw new Error(`${line.slip.staff.name}: ${rs(amt)} is more than the ${rs(line.due)} due.`);
+      if (line.hold) throw new Error(`${line.slip.staff.name}'s salary is on hold.`);
+      // Lock the payslip and read what is really due now, so two clicks can never pay twice.
+      const [ps] = await q('SELECT payslip_id, net::float AS net FROM payslips WHERE payslip_id = :id FOR UPDATE', { replacements: { id: line.payslip_id }, transaction: t });
+      const [pd] = await q('SELECT COALESCE(SUM(amount),0)::float AS paid FROM payroll_payments WHERE payslip_id = :id AND voided_at IS NULL', { replacements: { id: line.payslip_id }, transaction: t });
+      const due = r2(Math.max(0, ps.net - pd.paid));
+      const amt = r2(it.amount != null && it.amount !== '' ? it.amount : due);
+      if (!(amt > 0)) continue;
+      if (amt > due + 0.005) throw new Error(`${line.slip.staff.name}: ${rs(amt)} is more than the ${rs(due)} due.`);
       const [row] = await db().query(`INSERT INTO payroll_payments (payslip_id, paid_on, amount, payment_mode, bank_ledger_id, reference, created_by)
           VALUES (:p, :d, :a, :m, :b, :ref, :u) RETURNING payment_id`,
       { replacements: { p: line.payslip_id, d: paid_on, a: amt, m: payment_mode, b: payment_mode === 'Bank' ? Number(bank_ledger_id) : null, ref: reference ? String(reference).slice(0, 60) : null, u: userId || null }, transaction: t, type: db().QueryTypes.SELECT });

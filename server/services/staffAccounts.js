@@ -143,6 +143,7 @@ async function earnedFor(staffId, from, to, adjustments = []) {
   const reg = await attendance.buildRegister(from, to, { staffIds: [staffId], includeInactive: true });
   const days = reg.staff[0]?.days || {};
 
+  const revisions = ((await payroll.structures(null)).history.get(staffId) || []).map((h) => h.effective_from).sort();
   const segments = []; const notes = new Set(); const warnings = new Set();
   let statutorySkipped = false;
   const weeklyOff = new Set((attCfg.weekly_off || []).map(Number));
@@ -157,7 +158,9 @@ async function earnedFor(staffId, from, to, adjustments = []) {
     const { current: curAt } = await payroll.structures(segFrom);
     const day = cycleDayOf(curAt.get(staffId) || current.get(staffId));
     const cyc = cycleAround(segFrom, day);
-    const segTo = cyc.to < to ? cyc.to : to;
+    let segTo = cyc.to < to ? cyc.to : to;
+    const nextRev = revisions.find((d) => d > segFrom && d <= segTo);
+    if (nextRev) segTo = addDays(nextRev, -1);
     const { current: cur } = await payroll.structures(segTo);
     const st = cur.get(staffId);
     if (!st) { segments.push({ from: segFrom, to: segTo, amount: 0, earnings: [], attendance: {}, note: 'No salary set for these days' }); segFrom = addDays(segTo, 1); continue; }
@@ -269,6 +272,20 @@ async function preview(staffId, { from, to, adjustments }) {
 
 // ── writes ──────────────────────────────────────────────────────────
 
+/** The salary in force on `iso` (or the earliest one if `iso` is before all of them). */
+async function structureOn(staffId, iso) {
+  const { history } = await payroll.structures(null);
+  const h = history.get(staffId) || [];
+  return [...h].reverse().find((x) => x.effective_from <= iso) || h[0] || null;
+}
+async function requireSettle(staffId, iso, name) {
+  const st = await structureOn(staffId, iso);
+  if (!st) throw new Error(`Set ${name}'s salary first (Payroll → Salaries).`);
+  if (!payroll.isSettle(st)) {
+    throw new Error(`${name} is paid through the monthly pay run. Record money given to them in Advances, so the pay run recovers it.`);
+  }
+}
+
 async function postIfOn(fn) { const s = await payroll.getSettings(); if (s.post_to_accounts) await fn(); }
 
 async function giveMoney(staffId, { given_on, amount, payment_mode = 'Cash', bank_ledger_id, note, kind = 'advance' }, userId, t0) {
@@ -278,6 +295,7 @@ async function giveMoney(staffId, { given_on, amount, payment_mode = 'Cash', ban
   if (given_on > payroll.localToday()) throw new Error('The date is in the future.');
   if (!['Cash', 'Bank'].includes(payment_mode)) throw new Error('Given by cash or bank.');
   const s = await staffRow(staffId);
+  if (!t0) await requireSettle(staffId, given_on, s.name);
   const t = t0 || await db().transaction();
   try {
     const [row] = await q(`INSERT INTO staff_money_given (staff_id, given_on, amount, kind, payment_mode, bank_ledger_id, note, created_by)
@@ -312,9 +330,10 @@ async function voidMoney(entryId, reason, userId) {
  * and optionally pay now. Paying more than owed is allowed; the extra is an
  * advance by construction (the balance goes below zero).
  */
-async function settle(staffId, { from, to, adjustments, pay }, userId) {
-  const p = await preview(staffId, { from, to, adjustments });
+async function settle(staffId, { from, to, adjustments, pay }, userId, { journalDate } = {}) {
   const s = await staffRow(staffId);
+  await requireSettle(staffId, to, s.name);
+  const p = await preview(staffId, { from, to, adjustments });
   const payAmt = pay && Number(pay.amount) > 0 ? r2(pay.amount) : 0;
   const t = await db().transaction();
   let id;
@@ -323,7 +342,7 @@ async function settle(staffId, { from, to, adjustments, pay }, userId) {
     await q('SELECT staff_id FROM staff_members WHERE staff_id = :s FOR UPDATE', { s: staffId }, t);
     await overlapCheck(staffId, from, to, t);
     const snapshot = { ...p, given: p.given.map((g) => ({ entry_id: g.entry_id, given_on: g.given_on, amount: g.amount, note: g.note, kind: g.kind })), given_later: undefined, old_advances: undefined,
-      paid_now: payAmt, balance_after: r2(p.owed - payAmt) };
+      paid_now: payAmt, balance_after: r2(p.owed - payAmt), journal_date: journalDate || to };
     const [row] = await q(`INSERT INTO staff_settlements (staff_id, from_date, to_date, earned, snapshot, created_by)
                             VALUES (:s, :f, :t, :e, CAST(:snap AS jsonb), :u) RETURNING settlement_id`,
     { s: staffId, f: from, t: to, e: p.earned, snap: JSON.stringify(snapshot), u: userId || null }, t);
@@ -331,7 +350,7 @@ async function settle(staffId, { from, to, adjustments, pay }, userId) {
     if (p.given.length) await x(`UPDATE staff_money_given SET settlement_id = :id WHERE entry_id IN (:ids) AND settlement_id IS NULL AND voided_at IS NULL`, { id, ids: p.given.map((g) => g.entry_id) }, t);
     if (p.earned > 0) {
       await postIfOn(async () => {
-        await postVoucher({ voucherType: 'Journal', sourceType: 'staff_settlement', sourceId: id, voucherDate: to,
+        await postVoucher({ voucherType: 'Journal', sourceType: 'staff_settlement', sourceId: id, voucherDate: journalDate || to,
           referenceNumber: `Salary ${s.name}`.slice(0, 60),
           lines: [{ ledgerAccountId: await payroll.ledgerId('salary', t), debit: p.earned }, { ledgerAccountId: await payroll.ledgerId('advance', t), credit: p.earned }],
           narration: `Salary ${from} to ${to}: ${s.name}`, userId, transaction: t });
