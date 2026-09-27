@@ -361,6 +361,9 @@ async function salesBySalesman(from, to) {
   return new Map(rows.map((r) => [r.salesman_id, r.sales]));
 }
 
+/** Paid through Staff accounts (settle-up) rather than the monthly pay run. */
+const isSettle = (structure) => structure?.details?.pay_by === 'settle';
+
 function localToday(offMin = 330) { return new Date(Date.now() + offMin * 60_000).toISOString().slice(0, 10); }
 
 // ── pay runs ────────────────────────────────────────────────────────
@@ -403,7 +406,8 @@ async function getRun(period) {
     lines = slips.map((s) => ({ payslip_id: s.payslip_id, staff_id: s.staff_id, hold: s.hold, slip: s.snapshot }));
   } else {
     // Who is paid this month: had a salary by month end, and was employed at some point in it.
-    const eligible = staffRows.filter((s) => current.has(s.staff_id)
+    // Settle-up staff are paid from Staff accounts on their own cycle, never here too.
+    const eligible = staffRows.filter((s) => current.has(s.staff_id) && !isSettle(current.get(s.staff_id))
       && (!s.joined_on || s.joined_on <= to) && (!s.left_on || s.left_on >= from)
       && (s.is_active || (s.left_on && s.left_on >= from)));
     const reg = eligible.length ? await attendance.buildRegister(from, to, { staffIds: eligible.map((s) => s.staff_id), includeInactive: true }) : { staff: [] };
@@ -433,6 +437,7 @@ async function getRun(period) {
   });
   const tot = (k) => r2(lines.reduce((t, l) => t + (Number(l.slip?.[k]) || 0), 0));
   const missing = staffRows.filter((s) => s.is_active && !current.has(s.staff_id)).map((s) => ({ staff_id: s.staff_id, name: s.name }));
+  const settleStaff = staffRows.filter((s) => s.is_active && current.has(s.staff_id) && isSettle(current.get(s.staff_id))).map((s) => ({ staff_id: s.staff_id, name: s.name }));
   return {
     period, from, to, today,
     status: run?.status || 'draft', run_id: run?.run_id || null, finalized_at: run?.finalized_at || null, posted: !!run?.posted,
@@ -441,7 +446,7 @@ async function getRun(period) {
       staff: lines.length, gross: tot('gross'), deductions: tot('total_deductions'), net: tot('net'), employer_cost: tot('employer_cost'),
       paid: r2(lines.reduce((t, l) => t + l.paid, 0)), due: r2(lines.reduce((t, l) => t + (l.hold ? 0 : l.due), 0)),
     },
-    lines, missing, settings,
+    lines, missing, settle_staff: settleStaff, settings,
   };
 }
 
@@ -685,4 +690,6 @@ module.exports = {
   getRun, saveDraftLine, finalize, reopen, pay, payments, voidPayment,
   advancesWithBalance, giveAdvance, voidAdvance, updateAdvanceInstallment, staffPayViews,
   validPeriod,
+  // shared with services/staffAccounts.js (settle-up)
+  salesBySalesman, localToday, ledgerId, cashOrBank, isSettle,
 };

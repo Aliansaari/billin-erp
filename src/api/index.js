@@ -932,6 +932,14 @@ export const payrollAPI = {
   giveAdvance:     (data) => api.post('/payroll/advances', data),
   updateAdvance:   (id, data) => api.put(`/payroll/advances/${id}`, data),
   voidAdvance:     (id, reason) => api.post(`/payroll/advances/${id}/void`, { reason }),
+  // Staff accounts (settle-up): money given any day, settlement for any range.
+  accounts:        () => api.get('/payroll/accounts'),
+  account:         (staffId) => api.get(`/payroll/accounts/${staffId}`),
+  giveMoney:       (staffId, data) => api.post(`/payroll/accounts/${staffId}/give`, data),
+  previewSettle:   (staffId, data) => api.post(`/payroll/accounts/${staffId}/preview`, data),
+  settle:          (staffId, data) => api.post(`/payroll/accounts/${staffId}/settle`, data),
+  voidMoney:       (id, reason) => api.post(`/payroll/money/${id}/void`, { reason }),
+  cancelSettlement:(id, reason) => api.post(`/payroll/settlements/${id}/cancel`, { reason }),
 };
 
 export const staffAttendanceAPI = {

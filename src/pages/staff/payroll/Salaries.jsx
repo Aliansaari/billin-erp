@@ -3,7 +3,7 @@ import { Drawer, Input, InputNumber, Select, Checkbox, Switch, DatePicker, messa
 import { CloseOutlined, PlusOutlined, DeleteOutlined, TeamOutlined, EditOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { payrollAPI, staffAttendanceAPI } from '../../../api';
-import { inr0, cap, initials, errText, PAY_TYPES } from './shared';
+import { inr0, cap, initials, errText, PAY_TYPES, cycleText } from './shared';
 
 const CALC = [{ value: 'percent', label: '% of salary' }, { value: 'fixed', label: 'Fixed ₹' }, { value: 'balance', label: 'Rest of salary' }];
 
@@ -27,6 +27,7 @@ export default function Salaries({ staff, structures, settings, meta, reload, on
   const current = (hist) => [...hist].reverse().find((h) => h.effective_from <= dayjs().format('YYYY-MM-DD')) || hist[hist.length - 1];
   const extras = (st) => {
     const d = st?.details || {}; const out = [];
+    if (d.pay_by === 'settle') out.push(`Settle up · ${cycleText(d.cycle_day)}`);
     if (d.components?.length) out.push('Breakup');
     if (d.statutory?.pf) out.push('PF'); if (d.statutory?.esi) out.push('ESI'); if (d.statutory?.pt) out.push('PT');
     if (d.tds_monthly) out.push('TDS'); if (d.commission?.enabled) out.push(`${d.commission.percent}% commission`);
@@ -91,6 +92,7 @@ function SalaryDrawer({ person, settings, meta, onClose, onSaved, onGoTab }) {
     const start = last ? dayjs().startOf('month') : dayjs(person.joined_on || undefined).isValid() && person.joined_on ? dayjs(person.joined_on) : dayjs().startOf('month');
     setF({
       pay_type: last?.pay_type || 'monthly', amount: last?.amount ?? null, effective_from: start,
+      pay_by: d.pay_by === 'settle' ? 'settle' : 'run', cycle_day: Number(d.cycle_day) || 1,
       breakup: !!d.components?.length, components: d.components?.length ? d.components : meta.standard_components,
       statutory: { pf: !!d.statutory?.pf, esi: !!d.statutory?.esi, pt: !!d.statutory?.pt },
       overtime: d.overtime !== false, commission: { enabled: !!d.commission?.enabled, percent: d.commission?.percent ?? 1 },
@@ -119,6 +121,7 @@ function SalaryDrawer({ person, settings, meta, onClose, onSaved, onGoTab }) {
       const details = {
         ...(f.breakup ? { components: f.components.map((c) => ({ name: String(c.name || '').trim() || 'Component', calc: c.calc, value: Number(c.value) || 0, pf: !!c.pf })) } : {}),
         statutory: f.statutory, overtime: f.overtime,
+        ...(f.pay_by === 'settle' ? { pay_by: 'settle', cycle_day: Math.min(28, Math.max(1, Number(f.cycle_day) || 1)) } : {}),
         ...(f.commission.enabled ? { commission: { enabled: true, percent: Number(f.commission.percent) || 0 } } : {}),
         ...(Number(f.tds_monthly) ? { tds_monthly: Number(f.tds_monthly) } : {}),
         ...(Object.values(f.bank).some(Boolean) ? { bank: { ...f.bank, ifsc: String(f.bank.ifsc || '').toUpperCase() } } : {}),
@@ -163,6 +166,21 @@ function SalaryDrawer({ person, settings, meta, onClose, onSaved, onGoTab }) {
             <InputNumber size="large" prefix="₹" min={0} value={f.amount} onChange={(v) => set({ amount: v })} addonAfter={PAY_TYPES[f.pay_type].unit} style={{ width: '100%' }} autoFocus /></div>
           <div className="ar-field"><label>Starting from</label>
             <DatePicker size="large" value={f.effective_from} onChange={(d) => d && set({ effective_from: d })} allowClear={false} format="D MMM YYYY" style={{ width: '100%' }} /></div>
+        </div>
+        <div className="ar-field"><label>How is salary settled?</label>
+          <div className="ar-choice two">
+            <button type="button" className={f.pay_by === 'run' ? 'is-on' : ''} onClick={() => set({ pay_by: 'run' })}>
+              <b>Monthly pay run</b><span>1st to month end, with everyone. PF, ESI and payslips.</span></button>
+            <button type="button" className={f.pay_by === 'settle' ? 'is-on' : ''} onClick={() => set({ pay_by: 'settle' })}>
+              <b>Own cycle, settle up</b><span>Give money any day; settle any dates in Staff accounts.</span></button>
+          </div>
+          {f.pay_by === 'settle' && (
+            <span className="pr-inline pr-cycle">Cycle starts on day
+              <InputNumber min={1} max={28} value={f.cycle_day} onChange={(v) => set({ cycle_day: v })} style={{ width: 72 }} />
+              of each month ({cycleText(f.cycle_day)})
+              {f.joined_on && <button type="button" className="ar-link" onClick={() => set({ cycle_day: Math.min(28, f.joined_on.date()) })}>Use joining day ({f.joined_on.date()})</button>}
+            </span>
+          )}
         </div>
         <div className="ar-three">
           <div className="ar-field"><label>Designation <em>optional</em></label><Input value={f.designation} maxLength={80} placeholder="e.g. Salesman" onChange={(e) => set({ designation: e.target.value })} /></div>

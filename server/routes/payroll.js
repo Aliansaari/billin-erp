@@ -24,6 +24,15 @@ router.post('/advances/:id/void',           c.voidAdvance);
 
 router.post('/payments/:id/void',           c.voidPayment);
 
+// Staff accounts: give money any day, settle any date range.
+router.get('/accounts',                     c.listAccounts);
+router.get('/accounts/:staffId',            c.getAccount);
+router.post('/accounts/:staffId/give',      c.giveMoney);
+router.post('/accounts/:staffId/preview',   c.previewSettle);
+router.post('/accounts/:staffId/settle',    c.settle);
+router.post('/money/:id/void',              c.voidMoney);
+router.post('/settlements/:id/cancel',      c.cancelSettlement);
+
 router.get('/runs/:period',                 c.getRun);
 router.put('/runs/:period/lines/:staffId',  c.saveLine);
 router.post('/runs/:period/finalize',       c.finalize);

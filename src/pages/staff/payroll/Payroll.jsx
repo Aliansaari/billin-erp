@@ -6,6 +6,7 @@ import { payrollAPI, staffAttendanceAPI, settingsAPI } from '../../../api';
 import PayRun from './PayRun';
 import Salaries from './Salaries';
 import Advances from './Advances';
+import Accounts from './Accounts';
 import Rules from './Rules';
 import { errText } from './shared';
 import '../../parties/party-list-view.css';
@@ -13,15 +14,16 @@ import '../attendance-register.css';
 import './payroll.css';
 
 /*
- * Payroll — one page, four tabs, in the order an owner meets them:
+ * Payroll — one page, five tabs, in the order an owner meets them:
  *   Pay run   the month: review → finalize → pay (where they live every month)
  *   Salaries  who earns what, from when (set once, changed on a raise)
+ *   Staff accounts  own-cycle staff: give money any day, settle any dates
  *   Advances  money given ahead of salary, recovered from pay
  *   Rules     how a day's pay is worked out, statutory, accounts
  * A two-person shop only ever needs Salaries once and Pay run monthly; the
  * corporate switches all live in Rules and in each salary's "breakup".
  */
-const TABS = [['run', 'Pay run'], ['salaries', 'Salaries'], ['advances', 'Advances'], ['rules', 'Rules']];
+const TABS = [['run', 'Pay run'], ['accounts', 'Staff accounts'], ['salaries', 'Salaries'], ['advances', 'Advances'], ['rules', 'Rules']];
 
 export default function Payroll() {
   const [params, setParams] = useSearchParams();
@@ -66,6 +68,7 @@ export default function Payroll() {
       </nav>
       <div className="ar-body pr-body">
         {tab === 'run' && <PayRun period={period} setPeriod={setPeriod} staff={staff} company={company} onGoTab={setTab} />}
+        {tab === 'accounts' && <Accounts staff={staff} onGoTab={setTab} />}
         {tab === 'salaries' && <Salaries staff={staff} structures={structures} settings={settings} meta={meta} reload={loadBase} onGoTab={setTab} />}
         {tab === 'advances' && <Advances staff={staff} />}
         {tab === 'rules' && settings && <Rules settings={settings} meta={meta} onSaved={(s) => setSettings(s)} />}

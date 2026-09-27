@@ -775,6 +775,51 @@ async function runCompanySchemaMigrations(sequelize) {
       END IF;
     END $payroll$;
   `);
+
+  // ── Staff accounts (settle-up) ──────────────────────────────────────
+  // A running account per person for shops that pay on their own cycle:
+  // money handed over on any day, and settlements for any date range that
+  // add what was earned. Balance = earned − given; below zero is an
+  // advance that comes off the next settlement. Monthly pay runs are
+  // untouched; a person is paid one way or the other (structure pay_by).
+  await sequelize.query(`
+    DO $staff_account$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'staff_settlements') THEN
+        CREATE TABLE staff_settlements (
+          settlement_id  SERIAL PRIMARY KEY,
+          staff_id       INTEGER NOT NULL,
+          from_date      DATE NOT NULL,
+          to_date        DATE NOT NULL,
+          earned         NUMERIC(12,2) NOT NULL DEFAULT 0,
+          snapshot       JSONB,
+          created_by     INTEGER,
+          created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          voided_at      TIMESTAMP WITH TIME ZONE,
+          void_reason    TEXT
+        );
+        CREATE INDEX ix_staff_settlements_staff ON staff_settlements(staff_id);
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'staff_money_given') THEN
+        CREATE TABLE staff_money_given (
+          entry_id       SERIAL PRIMARY KEY,
+          staff_id       INTEGER NOT NULL,
+          given_on       DATE NOT NULL,
+          amount         NUMERIC(12,2) NOT NULL,
+          kind           VARCHAR(10) NOT NULL DEFAULT 'advance',   -- advance | salary
+          payment_mode   VARCHAR(10) NOT NULL DEFAULT 'Cash',
+          bank_ledger_id INTEGER,
+          note           TEXT,
+          settlement_id  INTEGER,                                    -- set when a settlement counts it
+          created_by     INTEGER,
+          created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          voided_at      TIMESTAMP WITH TIME ZONE,
+          void_reason    TEXT
+        );
+        CREATE INDEX ix_staff_money_staff ON staff_money_given(staff_id);
+      END IF;
+    END $staff_account$;
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };

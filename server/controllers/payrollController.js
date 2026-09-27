@@ -46,3 +46,16 @@ exports.listAdvances = run(async () => payroll.advancesWithBalance());
 exports.giveAdvance = run(async (req) => ({ advance_id: await payroll.giveAdvance(req.body || {}, uid(req)) }));
 exports.updateAdvance = run(async (req) => { await payroll.updateAdvanceInstallment(Number(req.params.id), req.body?.installment); return { ok: true }; });
 exports.voidAdvance = run(async (req) => { await payroll.voidAdvance(Number(req.params.id), req.body?.reason, uid(req)); return { ok: true }; });
+
+// ── staff accounts (settle-up) ──────────────────────────────────────
+const accounts = require('../services/staffAccounts');
+exports.listAccounts = run(async () => accounts.list());
+exports.getAccount = run(async (req) => {
+  const id = Number(req.params.staffId);
+  return { ...(await accounts.account(id)), suggested: await accounts.suggestRange(id) };
+});
+exports.giveMoney = run(async (req) => ({ entry_id: await accounts.giveMoney(Number(req.params.staffId), req.body || {}, uid(req)) }));
+exports.voidMoney = run(async (req) => { await accounts.voidMoney(Number(req.params.id), req.body?.reason, uid(req)); return { ok: true }; });
+exports.previewSettle = run(async (req) => accounts.preview(Number(req.params.staffId), req.body || {}));
+exports.settle = run(async (req) => { const r = await accounts.settle(Number(req.params.staffId), req.body || {}, uid(req)); kick(); return r; });
+exports.cancelSettlement = run(async (req) => { await accounts.cancelSettlement(Number(req.params.id), req.body?.reason, uid(req)); kick(); return { ok: true }; });

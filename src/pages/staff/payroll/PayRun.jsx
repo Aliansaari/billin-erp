@@ -142,6 +142,11 @@ export default function PayRun({ period, setPeriod, company, onGoTab }) {
           action={<button type="button" className="plv-btn" onClick={() => onGoTab('salaries')}>Set salaries</button>} />
       )}
 
+      {data?.settle_staff?.length > 0 && (
+        <p className="pr-settlenote">{data.settle_staff.map((x) => cap(x.name)).join(', ')} {data.settle_staff.length === 1 ? 'is' : 'are'} paid on their own cycle in{' '}
+          <button type="button" className="ar-link" onClick={() => onGoTab('accounts')}>Staff accounts</button>, so not in this pay run.</p>
+      )}
+
       <section className="ar-cards">
         <div className="plv-age-card ar-card is-static tone-ok"><div className="k">Net pay</div><div className="v">{inr0(t.net)}</div><div className="sub">{t.staff || 0} staff · {monthLabel(period)}</div></div>
         <div className="plv-age-card ar-card is-static"><div className="k">Gross pay</div><div className="v">{inr0(t.gross)}</div><div className="sub">Before deductions</div></div>

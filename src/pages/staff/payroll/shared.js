@@ -25,3 +25,11 @@ export function lineStatus(line, runStatus) {
   if (line.paid > 0) return { key: 'part', label: 'Part paid', tone: 'late' };
   return { key: 'due', label: 'To pay', tone: 'leave' };
 }
+
+/** 1st, 2nd, 3rd, 4th … 21st, 22nd. */
+export const ordinal = (n) => {
+  const v = Number(n) || 0; const t = v % 100;
+  return `${v}${t >= 11 && t <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[v % 10] || 'th')}`;
+};
+/** "15th to 14th" for a cycle that starts on the 15th; "1st to month end" for day 1. */
+export const cycleText = (day) => (Number(day) > 1 ? `${ordinal(day)} to ${ordinal(Number(day) - 1)}` : '1st to month end');
