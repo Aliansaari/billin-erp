@@ -5,18 +5,21 @@ import {
   MoreOutlined, UnlockOutlined, DownloadOutlined, EyeOutlined, PauseCircleOutlined, TeamOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import StaffAvatar from '../StaffAvatar';
 import { payrollAPI } from '../../../api';
 import PayslipDrawer from './PayslipDrawer';
 import PayDialog from './PayDialog';
 import { printPayslips } from './printPayslip';
 import { inr0, monthLabel, cap, initials, errText, lineStatus, PAY_TYPES } from './shared';
 
-export default function PayRun({ period, setPeriod, company, onGoTab }) {
+export default function PayRun({ period, setPeriod, staff, company, onGoTab }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(null);          // staff_id of the payslip drawer
   const [paying, setPaying] = useState(null);      // [lines] for the pay dialog
   const [busy, setBusy] = useState(false);
+  const photos = useMemo(() => new Map((staff || []).map((s) => [s.staff_id, s.photo_thumb])), [staff]);
+  const photoOf = (id) => photos.get(id) || null;
   const [modal, modalCtx] = Modal.useModal();
 
   const load = useCallback(async () => {
@@ -177,7 +180,7 @@ export default function PayRun({ period, setPeriod, company, onGoTab }) {
                 const s = l.slip; const st = lineStatus(l, data.status);
                 return (
                   <tr key={l.staff_id} className={`row${l.hold ? ' is-hold' : ''}`} onClick={() => setOpen(l.staff_id)}>
-                    <td><div className="plv-party-inline"><span className="plv-avatar ar-av">{initials(s.staff.name)}</span>
+                    <td><div className="plv-party-inline"><StaffAvatar name={s.staff.name} photo={photoOf(l.staff_id)} />
                       <div className="plv-party-nm"><div className="main"><span className="txt">{cap(s.staff.name)}</span></div>
                         <div className="sub">{[s.staff.designation, PAY_TYPES[s.pay_type]?.label].filter(Boolean).join(' · ')}</div></div></div></td>
                     <td className="ar-num">{daysCell(s)}</td>
@@ -205,9 +208,9 @@ export default function PayRun({ period, setPeriod, company, onGoTab }) {
 
       <PayslipDrawer
         open={open != null} line={lines.find((l) => l.staff_id === open)} lines={lines} period={period} status={data?.status} company={company}
-        onClose={() => setOpen(null)} onNavigate={setOpen} onData={setData} onPay={(l) => setPaying([l])} reload={load}
+        photo={photoOf(open)} onClose={() => setOpen(null)} onNavigate={setOpen} onData={setData} onPay={(l) => setPaying([l])} reload={load}
       />
-      <PayDialog open={!!paying} lines={paying || []} period={period} onClose={() => setPaying(null)} onDone={() => { setPaying(null); load(); }} />
+      <PayDialog photoOf={photoOf} open={!!paying} lines={paying || []} period={period} onClose={() => setPaying(null)} onDone={() => { setPaying(null); load(); }} />
     </>
   );
 }

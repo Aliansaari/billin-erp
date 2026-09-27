@@ -820,6 +820,21 @@ async function runCompanySchemaMigrations(sequelize) {
       END IF;
     END $staff_account$;
   `);
+
+  // Staff profile: photo (small data URLs, resized in the browser), identity
+  // numbers and contact details. Aadhaar is only ever sent whole to the
+  // owner's edit form; lists get the last four digits.
+  await sequelize.query(`
+    DO $staff_profile$ BEGIN
+      ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS photo TEXT;
+      ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS photo_thumb TEXT;
+      ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS aadhaar VARCHAR(12);
+      ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS pan VARCHAR(10);
+      ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS address TEXT;
+      ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS emergency_name VARCHAR(100);
+      ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS emergency_phone VARCHAR(20);
+    END $staff_profile$;
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };

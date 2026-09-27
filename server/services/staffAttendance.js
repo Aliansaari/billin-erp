@@ -157,7 +157,7 @@ async function buildRegister(fromIso, toIso, { staffIds = null, includeInactive 
 
   const staffRows = await q(
     `SELECT staff_id, name, phone, salesman_id, attendance_enabled, is_active, joined_on, created_date,
-            pin_hash IS NOT NULL AS has_pin, cloud_status
+            pin_hash IS NOT NULL AS has_pin, cloud_status, designation, photo_thumb
        FROM staff_members
       WHERE (:all OR is_active) ${staffIds ? 'AND staff_id IN (:ids)' : ''}
       ORDER BY name`,
@@ -285,6 +285,8 @@ async function buildRegister(fromIso, toIso, { staffIds = null, includeInactive 
       staff_id: s.staff_id,
       name: s.name,
       phone: s.phone,
+      designation: s.designation || null,
+      photo: s.photo_thumb || null,
       salesman_id: s.salesman_id,
       is_active: s.is_active,
       attendance_enabled: s.attendance_enabled,

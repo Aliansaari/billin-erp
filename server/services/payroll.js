@@ -280,7 +280,7 @@ function computePayslip(a) {
     pay_type: payType, rate: amount, basis_days: basisDays, hourly_rate: r2(hourlyRate), tracked: !!tracked,
     attendance: att, earnings, deductions, employer,
     gross, total_deductions: totalDed, round_off: roundOff, net, employer_cost: r2(gross + employerTotal),
-    bank: det.bank || null, ids: { pan: det.pan || null, uan: det.uan || null, esic: det.esic || null },
+    bank: det.bank || null, ids: { pan: det.pan || staff.pan || null, uan: det.uan || null, esic: det.esic || null },
     notes, warnings,
   };
 }
@@ -395,7 +395,7 @@ async function getRun(period) {
       FROM payroll_payments WHERE voided_at IS NULL AND payslip_id IN (:ids) GROUP BY payslip_id`, { replacements: { ids: slips.map((s) => s.payslip_id) } }) : [];
   const paidBy = new Map(paidRows.map((p) => [p.payslip_id, p]));
 
-  const staffRows = await q(`SELECT staff_id, name, phone, designation, salesman_id, attendance_enabled, is_active,
+  const staffRows = await q(`SELECT staff_id, name, phone, designation, salesman_id, attendance_enabled, is_active, pan,
                                     to_char(joined_on,'YYYY-MM-DD') AS joined_on, to_char(left_on,'YYYY-MM-DD') AS left_on
                                FROM staff_members ORDER BY name`);
   const { current } = await structures(to);

@@ -116,6 +116,8 @@ const STAFF_COLUMNS = `
   s.staff_id, s.name, s.phone, s.salesman_id, s.attendance_enabled, s.is_active,
   to_char(s.joined_on, 'YYYY-MM-DD') AS joined_on, to_char(s.left_on, 'YYYY-MM-DD') AS left_on, s.designation,
   s.notes, s.pin_set_at, s.cloud_status, s.created_date, (s.pin_hash IS NOT NULL) AS has_pin,
+  s.photo_thumb, s.pan, s.address, s.emergency_name, s.emergency_phone,
+  (s.aadhaar IS NOT NULL) AS has_aadhaar, RIGHT(s.aadhaar, 4) AS aadhaar_last4,
   sm.name AS salesman_name`;
 
 exports.listStaff = async (req, res) => {
@@ -130,6 +132,45 @@ exports.listStaff = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+/** One person, with the full photo and Aadhaar number, for the owner's edit form. */
+exports.getStaff = async (req, res) => {
+  try {
+    const [row] = await q(
+      `SELECT ${STAFF_COLUMNS}, s.photo, s.aadhaar
+         FROM staff_members s LEFT JOIN salesmen sm ON sm.salesman_id = s.salesman_id
+        WHERE s.staff_id = :id`,
+      { replacements: { id: Number(req.params.id) } },
+    );
+    if (!row) return bad(res, 'Staff member not found.', 404);
+    res.json(row);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+// Verhoeff checksum: every real Aadhaar number passes it, and it catches any
+// single wrong digit and nearly every swapped pair while typing.
+const VD = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]];
+const VP = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
+function aadhaarValid(n) {
+  if (!/^[2-9]\d{11}$/.test(n)) return false;
+  let c = 0;
+  const d = n.split('').reverse().map(Number);
+  for (let i = 0; i < d.length; i++) c = VD[c][VP[i % 8][d[i]]];
+  return c === 0;
+}
+const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/;
+// Browser-made JPEG/WebP/PNG data URLs only, and small ones.
+const IMG_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+function imageOrNull(v, maxChars, label) {
+  if (v === null || v === '') return { value: null };
+  if (v === undefined) return { value: undefined };
+  const t = String(v);
+  if (!IMG_RE.test(t)) return { error: `${label} must be a JPEG, PNG or WebP image.` };
+  if (t.length > maxChars) return { error: `${label} is too large.` };
+  return { value: t };
+}
 
 /** 'YYYY-MM-DD' from a form string or a pg Date; anything else is null. */
 function isoDate(v) {
@@ -166,6 +207,21 @@ async function validateStaff(body, staffId = null) {
   const left = isoDate(body.left_on);
   if (joined && left && left < joined) return { error: 'The leaving date is before the joining date.' };
 
+  const aadhaar = body.aadhaar ? String(body.aadhaar).replace(/\D/g, '') : null;
+  if (aadhaar && !aadhaarValid(aadhaar)) return { error: 'That Aadhaar number is not valid. Check the 12 digits.' };
+  if (aadhaar) {
+    const same = await q('SELECT name FROM staff_members WHERE aadhaar = :a AND staff_id <> :id LIMIT 1', { replacements: { a: aadhaar, id: staffId || 0 } });
+    if (same.length) return { error: `${same[0].name} already has this Aadhaar number.` };
+  }
+  const pan = body.pan ? String(body.pan).replace(/\s/g, '').toUpperCase() : null;
+  if (pan && !PAN_RE.test(pan)) return { error: 'PAN should look like ABCDE1234F.' };
+  const photo = imageOrNull(body.photo, 200_000, 'Photo');
+  if (photo.error) return { error: photo.error };
+  const thumb = imageOrNull(body.photo_thumb, 30_000, 'Photo');
+  if (thumb.error) return { error: thumb.error };
+  const emergencyPhone = body.emergency_phone ? normalizePhone(body.emergency_phone) : null;
+  if (emergencyPhone && (emergencyPhone.length < 10 || emergencyPhone.length > 13)) return { error: 'Enter a valid emergency contact number.' };
+
   return {
     value: {
       name,
@@ -177,6 +233,14 @@ async function validateStaff(body, staffId = null) {
       left_on: left,
       designation: body.designation ? String(body.designation).trim().slice(0, 80) || null : null,
       notes: body.notes ? String(body.notes).slice(0, 500) : null,
+      aadhaar,
+      pan,
+      address: body.address ? String(body.address).trim().slice(0, 300) || null : null,
+      emergency_name: body.emergency_name ? String(body.emergency_name).trim().slice(0, 100) || null : null,
+      emergency_phone: emergencyPhone,
+      // undefined = leave the stored photo alone; null = remove it.
+      photo: photo.value,
+      photo_thumb: thumb.value,
     },
   };
 }
@@ -186,10 +250,12 @@ exports.createStaff = async (req, res) => {
     const v = await validateStaff(req.body || {});
     if (v.error) return bad(res, v.error);
     const [row] = await q(
-      `INSERT INTO staff_members (name, phone, salesman_id, attendance_enabled, is_active, joined_on, left_on, designation, notes)
-       VALUES (:name, :phone, :salesman_id, :attendance_enabled, :is_active, :joined_on, :left_on, :designation, :notes)
+      `INSERT INTO staff_members (name, phone, salesman_id, attendance_enabled, is_active, joined_on, left_on, designation, notes,
+                                  aadhaar, pan, address, emergency_name, emergency_phone, photo, photo_thumb)
+       VALUES (:name, :phone, :salesman_id, :attendance_enabled, :is_active, :joined_on, :left_on, :designation, :notes,
+               :aadhaar, :pan, :address, :emergency_name, :emergency_phone, :photo, :photo_thumb)
        RETURNING staff_id`,
-      { replacements: v.value, type: sequelize.QueryTypes.SELECT },
+      { replacements: { ...v.value, photo: v.value.photo ?? null, photo_thumb: v.value.photo_thumb ?? null }, type: sequelize.QueryTypes.SELECT },
     );
     kick();
     res.status(201).json({ staff_id: row.staff_id });
@@ -209,9 +275,13 @@ exports.updateStaff = async (req, res) => {
       `UPDATE staff_members SET name = :name, phone = :phone, salesman_id = :salesman_id,
               attendance_enabled = :attendance_enabled, is_active = :is_active, joined_on = :joined_on,
               left_on = :left_on, designation = :designation,
+              aadhaar = :aadhaar, pan = :pan, address = :address,
+              emergency_name = :emergency_name, emergency_phone = :emergency_phone,
+              photo = :photo, photo_thumb = :photo_thumb,
               notes = :notes, modified_date = NOW()
         WHERE staff_id = :id`,
-      { replacements: { ...v.value, id } },
+      { replacements: { ...v.value, photo: v.value.photo === undefined ? current.photo : v.value.photo,
+        photo_thumb: v.value.photo_thumb === undefined ? current.photo_thumb : v.value.photo_thumb, id } },
     );
     kick();
     res.json({ ok: true });

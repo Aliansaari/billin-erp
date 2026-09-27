@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Input, InputNumber, Select, Checkbox, message } from 'antd';
 import dayjs from 'dayjs';
+import StaffAvatar from '../StaffAvatar';
 import { payrollAPI, bankAPI } from '../../../api';
 import { inr0, cap, initials, errText, monthLabel } from './shared';
 
@@ -9,7 +10,7 @@ import { inr0, cap, initials, errText, monthLabel } from './shared';
  * what is due and can be lowered for a part payment. One date and one
  * cash/bank choice for the batch; each person gets their own payment entry.
  */
-export default function PayDialog({ open, lines, period, onClose, onDone }) {
+export default function PayDialog({ open, lines, period, onClose, onDone, photoOf }) {
   const [rows, setRows] = useState([]);
   const [paidOn, setPaidOn] = useState(dayjs().format('YYYY-MM-DD'));
   const [mode, setMode] = useState('Cash');
@@ -20,7 +21,7 @@ export default function PayDialog({ open, lines, period, onClose, onDone }) {
 
   useEffect(() => {
     if (!open) return;
-    setRows(lines.map((l) => ({ payslip_id: l.payslip_id, name: l.slip.staff.name, due: l.due, amount: l.due, on: true, bank: l.slip.bank })));
+    setRows(lines.map((l) => ({ payslip_id: l.payslip_id, staff_id: l.staff_id, name: l.slip.staff.name, due: l.due, amount: l.due, on: true, bank: l.slip.bank })));
     setPaidOn(dayjs().format('YYYY-MM-DD')); setReference(''); setSaving(false);
     // Bank transfer is the obvious default when everyone has bank details.
     setMode(lines.length > 1 && lines.every((l) => l.slip.bank?.account) ? 'Bank' : 'Cash');
@@ -84,7 +85,7 @@ export default function PayDialog({ open, lines, period, onClose, onDone }) {
             {rows.map((r, i) => (
               <div key={r.payslip_id} className={`ar-bl-row${r.on ? '' : ' is-off'}`}>
                 <Checkbox checked={r.on} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, on: e.target.checked } : x)))} />
-                <div className="plv-party-inline"><span className="plv-avatar ar-av" style={{ width: 26, height: 26, fontSize: 10 }}>{initials(r.name)}</span>
+                <div className="plv-party-inline"><StaffAvatar name={r.name} photo={photoOf ? photoOf(r.staff_id) : null} size={26} />
                   <div><span className="ar-mname">{cap(r.name)}</span>{mode === 'Bank' && <small className="pr-acct">{r.bank?.account ? `A/c ••••${String(r.bank.account).slice(-4)}` : 'No bank details'}</small>}</div></div>
                 <span className="r ar-num">{inr0(r.due)}</span>
                 <InputNumber size="small" prefix="₹" min={0} max={r.due} value={r.amount} disabled={!r.on} status={Number(r.amount) > r.due + 0.005 ? 'error' : undefined}

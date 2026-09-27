@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
+import StaffAvatar from './StaffAvatar';
 import { staffAttendanceAPI } from '../../api';
 import '../parties/party-list-view.css';
 import './attendance-register.css';
@@ -60,8 +61,8 @@ function doubts(p) {
   return out;
 }
 
-function Avatar({ name, size = 30 }) {
-  return <span className="plv-avatar ar-av" style={{ width: size, height: size, fontSize: Math.round(size * 0.4) }}>{initials(name)}</span>;
+function Avatar({ name, photo, size = 30 }) {
+  return <StaffAvatar name={name} photo={photo} size={size} />;
 }
 
 function Selfie({ punchId, size = 28, onOpen }) {
@@ -368,9 +369,9 @@ export default function AttendanceRegister() {
                         return (
                           <tr key={r.staff_id} className="row" onClick={() => openDay(r.staff_id, dayIso)}>
                             <td>
-                              <div className="plv-party-inline"><Avatar name={r.name} />
+                              <div className="plv-party-inline"><Avatar name={r.name} photo={r.photo} />
                                 <div className="plv-party-nm"><div className="main"><span className="txt">{nameOf(r)}</span></div>
-                                  <div className="sub">{r.phone ? `•••• ${String(r.phone).slice(-4)}` : 'Staff'}</div></div></div>
+                                  <div className="sub">{[r.designation, r.phone && `•••• ${String(r.phone).slice(-4)}`].filter(Boolean).join(' · ') || 'Staff'}</div></div></div>
                             </td>
                             <td><Tag k={r.key} d={d} />{r.key === 'late' && l > 0 && <div className="ar-cellsub tx-late">{dur(l)} late</div>}
                               {r.key === 'leave' && d.leave?.reason && <div className="ar-cellsub">{d.leave.reason}</div>}</td>
@@ -407,7 +408,7 @@ export default function AttendanceRegister() {
                     <div className="ar-panel-h"><WarningOutlined className="ic-warn" /> Needs a look <span className="ar-count">{activity.look.length}</span></div>
                     {activity.look.map((x, i) => (
                       <button type="button" key={i} className="ar-feed" onClick={() => openDay(x.r.staff_id, dayIso)}>
-                        <Avatar name={x.r.name} size={26} />
+                        <Avatar name={x.r.name} photo={x.r.photo} size={26} />
                         <div><b>{nameOf(x.r)}</b><span>{x.why}</span></div>
                         <time>{x.at ? fmt(x.at) : ''}</time>
                       </button>
@@ -462,7 +463,7 @@ export default function AttendanceRegister() {
                       const rate = s.summary.present + s.summary.absent ? Math.round((s.summary.present / (s.summary.present + s.summary.absent)) * 100) : null;
                       return (
                         <tr key={s.staff_id}>
-                          <td className="ar-sticky"><div className="plv-party-inline"><Avatar name={s.name} size={26} /><span className="ar-mname">{nameOf(s)}</span></div></td>
+                          <td className="ar-sticky"><div className="plv-party-inline"><Avatar name={s.name} photo={s.photo} size={26} /><span className="ar-mname">{nameOf(s)}</span></div></td>
                           {data.days.map((iso) => {
                             const d = s.days[iso]; const k = statusKey(d); const st = STATUS[k];
                             const wo = k === 'off'; const future = iso > data.today;
@@ -507,7 +508,7 @@ export default function AttendanceRegister() {
       <Drawer rootClassName="ar-pop" open={!!drawer} onClose={() => setDrawer(null)} width={460} destroyOnHidden closeIcon={null}
         title={drawerStaff && (
           <div className="ar-dhead">
-            <Avatar name={drawerStaff.name} size={40} />
+            <Avatar name={drawerStaff.name} photo={drawerStaff.photo} size={40} />
             <div><b>{nameOf(drawerStaff)}</b><small>{dayjs(drawer.date).format('dddd, D MMMM YYYY')}</small></div>
             <div className="ar-dnav">
               <button type="button" className="ar-dn-btn" aria-label="Previous day" onClick={() => openDay(drawer.staffId, dayjs(drawer.date).subtract(1, 'day').format('YYYY-MM-DD'))} disabled={!drawerStaff.days[dayjs(drawer.date).subtract(1, 'day').format('YYYY-MM-DD')]}><LeftOutlined /></button>
@@ -664,7 +665,7 @@ export default function AttendanceRegister() {
                     return (
                       <div key={s.staff_id} className={`ar-bl-row${on ? '' : ' is-off'}`}>
                         <Checkbox checked={on} onChange={(e) => toggleBulkStaff(s.staff_id, e.target.checked)} />
-                        <div className="plv-party-inline"><Avatar name={s.name} size={26} /><span className="ar-mname">{nameOf(s)}</span></div>
+                        <div className="plv-party-inline"><Avatar name={s.name} photo={s.photo} size={26} /><span className="ar-mname">{nameOf(s)}</span></div>
                         <DatePicker multiple disabled={!on} value={l.dates} onChange={(v) => setBulkLeave(s.staff_id, { dates: v || [] })} format="D MMM" maxTagCount="responsive" placeholder="No leave" size="small"
                           disabledDate={(d) => d.isBefore(bulk.range[0], 'day') || d.isAfter(bulk.range[1], 'day')} />
                         {n ? <Select size="small" value={l.type} onChange={(v) => setBulkLeave(s.staff_id, { type: v })} options={[{ label: 'Paid', value: 'paid' }, { label: 'Unpaid', value: 'unpaid' }]} popupClassName="ar-pop" />

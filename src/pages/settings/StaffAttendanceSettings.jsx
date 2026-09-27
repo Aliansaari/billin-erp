@@ -1,19 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Button, Switch, Segmented, Input, InputNumber, Checkbox, Table, Tag, Space, Tooltip,
-  Modal, Popconfirm, Select, message, Alert,
+  Button, Switch, Segmented, Input, InputNumber, Checkbox, Space, message, Alert,
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, KeyOutlined, MobileOutlined, SyncOutlined,
-  CopyOutlined, PrinterOutlined, UsergroupAddOutlined, CalendarOutlined,
+  SyncOutlined, CopyOutlined, PrinterOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
-import { staffAttendanceAPI, salesmanAPI } from '../../api';
-import EntityFormModal from '../../components/EntityFormModal';
+import { staffAttendanceAPI } from '../../api';
+import StaffRoster from './StaffRoster';
 import './ModuleSettings.css';
 
-const { Section, Field } = EntityFormModal;
 
 /*
  * Settings → Staff Attendance.
@@ -36,7 +33,6 @@ const WEEKDAYS = [
   { label: 'Sat', value: 6 },
 ];
 
-const EMPTY_STAFF = { name: '', phone: '', salesman_id: null, joined_on: '', notes: '', attendance_enabled: true };
 
 function Row({ label, desc, children }) {
   return (
@@ -67,15 +63,7 @@ export default function StaffAttendanceSettings() {
   const [qr, setQr] = useState(null);
   const [geoText, setGeoText] = useState('');
 
-  const [staff, setStaff] = useState([]);
-  const [salesmen, setSalesmen] = useState([]);
-  const [editing, setEditing] = useState(null);      // null | {} | row
-  const [form, setForm] = useState(EMPTY_STAFF);
-  const [initialForm, setInitialForm] = useState(EMPTY_STAFF);
-  const [formErrors, setFormErrors] = useState({});
-  const [staffSaving, setStaffSaving] = useState(false);
-  const [pinFor, setPinFor] = useState(null);
-  const [pin, setPin] = useState('');
+  const [staffRefresh, setStaffRefresh] = useState(0);
 
   const loadSettings = async () => {
     const { data } = await staffAttendanceAPI.getSettings();
@@ -86,17 +74,10 @@ export default function StaffAttendanceSettings() {
     setGeoText(g.lat != null && g.lng != null ? `${g.lat}, ${g.lng}` : '');
   };
 
-  const loadStaff = async () => {
-    const { data } = await staffAttendanceAPI.listStaff();
-    setStaff(Array.isArray(data) ? data : []);
-  };
-
   useEffect(() => {
     (async () => {
       try {
-        await Promise.all([loadSettings(), loadStaff()]);
-        const { data } = await salesmanAPI.getAll({ include_inactive: 'true' });
-        setSalesmen(Array.isArray(data) ? data : []);
+        await loadSettings();
       } catch (err) {
         message.error(err?.response?.data?.error || 'Could not load staff attendance');
       } finally {
@@ -151,95 +132,8 @@ export default function StaffAttendanceSettings() {
       message.error(err?.response?.data?.error || 'Sync failed');
     } finally {
       setSyncing(false);
-      await Promise.all([loadSettings(), loadStaff()]).catch(() => {});
-    }
-  };
-
-  // ── staff form ──
-  const openStaff = (row) => {
-    const fresh = row ? {
-      name: row.name || '', phone: row.phone || '', salesman_id: row.salesman_id || null,
-      joined_on: row.joined_on ? String(row.joined_on).slice(0, 10) : '', notes: row.notes || '',
-      attendance_enabled: row.attendance_enabled !== false,
-    } : EMPTY_STAFF;
-    setEditing(row || {});
-    setForm(fresh);
-    setInitialForm(fresh);
-    setFormErrors({});
-  };
-  const closeStaff = () => { setEditing(null); setForm(EMPTY_STAFF); };
-  const setField = (k) => (e) => {
-    const v = e?.target ? e.target.value : e;
-    setForm((f) => ({ ...f, [k]: v }));
-    if (formErrors[k]) setFormErrors((er) => { const x = { ...er }; delete x[k]; return x; });
-  };
-
-  const saveStaff = async () => {
-    const errs = {};
-    if (!form.name.trim()) errs.name = 'Name is required';
-    if (String(form.phone).replace(/\D/g, '').length < 10) errs.phone = 'Enter the 10-digit mobile number';
-    setFormErrors(errs);
-    if (Object.keys(errs).length) return;
-    setStaffSaving(true);
-    try {
-      const payload = { ...form, joined_on: form.joined_on || null, salesman_id: form.salesman_id || null };
-      if (editing?.staff_id) {
-        await staffAttendanceAPI.updateStaff(editing.staff_id, payload);
-        message.success('Saved');
-        closeStaff();
-      } else {
-        const { data } = await staffAttendanceAPI.createStaff(payload);
-        message.success('Staff member added. Now set their PIN.');
-        closeStaff();
-        setPinFor({ staff_id: data.staff_id, name: form.name.trim() });
-      }
-      await loadStaff();
-    } catch (err) {
-      message.error(err?.response?.data?.error || 'Save failed');
-    } finally {
-      setStaffSaving(false);
-    }
-  };
-
-  const savePin = async () => {
-    try {
-      await staffAttendanceAPI.setPin(pinFor.staff_id, pin);
-      message.success(`PIN set for ${pinFor.name}. Tell them the PIN and the shop code.`);
-      setPinFor(null); setPin('');
-      await loadStaff();
-    } catch (err) {
-      message.error(err?.response?.data?.error || 'Could not set the PIN');
-    }
-  };
-
-  const resetPhone = async (row) => {
-    try {
-      await staffAttendanceAPI.resetDevice(row.staff_id);
-      message.success(`${row.name} can now sign in on a new phone.`);
-      await loadStaff();
-    } catch (err) {
-      message.error(err?.response?.data?.error || 'Reset failed');
-    }
-  };
-
-  const toggleActive = async (row) => {
-    try {
-      await staffAttendanceAPI.updateStaff(row.staff_id, { is_active: !row.is_active });
-      await loadStaff();
-    } catch (err) {
-      message.error(err?.response?.data?.error || 'Update failed');
-    }
-  };
-
-  const importSalesmen = async () => {
-    try {
-      const { data } = await staffAttendanceAPI.importSalesmen();
-      if (data.added) message.success(`Added ${data.added} staff member(s) from Salesmen. Set a PIN for each.`);
-      else message.info('Every active salesman is already on the staff list.');
-      if (data.skipped?.length) message.warning(`Skipped (mobile number already used): ${data.skipped.join(', ')}`, 6);
-      await loadStaff();
-    } catch (err) {
-      message.error(err?.response?.data?.error || 'Import failed');
+      await loadSettings().catch(() => {});
+      setStaffRefresh((n) => n + 1);
     }
   };
 
@@ -261,60 +155,6 @@ export default function StaffAttendanceSettings() {
       <script>window.onload=()=>setTimeout(()=>window.print(),200)</script></body>`);
     w.document.close();
   };
-
-  const columns = [
-    {
-      title: 'Staff', dataIndex: 'name',
-      render: (v, r) => (
-        <div>
-          <div style={{ fontWeight: 600 }}>{v} {!r.is_active && <Tag>inactive</Tag>}</div>
-          <div style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>
-            {r.phone || 'No mobile'}{r.salesman_name ? ` · bills as ${r.salesman_name}` : ''}
-          </div>
-        </div>
-      ),
-    },
-    {
-      title: 'Sign-in', key: 'signin', width: 230,
-      render: (_, r) => {
-        const st = r.cloud_status || {};
-        if (!r.has_pin) return <Tag color="orange">Set a PIN</Tag>;
-        if (!r.attendance_enabled) return <Tag>Attendance off</Tag>;
-        return (
-          <Space size={4} wrap>
-            {st.phone_linked
-              ? <Tooltip title={st.device_bound_at ? `Linked ${when(st.device_bound_at)}` : null}><Tag color="green" icon={<MobileOutlined />}>Phone linked</Tag></Tooltip>
-              : <Tag>Not signed in yet</Tag>}
-            {st.passkey && <Tag color="blue">Fingerprint / Face ID</Tag>}
-            {st.locked && <Tag color="red">Locked (wrong PINs)</Tag>}
-          </Space>
-        );
-      },
-    },
-    {
-      title: 'Active', dataIndex: 'is_active', width: 80, align: 'center',
-      render: (v, r) => <Switch size="small" checked={!!v} onChange={() => toggleActive(r)} />,
-    },
-    {
-      title: '', key: 'actions', width: 290, align: 'right',
-      render: (_, r) => (
-        <Space size={4}>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openStaff(r)}>Edit</Button>
-          <Button size="small" icon={<KeyOutlined />} onClick={() => { setPinFor(r); setPin(''); }}>
-            {r.has_pin ? 'Change PIN' : 'Set PIN'}
-          </Button>
-          <Popconfirm
-            title={`Reset ${r.name}'s phone?`}
-            description="Their current phone stops working for check-in. They sign in again on the new phone with their PIN."
-            okText="Reset phone"
-            onConfirm={() => resetPhone(r)}
-          >
-            <Button size="small" icon={<MobileOutlined />} disabled={!r.cloud_status?.phone_linked}>Reset phone</Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
 
   if (loading || !config) {
     return <div className="ms-shell settings-pane-fill"><div className="ms-page-body"><div className="ms-page-body-inner">Loading…</div></div></div>;
@@ -467,91 +307,14 @@ export default function StaffAttendanceSettings() {
             <div className="ms-section-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
               <div>
                 <div className="ms-section-title">Staff</div>
-                <div className="ms-section-desc">Each person signs in with their mobile number and a PIN you set. Their first sign-in links their phone.</div>
+                <div className="ms-section-desc">Each person signs in once with their mobile number and a PIN you set; that links their phone. Add their photo and ID here too.</div>
               </div>
-              <Space>
-                <Button icon={<UsergroupAddOutlined />} onClick={importSalesmen}>Add from Salesmen</Button>
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => openStaff(null)}>Add staff</Button>
-              </Space>
             </div>
-            <Table
-              rowKey="staff_id"
-              dataSource={staff}
-              columns={columns}
-              pagination={false}
-              size="middle"
-              locale={{ emptyText: 'No staff yet. Add staff, or bring in your salesmen.' }}
-            />
+            <StaffRoster shopCode={server?.shop_code} staffUrl={server?.staff_url} refreshKey={staffRefresh} />
           </section>
         </div>
       </div>
 
-      <EntityFormModal
-        open={!!editing}
-        onClose={closeStaff}
-        title={editing?.staff_id ? 'Edit staff member' : 'Add staff member'}
-        subtitle={editing?.staff_id ? editing.name : 'Signs in on their phone with this mobile number'}
-        entityIcon="S"
-        entityTone="info"
-        dirty={JSON.stringify(form) !== JSON.stringify(initialForm)}
-        saving={staffSaving}
-        onSave={saveStaff}
-        onSaveAndClose={saveStaff}
-        onReset={() => openStaff(editing?.staff_id ? editing : null)}
-        width={560}
-      >
-        <Section label="Details">
-          <Field label="Name" required error={formErrors.name}>
-            <input className={`efm-input${formErrors.name ? ' has-error' : ''}`} value={form.name} onChange={setField('name')} maxLength={100} autoFocus />
-          </Field>
-          <Field label="Mobile number" required error={formErrors.phone} help="They type this to sign in.">
-            <input className={`efm-input${formErrors.phone ? ' has-error' : ''}`} value={form.phone} onChange={setField('phone')} maxLength={15} inputMode="tel" />
-          </Field>
-          <Field label="Bills as salesman" help="Links their sales bills. The last bill of the day counts as proof they were in.">
-            <Select
-              allowClear
-              value={form.salesman_id || undefined}
-              onChange={(v) => setField('salesman_id')(v || null)}
-              placeholder="None"
-              options={salesmen.map((s) => ({ value: s.salesman_id, label: s.name }))}
-              style={{ width: '100%' }}
-            />
-          </Field>
-          <Field label="Joined on" help="No absences are counted before this date.">
-            <input className="efm-input" type="date" value={form.joined_on} onChange={setField('joined_on')} />
-          </Field>
-          <Field label="Attendance">
-            <Switch checked={form.attendance_enabled} onChange={setField('attendance_enabled')} />
-          </Field>
-          <Field label="Notes" span="full">
-            <textarea className="efm-textarea" value={form.notes} onChange={setField('notes')} maxLength={500} rows={2} />
-          </Field>
-        </Section>
-      </EntityFormModal>
-
-      <Modal
-        open={!!pinFor}
-        title={pinFor ? `PIN for ${pinFor.name}` : ''}
-        okText="Set PIN"
-        onOk={savePin}
-        onCancel={() => { setPinFor(null); setPin(''); }}
-        okButtonProps={{ disabled: !/^\d{4,8}$/.test(pin) }}
-        destroyOnClose
-      >
-        <p style={{ marginTop: 0 }}>
-          4 to 8 digits. Tell it to the staff member together with the shop code <b>{server?.shop_code || '(after first sync)'}</b>.
-          It only works on their own phone once they have signed in.
-        </p>
-        <Input
-          value={pin}
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
-          inputMode="numeric"
-          placeholder="e.g. 5823"
-          style={{ fontSize: 22, letterSpacing: '.3em', width: 200 }}
-          onPressEnter={() => /^\d{4,8}$/.test(pin) && savePin()}
-          autoFocus
-        />
-      </Modal>
     </div>
   );
 }

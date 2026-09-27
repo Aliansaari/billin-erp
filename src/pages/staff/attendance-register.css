@@ -64,7 +64,7 @@
 .ar-alert { border-radius: 10px; }
 
 /* Summary cards (plv-age-card) */
-.ar-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; flex-shrink: 0; }
+.ar-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; flex-shrink: 0; }
 .ar-card.is-static { cursor: default; }
 .ar-card.is-static:hover { transform: none; border-color: var(--border); }
 .ar-card .v { font-size: 26px; margin-top: 6px; }
@@ -326,3 +326,4 @@ th.ar-sum { text-align: center; }
   .ar-cell { width: 22px; height: 22px; border-radius: 6px; font-size: 9.5px; }
   .ar-dh.is-today b { width: 20px; height: 20px; line-height: 20px; }
 }
+.plv-avatar.st-av-photo { object-fit: cover; padding: 0; background: var(--bg-muted); }

@@ -1,0 +1,53 @@
+/*
+ * Staff list + staff form (Settings → Staff Attendance). Built from the
+ * Customers list pieces (plv-*) and the house form (efm-*), so it reads as
+ * the same product. Tokens come from attendance-register.css (.ar-pop).
+ */
+.st-roster { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.st-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.st-bar-r { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.st-search { width: 230px; height: 36px; }
+.st-card { flex: none; }
+.st-table col.c-who { width: auto; }
+.st-table col.c-id { width: 180px; }
+.st-table col.c-st { width: 150px; }
+.st-table col.c-act { width: 150px; }
+.st-table tbody td { padding: 10px 14px; }
+.st-table tbody tr:last-child td { border-bottom: 0; }
+.st-table tr.is-left td { opacity: .55; }
+.st-ids { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--fg-secondary); font-variant-numeric: tabular-nums; }
+.st-ids span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.st-ids .anticon { color: var(--fg-tertiary); }
+.st-act { text-align: right; white-space: nowrap; }
+.st-mini { height: 30px; padding: 0 10px; font-size: 12.5px; margin-right: 4px; }
+.plv-avatar.st-av-photo, .st-av-photo { object-fit: cover; display: inline-block; padding: 0; background: var(--bg-muted); }
+
+/* Form: photo beside the name fields */
+.st-profile { display: grid; grid-template-columns: 196px 1fr; gap: 18px; align-items: start; }
+.st-profile-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.st-mono { font-variant-numeric: tabular-nums; letter-spacing: .06em; }
+.st-hint { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 11.5px; color: var(--fg-tertiary); }
+.st-hint.ok { color: var(--success); } .st-hint.bad { color: var(--danger); }
+.st-privacy { margin: 2px 0 0; font-size: 11.5px; color: var(--fg-tertiary); }
+
+/* Photo picker */
+.pp { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.pp-frame {
+  position: relative; width: 136px; height: 136px; border-radius: 50%; overflow: hidden;
+  background: var(--bg-muted); border: 1px solid var(--border); display: grid; place-items: center;
+  box-shadow: 0 1px 2px rgba(45,31,21,.05), inset 0 0 0 4px var(--bg-panel);
+}
+.pp-frame img, .pp-video { width: 100%; height: 100%; object-fit: cover; }
+.pp-video { transform: scaleX(-1); }
+.pp-frame.is-live { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.pp-guide { position: absolute; inset: 14px; border-radius: 50%; border: 2px dashed rgba(255,255,255,.7); pointer-events: none; }
+.pp-initials { font-size: 40px; font-weight: 600; color: var(--fg-tertiary); letter-spacing: -.02em; }
+.pp-actions { display: flex; gap: 6px; flex-wrap: nowrap; justify-content: center; }
+.pp-actions .plv-btn { height: 30px; padding: 0 10px; font-size: 12px; }
+.pp-remove { width: 30px; padding: 0 !important; justify-content: center; }
+.pp-remove:hover:not(:disabled) { color: var(--danger) !important; border-color: var(--danger) !important; }
+.pp-hint { margin: 0; font-size: 11px; color: var(--fg-tertiary); text-align: center; line-height: 1.35; max-width: 170px; }
+
+/* PIN dialog */
+.st-pin.ant-input { font-size: 26px; letter-spacing: .4em; text-align: center; height: 56px; font-variant-numeric: tabular-nums; }
+.st-invite { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--bg-muted); border: 1px solid var(--border); font: inherit; font-size: 13px; white-space: pre-wrap; line-height: 1.55; }

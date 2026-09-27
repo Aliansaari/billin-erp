@@ -4,6 +4,7 @@ import {
   CloseOutlined, PlusOutlined, WalletOutlined, CheckOutlined, DeleteOutlined, TeamOutlined, WarningOutlined, InfoCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import StaffAvatar from '../StaffAvatar';
 import { payrollAPI, bankAPI } from '../../../api';
 import { inr0, cap, initials, errText, cycleText } from './shared';
 
@@ -49,6 +50,8 @@ export default function Accounts({ staff, onGoTab }) {
   const [giving, setGiving] = useState(null);   // staff row
   const [settling, setSettling] = useState(null);
   const banks = useBanks();
+  const photos = useMemo(() => new Map((staff || []).map((s) => [s.staff_id, s.photo_thumb])), [staff]);
+  const photoOf = (id) => photos.get(id) || null;
 
   const load = useCallback(async () => {
     try { const { data } = await payrollAPI.accounts(); setRows(data || []); } catch (e) { message.error(errText(e, 'Could not load staff accounts')); setRows([]); }
@@ -88,7 +91,7 @@ export default function Accounts({ staff, onGoTab }) {
                   <div className="sub">In <button type="button" className="ar-link" onClick={() => onGoTab('salaries')}>Salaries</button>, open a person and choose <b>Own cycle, settle up</b>. Their cycle can start on any day, like their joining date.</div></div></td></tr>
               ) : settle.map((r) => (
                 <tr key={r.staff_id} className="row" onClick={() => setOpen(r.staff_id)}>
-                  <td><div className="plv-party-inline"><span className="plv-avatar ar-av">{initials(r.name)}</span>
+                  <td><div className="plv-party-inline"><StaffAvatar name={r.name} photo={photoOf(r.staff_id)} />
                     <div className="plv-party-nm"><div className="main"><span className="txt">{cap(r.name)}</span></div>
                       <div className="sub">{inr0(r.amount)} {r.pay_type === 'monthly' ? 'a month' : r.pay_type === 'daily' ? 'a day' : 'an hour'}</div></div></div></td>
                   <td>{cycleText(r.cycle_day)}{r.cycle_over_unsettled && <div className="ar-cellsub tx-late">Last cycle not settled</div>}</td>
@@ -106,7 +109,7 @@ export default function Accounts({ staff, onGoTab }) {
         </div>
       </section>
 
-      <Statement staffId={open} row={settle.find((r) => r.staff_id === open)} onClose={() => setOpen(null)}
+      <Statement staffId={open} photo={photoOf(open)} row={settle.find((r) => r.staff_id === open)} onClose={() => setOpen(null)}
         onGive={(r) => setGiving(r)} onSettle={(r) => setSettling(r)} reloadList={load} />
       <GiveMoney row={giving} banks={banks} onClose={() => setGiving(null)} onDone={async () => { setGiving(null); await refresh(); }} />
       <SettleUp row={settling} banks={banks} onClose={() => setSettling(null)} onDone={async () => { setSettling(null); await refresh(); }} />
@@ -116,7 +119,7 @@ export default function Accounts({ staff, onGoTab }) {
 
 // ── statement drawer ─────────────────────────────────────────────────
 
-function Statement({ staffId, row, onClose, onGive, onSettle, reloadList }) {
+function Statement({ staffId, photo, row, onClose, onGive, onSettle, reloadList }) {
   const [acc, setAcc] = useState(null);
   const [modal, modalCtx] = Modal.useModal();
   const load = useCallback(async () => {
@@ -150,7 +153,7 @@ function Statement({ staffId, row, onClose, onGive, onSettle, reloadList }) {
     <Drawer rootClassName="ar-pop" open={!!staffId} onClose={onClose} width={520} closeIcon={null} destroyOnHidden
       title={row && (
         <div className="ar-dhead">
-          <span className="plv-avatar ar-av" style={{ width: 40, height: 40, fontSize: 16 }}>{initials(row.name)}</span>
+          <StaffAvatar name={row.name} photo={photo} size={40} />
           <div><b>{cap(row.name)}</b><small>Cycle {cycleText(row.cycle_day)} · {inr0(row.amount)} {row.pay_type === 'monthly' ? 'a month' : row.pay_type === 'daily' ? 'a day' : 'an hour'}</small></div>
           <div className="ar-dnav"><button type="button" className="ar-dn-btn" aria-label="Close" onClick={onClose}><CloseOutlined /></button></div>
         </div>

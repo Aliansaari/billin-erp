@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Drawer, Input, InputNumber, Select, Checkbox, Switch, DatePicker, message, Modal, Tooltip } from 'antd';
 import { CloseOutlined, PlusOutlined, DeleteOutlined, TeamOutlined, EditOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import StaffAvatar from '../StaffAvatar';
 import { payrollAPI, staffAttendanceAPI } from '../../../api';
 import { inr0, cap, initials, errText, PAY_TYPES, cycleText } from './shared';
 
@@ -54,7 +55,7 @@ export default function Salaries({ staff, structures, settings, meta, reload, on
                 const c = s.hist.length ? current(s.hist) : null; const upcoming = s.hist.find((h) => h.effective_from > dayjs().format('YYYY-MM-DD'));
                 return (
                   <tr key={s.staff_id} className="row" onClick={() => setEditing(s)}>
-                    <td><div className="plv-party-inline"><span className="plv-avatar ar-av">{initials(s.name)}</span>
+                    <td><div className="plv-party-inline"><StaffAvatar name={s.name} photo={s.photo_thumb} />
                       <div className="plv-party-nm"><div className="main"><span className="txt">{cap(s.name)}</span>{!s.is_active && <span className="plv-status-tag ar-tag tone-idle">Left</span>}</div>
                         <div className="sub">{s.designation || (s.joined_on ? `Joined ${dayjs(s.joined_on).format('D MMM YYYY')}` : 'Staff')}</div></div></div></td>
                     <td>{c ? PAY_TYPES[c.pay_type]?.label : <span className="ar-dash">Not set</span>}</td>
@@ -144,7 +145,7 @@ function SalaryDrawer({ person, settings, meta, onClose, onSaved, onGoTab }) {
     <Drawer rootClassName="ar-pop" open={!!person} onClose={onClose} width={560} closeIcon={null} destroyOnHidden
       title={(
         <div className="ar-dhead">
-          <span className="plv-avatar ar-av" style={{ width: 40, height: 40, fontSize: 16 }}>{initials(person.name)}</span>
+          <StaffAvatar name={person.name} photo={person.photo_thumb} size={40} />
           <div><b>{cap(person.name)}</b><small>{hist.length ? 'Change salary' : 'Set salary'}</small></div>
           <div className="ar-dnav"><button type="button" className="ar-dn-btn" aria-label="Close" onClick={onClose}><CloseOutlined /></button></div>
         </div>

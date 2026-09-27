@@ -4,6 +4,7 @@ import {
   LeftOutlined, RightOutlined, CloseOutlined, PrinterOutlined, WalletOutlined, PlusOutlined, DeleteOutlined, WarningOutlined, InfoCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import StaffAvatar from '../StaffAvatar';
 import { payrollAPI } from '../../../api';
 import { printPayslips } from './printPayslip';
 import { inr, inr0, monthLabel, cap, initials, errText, lineStatus, PAY_TYPES } from './shared';
@@ -25,7 +26,7 @@ const DED_PICKS = ['Fine', 'Breakage', 'Canteen', 'Other deduction'];
  * hold — each save re-computes on the server, so the numbers shown are always
  * the numbers that will be finalized.
  */
-export default function PayslipDrawer({ open, line, lines, period, status, company, onClose, onNavigate, onData, onPay }) {
+export default function PayslipDrawer({ open, line, lines, period, status, company, photo, onClose, onNavigate, onData, onPay }) {
   const final = status === 'finalized';
   const [adding, setAdding] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -85,7 +86,7 @@ export default function PayslipDrawer({ open, line, lines, period, status, compa
     <Drawer rootClassName="ar-pop" open={open} onClose={onClose} width={500} closeIcon={null} destroyOnHidden
       title={(
         <div className="ar-dhead">
-          <span className="plv-avatar ar-av" style={{ width: 40, height: 40, fontSize: 16 }}>{initials(s.staff.name)}</span>
+          <StaffAvatar name={s.staff.name} photo={photo} size={40} />
           <div><b>{cap(s.staff.name)}</b><small>{[s.staff.designation, monthLabel(period)].filter(Boolean).join(' · ')}</small></div>
           <div className="ar-dnav">
             <button type="button" className="ar-dn-btn" aria-label="Previous" disabled={idx <= 0} onClick={() => onNavigate(lines[idx - 1].staff_id)}><LeftOutlined /></button>

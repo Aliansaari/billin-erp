@@ -3,6 +3,7 @@ import { Modal, Input, InputNumber, Select, message } from 'antd';
 import { PlusOutlined, WalletOutlined, MoreOutlined } from '@ant-design/icons';
 import { Dropdown } from 'antd';
 import dayjs from 'dayjs';
+import StaffAvatar from '../StaffAvatar';
 import { payrollAPI, bankAPI } from '../../../api';
 import { inr0, cap, initials, errText } from './shared';
 
@@ -24,6 +25,7 @@ export default function Advances({ staff }) {
   useEffect(() => { bankAPI.list({ include_inactive: false }).then(({ data }) => setBanks(data?.banks || [])).catch(() => {}); }, []);
 
   const nameOf = useMemo(() => new Map(staff.map((s) => [s.staff_id, s.name])), [staff]);
+  const photoOf = useMemo(() => new Map(staff.map((s) => [s.staff_id, s.photo_thumb])), [staff]);
   const open = (rows || []).filter((r) => r.outstanding > 0);
   const closed = (rows || []).filter((r) => r.outstanding <= 0);
   const outstanding = open.reduce((t, r) => t + r.outstanding, 0);
@@ -82,7 +84,7 @@ export default function Advances({ staff }) {
                   <div className="sub">When you give staff money ahead of salary, record it here. It comes off their next payslips automatically.</div></div></td></tr>
               ) : list.map((r) => (
                 <tr key={r.advance_id} className={r.outstanding <= 0 ? 'is-hold' : ''}>
-                  <td><div className="plv-party-inline"><span className="plv-avatar ar-av">{initials(nameOf.get(r.staff_id))}</span>
+                  <td><div className="plv-party-inline"><StaffAvatar name={nameOf.get(r.staff_id)} photo={photoOf.get(r.staff_id)} />
                     <div className="plv-party-nm"><div className="main"><span className="txt">{cap(nameOf.get(r.staff_id) || `Staff #${r.staff_id}`)}</span></div><div className="sub">{r.payment_mode}</div></div></div></td>
                   <td>{dayjs(r.given_on).format('D MMM YYYY')}</td>
                   <td className="r ar-num">{inr0(r.amount)}</td>

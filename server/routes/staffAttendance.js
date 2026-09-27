@@ -21,6 +21,7 @@ router.post('/sync',                 c.syncNow);
 router.get('/staff',                 c.listStaff);
 router.post('/staff',                c.createStaff);
 router.post('/staff/import-salesmen', c.importSalesmen);
+router.get('/staff/:id',             c.getStaff);
 router.put('/staff/:id',             c.updateStaff);
 router.post('/staff/:id/pin',        c.setPin);
 router.post('/staff/:id/reset-device', c.resetDevice);

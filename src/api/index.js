@@ -947,6 +947,7 @@ export const staffAttendanceAPI = {
   saveSettings:   (data) => api.put('/staff-attendance/settings', data),
   syncNow:        () => api.post('/staff-attendance/sync'),
   listStaff:      () => api.get('/staff-attendance/staff'),
+  getStaff:       (id) => api.get(`/staff-attendance/staff/${id}`),
   createStaff:    (data) => api.post('/staff-attendance/staff', data),
   updateStaff:    (id, data) => api.put(`/staff-attendance/staff/${id}`, data),
   setPin:         (id, pin) => api.post(`/staff-attendance/staff/${id}/pin`, { pin }),
