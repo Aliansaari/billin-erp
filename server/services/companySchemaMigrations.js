@@ -675,6 +675,106 @@ async function runCompanySchemaMigrations(sequelize) {
       END IF;
     END $user_preferences$;
   `);
+  // ── Payroll ─────────────────────────────────────────────────────────
+  // Salary structures are dated revisions (a raise never rewrites an old
+  // month). A pay run is one month; its payslips keep a frozen snapshot of
+  // how every figure was reached, so a finalized month never changes when
+  // attendance or a structure is edited later. Money reaches the books only
+  // through services/payroll.js → ledgerPostingService (journal on finalize,
+  // payment vouchers on payout). Raw SQL only, like staff attendance.
+  await sequelize.query(`
+    DO $payroll$ BEGIN
+      ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS left_on DATE;
+      ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS designation VARCHAR(80);
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payroll_settings') THEN
+        CREATE TABLE payroll_settings (
+          id            INTEGER PRIMARY KEY DEFAULT 1,
+          config        JSONB NOT NULL DEFAULT '{}'::jsonb,
+          modified_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'staff_salary_structures') THEN
+        CREATE TABLE staff_salary_structures (
+          structure_id   SERIAL PRIMARY KEY,
+          staff_id       INTEGER NOT NULL,
+          effective_from DATE NOT NULL,
+          pay_type       VARCHAR(10) NOT NULL DEFAULT 'monthly',   -- monthly | daily | hourly
+          amount         NUMERIC(12,2) NOT NULL DEFAULT 0,
+          details        JSONB NOT NULL DEFAULT '{}'::jsonb,       -- components, statutory, bank, ids
+          created_by     INTEGER,
+          created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+        CREATE UNIQUE INDEX uq_salary_structure_day ON staff_salary_structures(staff_id, effective_from);
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'staff_advances') THEN
+        CREATE TABLE staff_advances (
+          advance_id     SERIAL PRIMARY KEY,
+          staff_id       INTEGER NOT NULL,
+          given_on       DATE NOT NULL,
+          amount         NUMERIC(12,2) NOT NULL,
+          installment    NUMERIC(12,2) NOT NULL DEFAULT 0,          -- 0 = recover in full next run
+          payment_mode   VARCHAR(10) NOT NULL DEFAULT 'Cash',
+          bank_ledger_id INTEGER,
+          reason         TEXT,
+          created_by     INTEGER,
+          created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          voided_at      TIMESTAMP WITH TIME ZONE,
+          void_reason    TEXT
+        );
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payroll_runs') THEN
+        CREATE TABLE payroll_runs (
+          run_id        SERIAL PRIMARY KEY,
+          period        CHAR(7) NOT NULL,                           -- YYYY-MM
+          status        VARCHAR(12) NOT NULL DEFAULT 'draft',       -- draft | finalized
+          finalized_at  TIMESTAMP WITH TIME ZONE,
+          finalized_by  INTEGER,
+          posted        BOOLEAN NOT NULL DEFAULT false,
+          created_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+        CREATE UNIQUE INDEX uq_payroll_run_period ON payroll_runs(period);
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payslips') THEN
+        CREATE TABLE payslips (
+          payslip_id   SERIAL PRIMARY KEY,
+          run_id       INTEGER NOT NULL,
+          staff_id     INTEGER NOT NULL,
+          adjustments  JSONB NOT NULL DEFAULT '[]'::jsonb,          -- owner's extra lines while draft
+          recoveries   JSONB NOT NULL DEFAULT '{}'::jsonb,          -- advance_id → amount override
+          snapshot     JSONB,                                        -- frozen at finalize
+          gross        NUMERIC(12,2) NOT NULL DEFAULT 0,
+          deductions   NUMERIC(12,2) NOT NULL DEFAULT 0,
+          net          NUMERIC(12,2) NOT NULL DEFAULT 0,
+          employer_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+          hold         BOOLEAN NOT NULL DEFAULT false,
+          created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+        CREATE UNIQUE INDEX uq_payslip_run_staff ON payslips(run_id, staff_id);
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payroll_payments') THEN
+        CREATE TABLE payroll_payments (
+          payment_id     SERIAL PRIMARY KEY,
+          payslip_id     INTEGER NOT NULL,
+          paid_on        DATE NOT NULL,
+          amount         NUMERIC(12,2) NOT NULL,
+          payment_mode   VARCHAR(10) NOT NULL DEFAULT 'Cash',
+          bank_ledger_id INTEGER,
+          reference      VARCHAR(60),
+          created_by     INTEGER,
+          created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          voided_at      TIMESTAMP WITH TIME ZONE,
+          void_reason    TEXT
+        );
+        CREATE INDEX ix_payroll_payments_slip ON payroll_payments(payslip_id);
+      END IF;
+    END $payroll$;
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };

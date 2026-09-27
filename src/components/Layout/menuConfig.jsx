@@ -162,6 +162,7 @@ export const menuItems = [
     label: 'Staff',
     children: [
       { key: '/staff-attendance',          icon: <FieldTimeOutlined />, label: 'Attendance',    perm: 'settings.manage_company' },
+      { key: '/staff-payroll',             icon: <WalletOutlined />,    label: 'Payroll',       perm: 'settings.manage_company' },
       { key: '/settings/staff-attendance', icon: <TeamOutlined />,      label: 'Staff & Rules', perm: 'settings.manage_company' },
     ],
   },

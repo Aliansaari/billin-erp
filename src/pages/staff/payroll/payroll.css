@@ -1,0 +1,157 @@
+/*
+ * Payroll. Sits on the attendance register's tokens and pieces (.ar, .ar-pop,
+ * ar-card, ar-tag, ar-form …) and the Customers list language (plv-*), so the
+ * whole Staff area reads as one product. Only payroll-specific parts live here.
+ */
+.pr-muted { color: var(--fg-tertiary); font-size: 12.5px; }
+.pr-of { color: var(--fg-tertiary); font-size: 12px; font-weight: 500; }
+.pr-x { border: 0; background: none; color: var(--fg-tertiary); cursor: pointer; padding: 2px 4px; margin-left: 6px; border-radius: 5px; }
+.pr-x:hover { color: var(--danger); background: var(--danger-bg); }
+
+/* Tabs under the title */
+.pr-hdr { padding-bottom: 6px; }
+.pr-tabs { display: flex; gap: 4px; padding: 0 28px; border-bottom: 1px solid var(--border); flex-shrink: 0; margin-bottom: 16px; }
+.pr-tabs button {
+  border: 0; background: none; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--fg-secondary);
+  padding: 9px 14px 11px; cursor: pointer; position: relative; border-radius: 6px 6px 0 0;
+}
+.pr-tabs button:hover { color: var(--fg-primary); background: var(--bg-muted); }
+.pr-tabs button.is-on { color: var(--accent); }
+.pr-tabs button.is-on::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
+
+/* Toolbar: month · steps · actions */
+.pr-toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; flex-shrink: 0; }
+.pr-toolbar .plv-actions { margin-left: auto; }
+.pr-steps { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 6px; }
+.pr-steps li { display: flex; align-items: center; gap: 8px; padding: 5px 12px 5px 6px; border-radius: 99px; color: var(--fg-tertiary); }
+.pr-steps li + li::before { content: ''; width: 18px; height: 1px; background: var(--border-strong); margin-right: 6px; margin-left: -8px; }
+.pr-steps .n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 11.5px; font-weight: 700; border: 1.5px solid var(--border-strong); background: var(--bg-panel); flex-shrink: 0; }
+.pr-steps b { display: block; font-size: 12.5px; line-height: 1.2; color: inherit; }
+.pr-steps small { display: block; font-size: 11px; line-height: 1.2; }
+.pr-steps li.is-now { background: var(--accent-bg); color: var(--fg-primary); }
+.pr-steps li.is-now .n { background: var(--accent); border-color: var(--accent); color: #FDFAF2; }
+.pr-steps li.is-now small { color: var(--fg-secondary); }
+.pr-steps li.is-done { color: var(--fg-secondary); }
+.pr-steps li.is-done .n { background: var(--c-ok); border-color: var(--c-ok); color: #FDFAF2; font-size: 11px; }
+.pr-allpaid { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 7px; background: var(--c-ok-s); color: var(--c-ok); font-weight: 700; font-size: 13px; }
+
+/* Pay run table */
+.pr-table col.c-staff { width: 26%; }
+.pr-table col.c-days { width: 120px; }
+.pr-table col.c-amt { width: 118px; }
+.pr-table col.c-net { width: 130px; }
+.pr-table col.c-st { width: 116px; }
+.pr-table col.c-act { width: 52px; }
+.pr-table col.c-since { width: 130px; }
+.pr-table col.c-plan { width: 118px; }
+.pr-table td.r, .pr-table th.r { text-align: right; }
+.pr-net { font-weight: 700; font-size: 14px; }
+.pr-table tr.is-hold td { opacity: .55; }
+.pr-table tr.is-hold:hover td { opacity: .8; }
+.pr-table tfoot td { padding: 11px 14px; font-weight: 700; background: var(--bg-muted); border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; font-size: 13px; }
+.pr-warnDot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--c-late); margin-left: 6px; vertical-align: 2px; cursor: help; }
+.pr-minibar { height: 3px; border-radius: 99px; background: var(--bg-muted); margin: 5px 0 0 auto; width: 70px; overflow: hidden; }
+.pr-minibar i { display: block; height: 100%; background: var(--c-ok); }
+.pr-reason { color: var(--fg-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Salaries table */
+.pr-saltable col.c-type { width: 150px; }
+.pr-saltable col.c-amt2 { width: 170px; }
+.pr-saltable col.c-act2 { width: 120px; }
+.pr-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.pr-badges span { font-size: 10.5px; font-weight: 700; letter-spacing: .3px; padding: 2px 7px; border-radius: 5px; background: var(--bg-muted); color: var(--fg-secondary); }
+.pr-setbtn { height: 30px; padding: 0 12px; font-size: 12.5px; }
+
+/* Payslip drawer */
+.pr-slip h4 { margin-top: 20px; }
+.pr-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 16px 18px; border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent-bg), transparent 70%), var(--bg-muted); border: 1px solid var(--border-subtle); }
+.pr-hero span { display: block; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--fg-tertiary); }
+.pr-hero b { display: block; font-size: 30px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.pr-hero-r { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.pr-hero-r small { font-size: 12px; color: var(--fg-secondary); }
+.pr-attgrid { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; }
+/* Inner lines drawn up and left of each cell; the outer edge clips the first row/column. */
+.pr-attgrid > div { padding: 9px 12px; display: flex; flex-direction: column; box-shadow: -1px -1px 0 var(--border-subtle); }
+.pr-attgrid b { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.pr-attgrid span { font-size: 11px; color: var(--fg-tertiary); }
+.pr-lines { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.pr-lines td { padding: 7px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px; vertical-align: top; }
+.pr-lines td small { display: block; font-size: 11.5px; color: var(--fg-tertiary); }
+.pr-lines td.r { text-align: right; white-space: nowrap; }
+.pr-lines tr.tot td { font-weight: 700; border-bottom: 0; padding-top: 9px; }
+.pr-edit { margin-top: 8px; padding-top: 4px; border-top: 1px dashed var(--border); }
+.pr-addrow { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-muted); }
+.pr-addact { display: flex; justify-content: flex-end; gap: 8px; }
+.pr-adv { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
+.pr-adv b { display: block; font-size: 13px; } .pr-adv small { display: block; font-size: 11.5px; color: var(--fg-tertiary); }
+.pr-hold { display: flex; gap: 10px; align-items: flex-start; margin-top: 16px; cursor: pointer; }
+.pr-hold b { display: block; font-size: 13px; } .pr-hold small { display: block; font-size: 11.5px; color: var(--fg-tertiary); }
+.pr-pays { list-style: none; margin: 0; padding: 0; }
+.pr-pays li { display: grid; grid-template-columns: 110px 1fr auto 70px; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px; }
+.pr-pays li span:nth-child(2) { color: var(--fg-tertiary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-pays li b { font-variant-numeric: tabular-nums; text-align: right; }
+.pr-pays li em { font-style: normal; font-size: 11px; color: var(--fg-tertiary); text-align: right; }
+.pr-pays li.is-void { color: var(--fg-tertiary); } .pr-pays li.is-void b { text-decoration: line-through; }
+.pr-ids { margin: 18px 0 0; font-size: 11.5px; color: var(--fg-tertiary); }
+.pr-confirm ul { margin: 8px 0; padding-left: 18px; color: var(--fg-secondary); }
+.pr-confirm li { margin: 3px 0; }
+.pr-warn { color: var(--c-late); font-weight: 600; }
+
+/* Pay dialog */
+.pr-paylist .ar-bl-row { grid-template-columns: 22px minmax(160px, 1fr) 110px 150px; }
+.pr-paylist .ar-bl-row > .plv-party-inline > div { display: flex; flex-direction: column; min-width: 0; }
+.pr-acct { font-size: 11px; color: var(--fg-tertiary); }
+.pr-paymeta { grid-template-columns: 1fr 1.3fr 1fr; }
+
+/* Salary drawer */
+.pr-choice3, .ar-choice.pr-three { grid-template-columns: repeat(3, 1fr); }
+.pr-more { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--bg-panel); border-radius: 10px; padding: 11px 14px; cursor: pointer; font: inherit; text-align: left; color: var(--fg-primary); }
+.pr-more:hover { border-color: var(--accent-border); }
+.pr-more .anticon { font-size: 10px; color: var(--fg-tertiary); transition: transform .15s; }
+.pr-more b { font-size: 13px; } .pr-more span { font-size: 12px; color: var(--fg-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-sec { border: 1px solid var(--border-subtle); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.pr-sec-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pr-sec-h b { display: block; font-size: 13.5px; } .pr-sec-h small { display: block; font-size: 12px; color: var(--fg-tertiary); }
+.pr-comps { display: flex; flex-direction: column; gap: 8px; }
+.pr-comp { display: grid; grid-template-columns: 1.2fr 1fr 1fr 80px 54px 24px; gap: 8px; align-items: center; }
+.pr-comp .r { text-align: right; font-weight: 600; font-size: 12.5px; }
+.pr-comp-act { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12.5px; }
+.pr-stat { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.pr-off { font-style: normal; font-size: 11px; color: var(--fg-tertiary); }
+.pr-hist { list-style: none; margin: 0; padding: 0; }
+.pr-hist li { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px; }
+.pr-hist li:last-child { border-bottom: 0; }
+.pr-hist li span { flex: 1; color: var(--fg-secondary); }
+.pr-hist li em { font-style: normal; font-weight: 500; color: var(--fg-tertiary); font-size: 12px; }
+.pr-dfoot { align-items: center; } .pr-dfoot .pr-muted { flex: 1; }
+
+/* Rules */
+.pr-rules { display: flex; flex-direction: column; gap: 14px; max-width: 920px; padding-bottom: 70px; }
+.pr-card { flex: none; padding: 16px 20px 6px; }
+.pr-card-h { margin-bottom: 12px; }
+.pr-card-h b { display: block; font-size: 15px; } .pr-card-h small { display: block; font-size: 12.5px; color: var(--fg-tertiary); }
+.pr-basis { grid-template-columns: repeat(4, 1fr); }
+.pr-example { margin: 10px 0 6px; font-size: 12.5px; color: var(--fg-secondary); background: var(--bg-muted); border-radius: 8px; padding: 8px 12px; }
+.pr-rule { border-top: 1px solid var(--border-subtle); padding: 12px 0; }
+.pr-rule-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.pr-rule-h b { display: block; font-size: 13.5px; font-weight: 600; } .pr-rule-h small { display: block; font-size: 12px; color: var(--fg-tertiary); }
+.pr-rule-b { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.pr-inline { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--fg-secondary); }
+.pr-slabs { border-collapse: collapse; font-size: 12.5px; }
+.pr-slabs th { text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--fg-tertiary); padding: 4px 10px 4px 0; }
+.pr-slabs td { padding: 3px 10px 3px 0; }
+.pr-hols { list-style: none; margin: 0 0 10px; padding: 0; }
+.pr-hols li { display: flex; align-items: center; gap: 14px; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px; }
+.pr-hols li span { width: 150px; color: var(--fg-secondary); font-variant-numeric: tabular-nums; } .pr-hols li b { flex: 1; font-weight: 600; }
+.pr-holadd { display: flex; gap: 8px; align-items: center; padding-bottom: 12px; }
+.pr-holadd .ant-input { max-width: 240px; }
+.pr-savebar { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 14px; margin-top: -4px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 -6px 20px rgba(45,31,21,.06); font-size: 13px; color: var(--fg-tertiary); }
+.pr-savebar span { flex: 1; }
+.pr-savebar.is-dirty { border-color: var(--accent-border); } .pr-savebar.is-dirty span { color: var(--accent); font-weight: 600; }
+
+@media (max-width: 1400px) {
+  .pr-steps small { display: none; }
+  .pr-basis { grid-template-columns: repeat(2, 1fr); }
+}

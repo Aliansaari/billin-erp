@@ -111,6 +111,7 @@ import MembershipSettings from './pages/settings/MembershipSettings';
 import StaffAttendanceSettings from './pages/settings/StaffAttendanceSettings';
 import SoftwareUpdate from './pages/settings/SoftwareUpdate';
 import AttendanceRegister from './pages/staff/AttendanceRegister';
+import Payroll from './pages/staff/payroll/Payroll';
 import MembershipList from './pages/membership/MembershipList';
 import MembershipReport from './pages/membership/MembershipReport';
 import LanSettings from './pages/settings/LanSettings';
@@ -724,6 +725,7 @@ export default function App() {
           <Route path="members"      element={<RoleRoute perm="parties.view"><MembershipList /></RoleRoute>} />
           <Route path="members/report" element={<RoleRoute perm="parties.view"><MembershipReport /></RoleRoute>} />
           <Route path="staff-attendance" element={<RoleRoute perm="settings.manage_company"><AttendanceRegister /></RoleRoute>} />
+          <Route path="staff-payroll" element={<RoleRoute perm="settings.manage_company"><Payroll /></RoleRoute>} />
           {/* /parties/:id — legacy detail page retired. The redirect below
               resolves party type and bounces to Customer / Supplier
               Statement (with ?id= so the picker pre-selects). */}

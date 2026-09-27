@@ -113,7 +113,8 @@ exports.syncNow = async (req, res) => {
 // ── staff ───────────────────────────────────────────────────────────
 
 const STAFF_COLUMNS = `
-  s.staff_id, s.name, s.phone, s.salesman_id, s.attendance_enabled, s.is_active, s.joined_on,
+  s.staff_id, s.name, s.phone, s.salesman_id, s.attendance_enabled, s.is_active,
+  to_char(s.joined_on, 'YYYY-MM-DD') AS joined_on, to_char(s.left_on, 'YYYY-MM-DD') AS left_on, s.designation,
   s.notes, s.pin_set_at, s.cloud_status, s.created_date, (s.pin_hash IS NOT NULL) AS has_pin,
   sm.name AS salesman_name`;
 
@@ -129,6 +130,15 @@ exports.listStaff = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+/** 'YYYY-MM-DD' from a form string or a pg Date; anything else is null. */
+function isoDate(v) {
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v || ''));
+  return m ? m[1] : null;
+}
 
 async function validateStaff(body, staffId = null) {
   const name = String(body.name || '').trim();
@@ -152,7 +162,9 @@ async function validateStaff(body, staffId = null) {
     const sm = await q('SELECT salesman_id FROM salesmen WHERE salesman_id = :id', { replacements: { id: salesmanId } });
     if (!sm.length) salesmanId = null;
   }
-  const joined = /^\d{4}-\d{2}-\d{2}$/.test(String(body.joined_on || '')) ? body.joined_on : null;
+  const joined = isoDate(body.joined_on);
+  const left = isoDate(body.left_on);
+  if (joined && left && left < joined) return { error: 'The leaving date is before the joining date.' };
 
   return {
     value: {
@@ -162,6 +174,8 @@ async function validateStaff(body, staffId = null) {
       attendance_enabled: body.attendance_enabled === undefined ? true : !!body.attendance_enabled,
       is_active: body.is_active === undefined ? true : !!body.is_active,
       joined_on: joined,
+      left_on: left,
+      designation: body.designation ? String(body.designation).trim().slice(0, 80) || null : null,
       notes: body.notes ? String(body.notes).slice(0, 500) : null,
     },
   };
@@ -172,8 +186,8 @@ exports.createStaff = async (req, res) => {
     const v = await validateStaff(req.body || {});
     if (v.error) return bad(res, v.error);
     const [row] = await q(
-      `INSERT INTO staff_members (name, phone, salesman_id, attendance_enabled, is_active, joined_on, notes)
-       VALUES (:name, :phone, :salesman_id, :attendance_enabled, :is_active, :joined_on, :notes)
+      `INSERT INTO staff_members (name, phone, salesman_id, attendance_enabled, is_active, joined_on, left_on, designation, notes)
+       VALUES (:name, :phone, :salesman_id, :attendance_enabled, :is_active, :joined_on, :left_on, :designation, :notes)
        RETURNING staff_id`,
       { replacements: v.value, type: sequelize.QueryTypes.SELECT },
     );
@@ -194,6 +208,7 @@ exports.updateStaff = async (req, res) => {
     await sequelize.query(
       `UPDATE staff_members SET name = :name, phone = :phone, salesman_id = :salesman_id,
               attendance_enabled = :attendance_enabled, is_active = :is_active, joined_on = :joined_on,
+              left_on = :left_on, designation = :designation,
               notes = :notes, modified_date = NOW()
         WHERE staff_id = :id`,
       { replacements: { ...v.value, id } },

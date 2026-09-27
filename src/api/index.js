@@ -913,6 +913,27 @@ export const salesmanAPI = {
 
 // Staff attendance — staff punch from their own phones (staff.zehenapp.com);
 // this is the owner's side: rules, roster, register and corrections.
+// Payroll — salary from attendance. Every figure is worked out on the server
+// (services/payroll.js); the UI only shows it and sends the owner's choices.
+export const payrollAPI = {
+  getSettings:     () => api.get('/payroll/settings'),
+  saveSettings:    (data) => api.put('/payroll/settings', data),
+  structures:      () => api.get('/payroll/structures'),
+  saveStructure:   (staffId, data) => api.put(`/payroll/structures/${staffId}`, data),
+  deleteStructure: (structureId) => api.delete(`/payroll/structures/item/${structureId}`),
+  getRun:          (period) => api.get(`/payroll/runs/${period}`),
+  saveLine:        (period, staffId, data) => api.put(`/payroll/runs/${period}/lines/${staffId}`, data),
+  finalize:        (period) => api.post(`/payroll/runs/${period}/finalize`),
+  reopen:          (period) => api.post(`/payroll/runs/${period}/reopen`),
+  pay:             (period, data) => api.post(`/payroll/runs/${period}/pay`, data),
+  payments:        (period) => api.get(`/payroll/runs/${period}/payments`),
+  voidPayment:     (id, reason) => api.post(`/payroll/payments/${id}/void`, { reason }),
+  advances:        () => api.get('/payroll/advances'),
+  giveAdvance:     (data) => api.post('/payroll/advances', data),
+  updateAdvance:   (id, data) => api.put(`/payroll/advances/${id}`, data),
+  voidAdvance:     (id, reason) => api.post(`/payroll/advances/${id}/void`, { reason }),
+};
+
 export const staffAttendanceAPI = {
   getSettings:    () => api.get('/staff-attendance/settings'),
   saveSettings:   (data) => api.put('/staff-attendance/settings', data),

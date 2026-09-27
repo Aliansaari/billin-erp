@@ -236,6 +236,7 @@ app.use('/api/print', require('./routes/print'));
 app.use('/api/godowns', require('./routes/godowns'));
 app.use('/api/salesmen', require('./routes/salesmen'));
 app.use('/api/staff-attendance', require('./routes/staffAttendance'));
+app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/membership', require('./routes/membership'));
 app.use('/api/whatsapp', require('./routes/whatsapp'));
 app.use('/api/states', require('./routes/states'));

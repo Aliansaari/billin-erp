@@ -455,7 +455,11 @@ async function currentViews(cfg) {
   const off = Number(cfg.tz_offset_min) || 0;
   const today = dayNumberToIso(localDayNumber(Date.now(), off));
   const register = await buildRegister(`${today.slice(0, 8)}01`, today);
-  return staffViews(register);
+  const views = staffViews(register);
+  // Finalized payslips, only when the owner lets staff see them.
+  const pay = await require('./payroll').staffPayViews().catch(() => ({}));
+  for (const [id, slips] of Object.entries(pay)) if (views[id]) views[id].pay = slips;
+  return views;
 }
 
 /**
