@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { message } from 'antd';
+import { message, Dropdown, Tooltip } from 'antd';
+import { ArrowLeftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useSearchParams } from 'react-router-dom';
 import { payrollAPI, staffAttendanceAPI, settingsAPI } from '../../../api';
+import PayrollHome, { MORE_VIEWS, RULES_ICON, MORE_ICON } from './PayrollHome';
 import PayRun from './PayRun';
-import Salaries from './Salaries';
+import Salaries, { SalaryDrawer } from './Salaries';
 import Advances from './Advances';
 import Accounts from './Accounts';
 import Rules from './Rules';
@@ -12,30 +14,28 @@ import { errText } from './shared';
 import '../../parties/party-list-view.css';
 import '../attendance-register.css';
 import './payroll.css';
+import './payroll-home.css';
 
 /*
- * Payroll — one page, five tabs, in the order an owner meets them:
- *   Pay run   the month: review → finalize → pay (where they live every month)
- *   Salaries  who earns what, from when (set once, changed on a raise)
- *   Staff accounts  own-cycle staff: give money any day, settle any dates
- *   Advances  money given ahead of salary, recovered from pay
- *   Rules     how a day's pay is worked out, statutory, accounts
- * A two-person shop only ever needs Salaries once and Pay run monthly; the
- * corporate switches all live in Rules and in each salary's "breakup".
+ * Payroll. The home screen (PayrollHome) is where an owner lives: who is
+ * owed what, pay, give money, set salaries. Everything detailed (month
+ * payslips and PF/ESI, salary breakups, statements, rules) is one click
+ * away under "More" and the gear, not in the owner's way.
  */
-const TABS = [['run', 'Pay run'], ['accounts', 'Staff accounts'], ['salaries', 'Salaries'], ['advances', 'Advances'], ['rules', 'Rules']];
+const VIEWS = { month: 'Month details', salaries: 'Salaries', accounts: 'Own-cycle statements', advances: 'Advances', rules: 'Payroll rules' };
 
 export default function Payroll() {
   const [params, setParams] = useSearchParams();
-  const tab = TABS.some(([k]) => k === params.get('tab')) ? params.get('tab') : 'run';
-  const setTab = (k) => setParams((p) => { const n = new URLSearchParams(p); n.set('tab', k); return n; }, { replace: true });
-  // Default to last month once the month is nearly over, else this month.
+  const view = VIEWS[params.get('view')] ? params.get('view') : 'home';
+  const setView = (v) => setParams((p) => { const n = new URLSearchParams(p); if (v === 'home') n.delete('view'); else n.set('view', v); n.delete('tab'); return n; });
   const [period, setPeriod] = useState(() => (dayjs().date() >= 25 ? dayjs() : dayjs().subtract(1, 'month')).format('YYYY-MM'));
   const [staff, setStaff] = useState([]);
   const [structures, setStructures] = useState({});
   const [settings, setSettings] = useState(null);
   const [meta, setMeta] = useState({ pt_presets: {}, standard_components: [] });
   const [company, setCompany] = useState({});
+  const [salaryFor, setSalaryFor] = useState(null);
+  const [homeKey, setHomeKey] = useState(0);
 
   const loadBase = useCallback(async () => {
     try {
@@ -47,32 +47,42 @@ export default function Payroll() {
   useEffect(() => { loadBase(); }, [loadBase]);
   useEffect(() => { settingsAPI.getSystem().then(({ data }) => setCompany(data?.data || data || {})).catch(() => {}); }, []);
 
-  const withSalary = staff.filter((s) => s.is_active && structures[s.staff_id]?.length).length;
-  const active = staff.filter((s) => s.is_active).length;
+  const active = staff.filter((s) => s.is_active);
+  const person = salaryFor ? (() => { const s = staff.find((x) => x.staff_id === salaryFor); return s ? { ...s, hist: structures[s.staff_id] || [] } : null; })() : null;
 
   return (
     <div className="ar pr">
       <header className="plv-hdr ar-hdr pr-hdr">
         <div className="plv-title">
-          <h1>Payroll</h1>
+          {view === 'home' ? <h1>Payroll</h1> : (
+            <h1 className="pr-back"><button type="button" onClick={() => setView('home')} aria-label="Back to payroll"><ArrowLeftOutlined /></button>{VIEWS[view]}</h1>
+          )}
           <div className="sub">
-            {active ? <><b>{withSalary}</b> of {active} staff have a salary set</> : 'Add your staff in Staff & Rules first'}
-            {settings && <> · {settings.post_to_accounts ? 'Posts to your accounts' : 'Not posted to accounts'}</>}
+            {view === 'home'
+              ? (active.length ? <>{active.length} staff{settings && !settings.post_to_accounts ? ' · not posted to accounts' : ''}</> : 'Add your staff in Staff & Rules first')
+              : <button type="button" className="ar-link" onClick={() => setView('home')}>Back to payroll</button>}
           </div>
         </div>
+        <div className="plv-actions">
+          <Tooltip title="Payroll rules: working days, holidays, overtime, PF / ESI / PT, accounts">
+            <button type="button" className={`plv-iconbtn square${view === 'rules' ? ' is-on' : ''}`} onClick={() => setView(view === 'rules' ? 'home' : 'rules')} aria-label="Payroll rules">{RULES_ICON}</button>
+          </Tooltip>
+          <Dropdown trigger={['click']} placement="bottomRight" overlayClassName="ar-menu"
+            menu={{ items: MORE_VIEWS.map(([k, label, icon]) => ({ key: k, label, icon, onClick: () => setView(k) })) }}>
+            <button type="button" className="plv-iconbtn square" aria-label="More">{MORE_ICON}</button>
+          </Dropdown>
+        </div>
       </header>
-      <nav className="pr-tabs" role="tablist">
-        {TABS.map(([k, label]) => (
-          <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>{label}</button>
-        ))}
-      </nav>
       <div className="ar-body pr-body">
-        {tab === 'run' && <PayRun period={period} setPeriod={setPeriod} staff={staff} company={company} onGoTab={setTab} />}
-        {tab === 'accounts' && <Accounts staff={staff} onGoTab={setTab} />}
-        {tab === 'salaries' && <Salaries staff={staff} structures={structures} settings={settings} meta={meta} reload={loadBase} onGoTab={setTab} />}
-        {tab === 'advances' && <Advances staff={staff} />}
-        {tab === 'rules' && settings && <Rules settings={settings} meta={meta} onSaved={(s) => setSettings(s)} />}
+        {view === 'home' && <PayrollHome key={homeKey} staff={staff} structures={structures} reloadBase={loadBase} onOpenView={setView} onEditSalary={setSalaryFor} />}
+        {view === 'month' && <PayRun period={period} setPeriod={setPeriod} staff={staff} company={company} onGoTab={(t) => setView(t === 'salaries' ? 'salaries' : t)} />}
+        {view === 'accounts' && <Accounts staff={staff} onGoTab={setView} />}
+        {view === 'salaries' && <Salaries staff={staff} structures={structures} settings={settings} meta={meta} reload={loadBase} onGoTab={setView} />}
+        {view === 'advances' && <Advances staff={staff} />}
+        {view === 'rules' && settings && <Rules settings={settings} meta={meta} onSaved={(s) => setSettings(s)} />}
       </div>
+      <SalaryDrawer person={person} settings={settings} meta={meta} onClose={() => setSalaryFor(null)}
+        onSaved={async () => { setSalaryFor(null); await loadBase(); setHomeKey((k) => k + 1); }} onGoTab={setView} />
     </div>
   );
 }

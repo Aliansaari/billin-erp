@@ -916,6 +916,11 @@ export const salesmanAPI = {
 // Payroll — salary from attendance. Every figure is worked out on the server
 // (services/payroll.js); the UI only shows it and sends the owner's choices.
 export const payrollAPI = {
+  // The owner's one screen: who is owed what, pay them, give money.
+  home:            () => api.get('/payroll/home'),
+  givePerson:      (staffId, data) => api.post(`/payroll/people/${staffId}/give`, data),
+  payPerson:       (staffId, data) => api.post(`/payroll/people/${staffId}/pay`, data),
+  payAll:          (data) => api.post('/payroll/pay-all', data),
   getSettings:     () => api.get('/payroll/settings'),
   saveSettings:    (data) => api.put('/payroll/settings', data),
   structures:      () => api.get('/payroll/structures'),

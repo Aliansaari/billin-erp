@@ -79,7 +79,7 @@ export default function Salaries({ staff, structures, settings, meta, reload, on
   );
 }
 
-function SalaryDrawer({ person, settings, meta, onClose, onSaved, onGoTab }) {
+export function SalaryDrawer({ person, settings, meta, onClose, onSaved, onGoTab }) {
   const [f, setF] = useState(null);
   const [more, setMore] = useState(false);
   const [saving, setSaving] = useState(false);

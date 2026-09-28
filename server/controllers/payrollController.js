@@ -169,3 +169,53 @@ exports.cancelSettlement = handle(async (req, res) => {
   kick();
   return { ok: true };
 });
+
+// ── payroll home: one screen for the owner ──────────────────────────
+const home = require('../services/payrollHome');
+exports.home = handle(async () => home.overview());
+exports.givePerson = handle(async (req, res) => {
+  if ((await booksOn()) && !(await gateNew(req, res, [req.body?.given_on]))) return undefined;
+  const r = await home.give(Number(req.params.staffId), req.body || {}, uid(req));
+  kick();
+  return { ok: true, id: r };
+});
+exports.payPerson = handle(async (req, res) => {
+  const body = req.body || {};
+  const ov = await home.overview();
+  const p = ov.people.find((x) => x.staff_id === Number(req.params.staffId));
+  if (!p || !p.due) throw new Error('Nothing is due for this person right now.');
+  let postingDate = null; let journalDate = null;
+  if (await booksOn()) {
+    if (!(await gateNew(req, res, [body.paid_on]))) return undefined;
+    if (p.due.kind === 'run' && !p.due.locked && body.lock_month) {
+      postingDate = await accrualDate(req, periodEnd(p.due.period));
+      if (!(await gateLock(req, res, postingDate))) return undefined;
+    }
+    if (p.due.kind === 'settle') {
+      journalDate = await accrualDate(req, p.due.to);
+      if (!(await gateLock(req, res, journalDate))) return undefined;
+    }
+  }
+  await home.payPerson(p.staff_id, body, uid(req), { postingDate, journalDate });
+  kick();
+  return home.overview();
+});
+exports.payAll = handle(async (req, res) => {
+  const body = req.body || {};
+  const ov = await home.overview();
+  let postingDate = null; const journalDates = {};
+  if (await booksOn()) {
+    if (!(await gateNew(req, res, [body.paid_on]))) return undefined;
+    if (ov.month.status !== 'finalized' && ov.people.some((x) => x.due?.kind === 'run' && x.due.amount > 0)) {
+      postingDate = await accrualDate(req, periodEnd(ov.month.period));
+      if (!(await gateLock(req, res, postingDate))) return undefined;
+    }
+    for (const x of ov.people.filter((y) => y.due?.kind === 'settle' && y.due.amount > 0)) {
+      journalDates[x.staff_id] = await accrualDate(req, x.due.to);
+      if (!(await gateLock(req, res, journalDates[x.staff_id]))) return undefined;
+    }
+  }
+  const r = await home.payAll(body, uid(req), { postingDate, journalDates });
+  kick();
+  return { ...r, home: await home.overview() };
+});

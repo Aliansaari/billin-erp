@@ -10,6 +10,12 @@ const { requirePermission } = require('../middleware/permissions');
  */
 router.use(authenticateToken, requirePermission('settings.manage_company'));
 
+// The owner's one screen: who is owed what, pay, give money.
+router.get('/home',                         c.home);
+router.post('/people/:staffId/give',        c.givePerson);
+router.post('/people/:staffId/pay',         c.payPerson);
+router.post('/pay-all',                     c.payAll);
+
 router.get('/settings',                     c.getSettings);
 router.put('/settings',                     c.saveSettings);
 
