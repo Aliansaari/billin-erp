@@ -18,9 +18,14 @@
  *    installer's SHA-512, made with a private key that never leaves the
  *    release PC. A file that does not verify against UPDATE_PUBLIC_KEY is
  *    refused, so a tampered download host cannot push anything.
- * 3. The owner decides. "Automatic updates" (Settings → Software Update) on:
- *    download in the background and install at close. Off: only check and
- *    say an update exists; nothing downloads until they press Download.
+ * 3. The owner decides, the way a phone or a Mac does it:
+ *    - A check the owner starts ("Check for updates") never downloads on its
+ *      own. It shows the update, its size and what's new, and waits for
+ *      "Update Now".
+ *    - "Download updates automatically" lets the background check (every
+ *      6 hours) fetch a new version quietly, ready to install.
+ *    - "Install when ZEHEN closes" installs a downloaded update at close.
+ *      Off: it waits for "Restart Now".
  * 4. Offline is normal. A failed check is recorded and retried later; it is
  *    never shown as an error popup and never blocks anything.
  *
@@ -50,6 +55,7 @@ let getWindow = () => null;
 let beforeInstall = () => {};
 let lastInfo = null;
 let timer = null;
+let manualCheck = false;
 
 const state = {
   status: 'idle',          // idle | checking | up-to-date | available | downloading | downloaded | error | unavailable
@@ -60,13 +66,27 @@ const state = {
   progress: null,
   error: null,
   lastCheckedAt: null,
-  auto: true,
+  auto: true,               // kept for older pages: both automatic settings on
+  autoDownload: true,
+  autoInstall: true,
+  size: null,               // bytes of the installer
+  releaseName: null,
+  releaseNotes: [],         // plain lines, from the feed
+  transferred: null,
+  total: null,
+  bytesPerSecond: null,
   releaseNotesUrl: RELEASE_NOTES_URL,
 };
 
 function readSettings() {
-  try { return { auto: true, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) }; }
-  catch { return { auto: true }; }
+  let raw = {};
+  try { raw = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')); } catch { /* first run */ }
+  // Older installs saved one switch, "auto"; it meant both download and install.
+  const legacy = raw.auto === undefined ? true : raw.auto !== false;
+  return {
+    autoDownload: raw.autoDownload === undefined ? legacy : raw.autoDownload !== false,
+    autoInstall: raw.autoInstall === undefined ? legacy : raw.autoInstall !== false,
+  };
 }
 
 function writeSettings(patch) {
@@ -103,16 +123,40 @@ function verifyRelease(filePath) {
   }
 }
 
-function applyAuto(auto) {
-  state.auto = !!auto;
+function applyPrefs({ autoDownload, autoInstall }) {
+  state.autoDownload = !!autoDownload;
+  state.autoInstall = !!autoInstall;
+  state.auto = state.autoDownload && state.autoInstall;
   if (!updater) return;
-  updater.autoDownload = !!auto;
-  updater.autoInstallOnAppQuit = !!auto;
+  // Downloads are always started by us (see rule 3), never by the library.
+  updater.autoDownload = false;
+  updater.autoInstallOnAppQuit = state.autoInstall;
 }
 
-async function check() {
-  if (!updater) return { ...state };
+/** Release notes from the feed as plain lines ("- item" markdown or HTML <li>). */
+function notesOf(info) {
+  let n = info && info.releaseNotes;
+  if (Array.isArray(n)) n = n.map((x) => (x && x.note) || '').join('\n');
+  if (!n || typeof n !== 'string') return [];
+  return n.replace(/<\/?(ul|ol|p|br)[^>]*>/gi, '\n').replace(/<li[^>]*>/gi, '\n- ').replace(/<[^>]+>/g, '')
+    .split(/\r?\n/).map((l) => l.replace(/^\s*[-*•]\s*/, '').trim()).filter(Boolean).slice(0, 12);
+}
+
+async function download() {
+  if (!updater || !lastInfo || (state.status !== 'available' && state.status !== 'error')) return { ...state };
   try {
+    publish({ status: 'downloading', progress: 0, transferred: 0, total: state.size, bytesPerSecond: null, error: null });
+    await updater.downloadUpdate();
+  } catch (e) { publish({ status: 'error', error: friendly(e) }); }
+  return { ...state };
+}
+
+async function check({ manual = false } = {}) {
+  if (!updater) return { ...state };
+  // An update already downloaded stays ready; checking again changes nothing.
+  if (state.status === 'downloaded' || state.status === 'downloading') return { ...state };
+  try {
+    manualCheck = manual;
     publish({ status: 'checking', error: null });
     await updater.checkForUpdates();
   } catch (e) {
@@ -144,21 +188,26 @@ async function installNow() {
 function init({ window: windowGetter, clientMode, onBeforeInstall }) {
   getWindow = windowGetter || getWindow;
   beforeInstall = onBeforeInstall || beforeInstall;
-  state.auto = readSettings().auto !== false;
+  applyPrefs(readSettings());
 
   ipcMain.handle('updates:get-state', () => ({ ...state }));
-  ipcMain.handle('updates:check', () => check());
-  ipcMain.handle('updates:set-auto', (_e, auto) => {
-    writeSettings({ auto: !!auto });
-    applyAuto(!!auto);
+  ipcMain.handle('updates:check', () => check({ manual: true }));
+  ipcMain.handle('updates:set-auto', (_e, auto) => {          // older pages: one switch for both
+    applyPrefs(writeSettings({ autoDownload: !!auto, autoInstall: !!auto }));
     publish();
     return { ...state };
   });
-  ipcMain.handle('updates:download', async () => {
-    if (!updater || state.status !== 'available') return { ...state };
-    try { await updater.downloadUpdate(); } catch (e) { publish({ status: 'error', error: friendly(e) }); }
+  ipcMain.handle('updates:set-prefs', (_e, prefs = {}) => {
+    const cur = readSettings();
+    const next = writeSettings({
+      autoDownload: prefs.autoDownload === undefined ? cur.autoDownload : !!prefs.autoDownload,
+      autoInstall: prefs.autoInstall === undefined ? cur.autoInstall : !!prefs.autoInstall,
+    });
+    applyPrefs(next);
+    publish();
     return { ...state };
   });
+  ipcMain.handle('updates:download', () => download());
   ipcMain.handle('updates:install-now', () => installNow());
 
   if (!app.isPackaged) { state.status = 'unavailable'; state.reason = 'dev'; return; }
@@ -182,14 +231,24 @@ function init({ window: windowGetter, clientMode, onBeforeInstall }) {
   // missing or names no publisher. This way the check always runs.
   updater.verifySignature = async (file) => verifyRelease(file);
   updater.verifyUpdateCodeSignature = async (_publisherNames, file) => verifyRelease(file);
-  applyAuto(state.auto);
+  applyPrefs(readSettings());
 
   updater.on('update-available', (info) => {
     lastInfo = info;
-    publish({ status: state.auto ? 'downloading' : 'available', version: info.version, releaseDate: info.releaseDate || null, progress: null, lastCheckedAt: Date.now() });
+    const size = Array.isArray(info.files) && info.files[0] && info.files[0].size ? info.files[0].size : null;
+    publish({
+      status: 'available', version: info.version, releaseDate: info.releaseDate || null, progress: null,
+      size, releaseName: info.releaseName || null, releaseNotes: notesOf(info), lastCheckedAt: Date.now(),
+    });
+    // Only the quiet background check may start a download on its own.
+    if (!manualCheck && state.autoDownload) download();
+    manualCheck = false;
   });
-  updater.on('update-not-available', () => publish({ status: 'up-to-date', version: null, lastCheckedAt: Date.now() }));
-  updater.on('download-progress', (p) => publish({ status: 'downloading', progress: Math.round(p.percent || 0) }));
+  updater.on('update-not-available', () => { manualCheck = false; publish({ status: 'up-to-date', version: null, releaseNotes: [], releaseName: null, size: null, lastCheckedAt: Date.now() }); });
+  updater.on('download-progress', (p) => publish({
+    status: 'downloading', progress: Math.round(p.percent || 0),
+    transferred: p.transferred || null, total: p.total || state.size, bytesPerSecond: p.bytesPerSecond || null,
+  }));
   updater.on('update-downloaded', (info) => {
     lastInfo = info;
     publish({ status: 'downloaded', version: info.version, progress: 100 });
@@ -198,7 +257,7 @@ function init({ window: windowGetter, clientMode, onBeforeInstall }) {
 
   // Installing at close: make room for the installer first (rule 1 + Postgres).
   app.on('before-quit', () => {
-    if (state.status === 'downloaded' && state.auto) {
+    if (state.status === 'downloaded' && state.autoInstall) {
       try { beforeInstall(); } catch (e) { console.error('[updater] beforeInstall:', e.message); }
     }
   });

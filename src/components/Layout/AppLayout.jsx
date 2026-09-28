@@ -7,6 +7,7 @@ import Sidebar from './Sidebar';
 import TopNav from './TopNav';
 import PastFYBanner from '../PastFYBanner';
 import RemoteShopBanner from '../RemoteShopBanner';
+import UpdateNotifier from '../UpdateNotifier';
 
 const { Content } = Layout;
 
@@ -339,6 +340,7 @@ export default function AppLayout() {
             no reserved space in the common case. */}
         <PastFYBanner />
         <RemoteShopBanner />
+        <UpdateNotifier />
         <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Content style={{
             margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
@@ -408,6 +410,7 @@ export default function AppLayout() {
             user is viewing a past FY context. Null in the common case. */}
         <PastFYBanner />
         <RemoteShopBanner />
+        <UpdateNotifier />
         <Content style={{
           margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
           padding:       isFullPage ? 0 : 'clamp(10px, 2vw, 24px)',

@@ -1,0 +1,75 @@
+{
+  "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
+  "releases": [
+    {
+      "version": "1.1.8",
+      "date": "2026-09-28",
+      "title": "Payroll on one screen, and a clearer update experience",
+      "highlights": [
+        "Payroll opens on one screen: who is owed what, and Pay everyone in two clicks.",
+        "Give money to any staff member in seconds. It comes off their next salary automatically.",
+        "Set a new person's salary right in the list, including their own salary date.",
+        "Software updates now show what's new first and download only when you choose."
+      ]
+    },
+    {
+      "version": "1.1.7",
+      "date": "2026-09-27",
+      "title": "Staff accounts, staff profiles and safer salary books",
+      "highlights": [
+        "Pay staff on their own cycle, like the 15th to the 14th, and settle any dates.",
+        "Staff profiles with photo, Aadhaar, PAN and emergency contact.",
+        "Staff photos across attendance and payroll.",
+        "Salary entries now respect your financial-year locks and back-dating rules."
+      ]
+    },
+    {
+      "version": "1.1.6",
+      "date": "2026-09-27",
+      "title": "Payroll",
+      "highlights": [
+        "Salaries worked out from attendance: absences, leave, holidays and overtime.",
+        "PF, ESI and Professional Tax for businesses that need them.",
+        "Advances recovered from salary automatically.",
+        "Printable payslips, and staff can see theirs on their phone."
+      ]
+    },
+    {
+      "version": "1.1.5",
+      "date": "2026-09-26",
+      "title": "A clearer attendance register",
+      "highlights": [
+        "Attendance register redesigned: who is in, who is late, and a live activity feed.",
+        "A month view where absences stand out at a glance."
+      ]
+    },
+    {
+      "version": "1.1.2",
+      "date": "2026-09-26",
+      "title": "Staff app and bulk attendance",
+      "highlights": [
+        "The staff check-in app works like a proper app, with your shop's name and logo.",
+        "Mark attendance and leave for many days at once."
+      ]
+    },
+    {
+      "version": "1.1.1",
+      "date": "2026-09-26",
+      "title": "New sign-in and your preferences everywhere",
+      "highlights": [
+        "A new sign-in screen.",
+        "Your preferences follow your login to any computer.",
+        "New reports: party lapse and top parties."
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-09-26",
+      "title": "Automatic updates and staff attendance",
+      "highlights": [
+        "ZEHEN keeps itself up to date, and never interrupts your work.",
+        "Staff check in from their own phones. No attendance machine needed."
+      ]
+    }
+  ]
+}

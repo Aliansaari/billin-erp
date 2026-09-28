@@ -73,8 +73,20 @@ if (!crypto.verify(null, message, pub, Buffer.from(signature, 'base64'))) {
   fail('Signature does not verify against the app\'s UPDATE_PUBLIC_KEY. Wrong key; nothing uploaded.');
 }
 
+// 3b. What's new, from src/data/releaseNotes.json. Installed apps show it on the
+//     "update available" card before anything downloads, so a release without
+//     notes is refused. Notes are not part of the signed message.
+const notesFile = path.join(ROOT, 'src', 'data', 'releaseNotes.json');
+const release = (JSON.parse(fs.readFileSync(notesFile, 'utf8')).releases || []).find((r) => r.version === version);
+if (!release || !Array.isArray(release.highlights) || !release.highlights.length) {
+  fail(`No release notes for ${version} in src/data/releaseNotes.json. Add what's new before publishing.`);
+}
+const yamlStr = (v) => JSON.stringify(String(v)); // JSON strings are valid YAML scalars
+const notesYml = `releaseName: ${yamlStr(release.title || `ZEHEN ${version}`)}\nreleaseNotes: |\n${release.highlights.map((h) => `  - ${String(h).replace(/\r?\n/g, ' ')}`).join('\n')}\n`;
+
 const signedYml = path.join(OUT, 'latest.signed.yml');
-fs.writeFileSync(signedYml, `${ymlText.trimEnd()}\nzehenSignature: ${signature}\n`);
+const baseYml = ymlText.replace(/^releaseName:.*\r?\n?/m, '').replace(/^releaseNotes:[\s\S]*?(?=^\S|$(?![\s\S]))/m, '');
+fs.writeFileSync(signedYml, `${baseYml.trimEnd()}\n${notesYml}zehenSignature: ${signature}\n`);
 
 const mb = (f) => `${(fs.statSync(f).size / 1048576).toFixed(1)} MB`;
 const uploads = [
