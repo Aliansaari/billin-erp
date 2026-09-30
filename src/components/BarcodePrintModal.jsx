@@ -384,10 +384,16 @@ export default function BarcodePrintModal({
   // One table row from a product / bill item. Bill mode defaults the label
   // count to the number of boxes; reprint mode defaults to a single label
   // (you're replacing one that went bad, not labelling a whole carton).
-  const makeRow = (item, savedLabels = {}) => {
+  //
+  // `uniqueKey` is the row's identity in this list. A bill can carry the
+  // same barcode on several lines (repeat lines, colours of one variant),
+  // so the barcode alone can't identify a row: ticking or typing on one
+  // line used to change every line with that barcode. The barcode itself
+  // is untouched and still printed as-is.
+  const makeRow = (item, savedLabels = {}, uniqueKey) => {
     const qpb = parseFloat(item.quantity_per_box) || 1;
     const qty = parseFloat(item.quantity) || 0;
-    const key = item.key || item.barcode || `row-${Math.random().toString(36).slice(2)}`;
+    const key = uniqueKey || item.key || item.barcode || `row-${Math.random().toString(36).slice(2)}`;
     return {
       ...item, key, quantity_per_box: qpb,
       no_of_prints: isReprint ? 1 : Math.ceil(qty / qpb),
@@ -396,7 +402,7 @@ export default function BarcodePrintModal({
       selected: !!item.barcode,
       // Draft labels are stored under the row key; older sessions stored
       // them under the raw barcode, so both are honoured on restore.
-      custom_label: savedLabels[key] || savedLabels[item.barcode] || '',
+      custom_label: savedLabels[key] || (key === item.barcode || key === item.key ? savedLabels[item.barcode] : '') || '',
     };
   };
 
@@ -411,7 +417,15 @@ export default function BarcodePrintModal({
     const savedLabels = (() => {
       try { return JSON.parse(sessionStorage.getItem(CUSTOM_LABELS_KEY) || '{}'); } catch { return {}; }
     })();
-    setRows(items.map(item => makeRow(item, savedLabels)));
+    // One identity per line: the first line with a barcode keeps the plain
+    // key (so labels saved by older sessions still restore), repeats get #2, #3…
+    const seen = new Map();
+    setRows(items.map(item => {
+      const base = item.key || item.barcode || '';
+      if (!base) return makeRow(item, savedLabels);
+      const n = (seen.get(base) || 0) + 1; seen.set(base, n);
+      return makeRow(item, savedLabels, n === 1 ? base : `${base}#${n}`);
+    }));
     setActiveCell({ row: 0, col: 0 });
   }, [visible, items]);
 
