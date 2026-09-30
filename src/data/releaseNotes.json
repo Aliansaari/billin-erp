@@ -2,6 +2,14 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.10",
+      "date": "2026-09-30",
+      "title": "Barcode labels fix",
+      "highlights": [
+        "When a bill has the same barcode on several lines, each line can now be ticked and given its own label text and count when printing labels."
+      ]
+    },
+    {
       "version": "1.1.9",
       "date": "2026-09-30",
       "title": "Quicker payroll entry, and profit on every purchase bill",
