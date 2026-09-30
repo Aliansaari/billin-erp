@@ -47,42 +47,52 @@ export default function Payroll() {
   useEffect(() => { loadBase(); }, [loadBase]);
   useEffect(() => { settingsAPI.getSystem().then(({ data }) => setCompany(data?.data || data || {})).catch(() => {}); }, []);
 
-  const active = staff.filter((s) => s.is_active);
-  const person = salaryFor ? (() => { const s = staff.find((x) => x.staff_id === salaryFor); return s ? { ...s, hist: structures[s.staff_id] || [] } : null; })() : null;
+    const person = salaryFor ? (() => { const s = staff.find((x) => x.staff_id === salaryFor); return s ? { ...s, hist: structures[s.staff_id] || [] } : null; })() : null;
+
+  const menus = (
+    <>
+      <Tooltip title="Payroll rules: working days, holidays, overtime, PF / ESI / PT, accounts">
+        <button type="button" className={`plv-iconbtn square${view === 'rules' ? ' is-on' : ''}`} onClick={() => setView(view === 'rules' ? 'home' : 'rules')} aria-label="Payroll rules">{RULES_ICON}</button>
+      </Tooltip>
+      <Dropdown trigger={['click']} placement="bottomRight" overlayClassName="ar-menu"
+        menu={{ items: MORE_VIEWS.map(([k, label, icon]) => ({ key: k, label, icon, onClick: () => setView(k) })) }}>
+        <button type="button" className="plv-iconbtn square" aria-label="More payroll screens">{MORE_ICON}</button>
+      </Dropdown>
+    </>
+  );
+  const drawer = (
+    <SalaryDrawer person={person} settings={settings} meta={meta} onClose={() => setSalaryFor(null)}
+      onSaved={async () => { setSalaryFor(null); await loadBase(); setHomeKey((k) => k + 1); }} onGoTab={setView} />
+  );
+
+  // The home is a ZEHEN list page of its own (header, cards, table, F-key strip).
+  if (view === 'home') {
+    return (
+      <div className="plv-page ar pr pr-home">
+        <PayrollHome key={homeKey} staff={staff} structures={structures} reloadBase={loadBase} onOpenView={setView} onEditSalary={setSalaryFor}
+          overlayOpen={!!salaryFor} menus={menus} notPosted={settings && !settings.post_to_accounts} />
+        {drawer}
+      </div>
+    );
+  }
 
   return (
     <div className="ar pr">
       <header className="plv-hdr ar-hdr pr-hdr">
         <div className="plv-title">
-          {view === 'home' ? <h1>Payroll</h1> : (
-            <h1 className="pr-back"><button type="button" onClick={() => setView('home')} aria-label="Back to payroll"><ArrowLeftOutlined /></button>{VIEWS[view]}</h1>
-          )}
-          <div className="sub">
-            {view === 'home'
-              ? (active.length ? <>{active.length} staff{settings && !settings.post_to_accounts ? ' · not posted to accounts' : ''}</> : 'Add your staff in Staff & Rules first')
-              : <button type="button" className="ar-link" onClick={() => setView('home')}>Back to payroll</button>}
-          </div>
+          <h1 className="pr-back"><button type="button" onClick={() => setView('home')} aria-label="Back to payroll"><ArrowLeftOutlined /></button>{VIEWS[view]}</h1>
+          <div className="sub"><button type="button" className="ar-link" onClick={() => setView('home')}>Back to payroll</button></div>
         </div>
-        <div className="plv-actions">
-          <Tooltip title="Payroll rules: working days, holidays, overtime, PF / ESI / PT, accounts">
-            <button type="button" className={`plv-iconbtn square${view === 'rules' ? ' is-on' : ''}`} onClick={() => setView(view === 'rules' ? 'home' : 'rules')} aria-label="Payroll rules">{RULES_ICON}</button>
-          </Tooltip>
-          <Dropdown trigger={['click']} placement="bottomRight" overlayClassName="ar-menu"
-            menu={{ items: MORE_VIEWS.map(([k, label, icon]) => ({ key: k, label, icon, onClick: () => setView(k) })) }}>
-            <button type="button" className="plv-iconbtn square" aria-label="More">{MORE_ICON}</button>
-          </Dropdown>
-        </div>
+        <div className="plv-actions">{menus}</div>
       </header>
       <div className="ar-body pr-body">
-        {view === 'home' && <PayrollHome key={homeKey} staff={staff} structures={structures} reloadBase={loadBase} onOpenView={setView} onEditSalary={setSalaryFor} />}
         {view === 'month' && <PayRun period={period} setPeriod={setPeriod} staff={staff} company={company} onGoTab={(t) => setView(t === 'salaries' ? 'salaries' : t)} />}
         {view === 'accounts' && <Accounts staff={staff} onGoTab={setView} />}
         {view === 'salaries' && <Salaries staff={staff} structures={structures} settings={settings} meta={meta} reload={loadBase} onGoTab={setView} />}
         {view === 'advances' && <Advances staff={staff} />}
         {view === 'rules' && settings && <Rules settings={settings} meta={meta} onSaved={(s) => setSettings(s)} />}
       </div>
-      <SalaryDrawer person={person} settings={settings} meta={meta} onClose={() => setSalaryFor(null)}
-        onSaved={async () => { setSalaryFor(null); await loadBase(); setHomeKey((k) => k + 1); }} onGoTab={setView} />
+      {drawer}
     </div>
   );
 }

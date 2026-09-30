@@ -105,7 +105,9 @@ async function overview() {
           p.taken = r2(unsettled.filter((g) => g.given_on > sug.to).reduce((t, g) => t + g.amount, 0));
         } catch (e) { p.due = { kind: 'error', label: 'Needs a look', amount: 0, error: e.message }; }
       }
-      if (!p.due || p.due.kind !== 'settle') p.taken = r2(unsettled.reduce((t, g) => t + g.amount, 0));
+      // No finished cycle to settle: everything given so far, including advances recorded
+      // before this person moved to their own salary date, comes off the next settlement.
+      if (!p.due || p.due.kind !== 'settle') p.taken = r2(unsettled.reduce((t, g) => t + g.amount, 0) + (acc.old_advance_total || 0));
       if (!p.due && acc.balance > 0.5) {
         p.due = { kind: 'balance', label: 'Left from last settlement', amount: r2(acc.balance) };
       } else if (!p.due && acc.balance < -0.5) {
@@ -117,6 +119,14 @@ async function overview() {
     people.push(p);
   }
 
+  // Money that left the drawer or bank for staff this calendar month: salary payments,
+  // money given on staff accounts and advances. Cancelled entries excluded.
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const [paidOut] = await q(`SELECT
+      COALESCE((SELECT SUM(amount) FROM payroll_payments WHERE voided_at IS NULL AND paid_on >= :m AND paid_on <= :t), 0)::float
+    + COALESCE((SELECT SUM(amount) FROM staff_money_given WHERE voided_at IS NULL AND given_on >= :m AND given_on <= :t), 0)::float
+    + COALESCE((SELECT SUM(amount) FROM staff_advances WHERE voided_at IS NULL AND given_on >= :m AND given_on <= :t), 0)::float AS n`,
+  { m: monthStart, t: today }).catch(() => [{ n: 0 }]);
   const due = people.filter((x) => x.due && x.due.amount > 0 && !x.due.hold);
   const runLines = people.filter((x) => x.due?.kind === 'run');
   return {
@@ -132,6 +142,8 @@ async function overview() {
       taken: r2(people.reduce((t, x) => t + x.taken, 0)),
       so_far: r2(people.reduce((t, x) => t + (x.so_far?.earned || 0), 0)),
       monthly: r2(people.filter((x) => x.pay_type === 'monthly').reduce((t, x) => t + x.amount, 0)),
+      paid_this_month: r2(paidOut?.n || 0),
+      advances: r2(people.reduce((t, x) => t + (x.taken || 0) + (x.advance || 0), 0)),
     },
     people, missing,
   };
@@ -183,23 +195,26 @@ async function payPerson(staffId, { amount, paid_on, payment_mode = 'Cash', bank
 }
 
 /** Pay everyone who is due. Locks last month first if needed. Returns who was paid and who was not. */
-async function payAll({ paid_on, payment_mode = 'Cash', bank_ledger_id }, userId, { postingDate, journalDates = {} } = {}) {
+async function payAll({ paid_on, payment_mode = 'Cash', bank_ledger_id, staff_ids }, userId, { postingDate, journalDates = {} } = {}) {
   const ov = await overview();
+  // Optional: pay only these people ("Pay selected"). Locking a month is still month-wide.
+  const only = Array.isArray(staff_ids) && staff_ids.length ? new Set(staff_ids.map(Number)) : null;
+  const picked = (id) => !only || only.has(Number(id));
   const paid = []; const failed = [];
-  const runPeople = ov.people.filter((x) => x.due?.kind === 'run' && !x.due.hold && x.due.amount > 0);
+  const runPeople = ov.people.filter((x) => x.due?.kind === 'run' && !x.due.hold && x.due.amount > 0 && picked(x.staff_id));
   if (runPeople.length) {
     try {
       if (ov.month.status !== 'finalized') await payroll.finalize(ov.month.period, userId, { postingDate });
       const run = await payroll.getRun(ov.month.period);
-      const items = run.lines.filter((l) => !l.hold && l.due > 0).map((l) => ({ payslip_id: l.payslip_id }));
+      const items = run.lines.filter((l) => !l.hold && l.due > 0 && picked(l.staff_id)).map((l) => ({ payslip_id: l.payslip_id }));
       if (items.length) {
         const r = await payroll.pay(ov.month.period, { items, paid_on, payment_mode, bank_ledger_id }, userId);
-        for (const l of run.lines.filter((x) => !x.hold && x.due > 0)) paid.push({ staff_id: l.staff_id, name: l.slip.staff.name, amount: l.due });
+        for (const l of run.lines.filter((x) => !x.hold && x.due > 0 && picked(x.staff_id))) paid.push({ staff_id: l.staff_id, name: l.slip.staff.name, amount: l.due });
         void r;
       }
     } catch (e) { for (const x of runPeople) failed.push({ staff_id: x.staff_id, name: x.name, error: e.message }); }
   }
-  for (const x of ov.people.filter((y) => (y.due?.kind === 'settle' || y.due?.kind === 'balance') && y.due.amount > 0)) {
+  for (const x of ov.people.filter((y) => (y.due?.kind === 'settle' || y.due?.kind === 'balance') && y.due.amount > 0 && picked(y.staff_id))) {
     try {
       if (x.due.kind === 'settle') {
         await accounts.settle(x.staff_id, { from: x.due.from, to: x.due.to, pay: { amount: x.due.amount, paid_on, payment_mode, bank_ledger_id } }, userId, { journalDate: journalDates[x.staff_id] });

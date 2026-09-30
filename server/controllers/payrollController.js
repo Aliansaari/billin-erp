@@ -203,6 +203,8 @@ exports.payPerson = handle(async (req, res) => {
 exports.payAll = handle(async (req, res) => {
   const body = req.body || {};
   const ov = await home.overview();
+  const only = Array.isArray(body.staff_ids) && body.staff_ids.length ? new Set(body.staff_ids.map(Number)) : null;
+  if (only) ov.people = ov.people.filter((x) => only.has(Number(x.staff_id)));
   let postingDate = null; const journalDates = {};
   if (await booksOn()) {
     if (!(await gateNew(req, res, [body.paid_on]))) return undefined;
