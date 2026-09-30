@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Popover, Checkbox } from 'antd';
-import { SettingOutlined, UserAddOutlined } from '@ant-design/icons';
+import { SettingOutlined, UserAddOutlined, PushpinOutlined, PushpinFilled } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchaseAPI, purchaseDraftAPI, partyAPI, productAPI, productColorAPI, categoryAPI, settingsAPI, godownAPI } from '../../api';
@@ -646,6 +646,7 @@ export default function PurchaseBillForm() {
     setItems(prev=>prev.map(item=>{
       if(item.key!==key) return item;
       const u={...item,[field]:value};
+      if(field==='margin_percentage'||field==='sale_rate') u.mg_typed=true;
       if(field==='purchase_rate'||field==='margin_percentage'){
         const pr=field==='purchase_rate'?value:item.purchase_rate;
         const mg=field==='margin_percentage'?value:item.margin_percentage;
@@ -1057,16 +1058,27 @@ export default function PurchaseBillForm() {
     else if(e.key==='Escape'||e.key==='Tab'){ e.preventDefault(); handleVariantPickerDismiss(); }
   },[variantOptions,variantPickerIdx,handleVariantPick,handleVariantPickerDismiss]);
 
+  // Fixed margin ("pin" on the Margin% cell). Fills the margin of a line the
+  // operator is typing fresh, and never touches a line priced from the
+  // product master: a product picked from the dropdown / variant picker /
+  // barcode carries product_id and its own margin, so it keeps them. Once
+  // the operator types a margin or sale rate on this line (mg_typed), their
+  // number wins too. Single mode hides Margin%, so the pin is off there.
+  const [pinMg, setPinMg] = useState(() => { const v = parseFloat(getPref('pbf_pin_margin', null)); return v > 0 ? v : null; });
+  const pinActive = pinMg > 0 && globalProductMode !== 'single';
   const updateEntry=(field,value)=>{
     setEntry(prev=>{
       const u={...prev,[field]:value};
+      if(field==='margin_percentage'||field==='sale_rate') u.mg_typed=true;
+      if(field==='purchase_rate' && pinActive && !prev.product_id && !prev.mg_typed && !(parseFloat(prev.margin_percentage)>0))
+        u.margin_percentage=pinMg;
       // Auto-derive sale_rate only when rate/margin ACTUALLY changed. If AntD fires
       // onChange with the same value (e.g. blur formatting), skip recompute — otherwise
       // Math.ceil can shift sale_rate away from the picker-loaded DB value, which
       // then makes lookupProduct think it's a new variant and wipe the barcode.
       if((field==='purchase_rate'||field==='margin_percentage') && prev[field]!==value){
         const pr=field==='purchase_rate'?value:prev.purchase_rate;
-        const mg=field==='margin_percentage'?value:prev.margin_percentage;
+        const mg=parseFloat(u.margin_percentage)||0;
         u.sale_rate=Math.ceil(pr*(1+mg/100));
       }
       if(field==='sale_rate' && prev.sale_rate!==value && prev.purchase_rate>0)
@@ -1079,6 +1091,7 @@ export default function PurchaseBillForm() {
   const LOOKUP_IDXS=new Set([3,5,7]);
 
   const handleEntryKey=(e,idx)=>{
+    if(idx===6 && (e.key==='p'||e.key==='P') && !e.ctrlKey && !e.altKey && !e.metaKey){ e.preventDefault(); togglePinMg(); return; }
     // When picker is visible, the global capture handler owns Up/Down/Enter/Esc/Tab.
     // Bail out here so we don't double-handle and desync state.
     if(showVariantPicker && (e.key==='ArrowUp'||e.key==='ArrowDown'||e.key==='Enter'||e.key==='Escape'||e.key==='Tab')) return;
@@ -1332,6 +1345,22 @@ export default function PurchaseBillForm() {
   },[entry,barcodeError,invalidateFamilyCache,batchTrackingEnabled]);
   const removeItem=(key)=>setItems(prev=>prev.filter(i=>i.key!==key));
 
+  const togglePinMg=()=>{
+    if(pinMg){ setPinMg(null); clearPref('pbf_pin_margin'); message.info('Margin is no longer fixed.'); return; }
+    const v=parseFloat(entryRef.current?.margin_percentage)||0;
+    if(!(v>0)){ message.info('Type the margin in MG%, then press P (or click the pin) to use it for every new item.'); marginRef.current?.focus(); return; }
+    setPinMg(v); setPref('pbf_pin_margin', v);
+    message.success(`${v}% will be used for every new item. Products from your list keep their own margin.`);
+  };
+  // New lines already in the bill that the fixed margin could still apply
+  // to: not from the master (no product_id) and not priced by hand.
+  const pinPending = pinActive ? items.filter(i=>!i.product_id && !i.mg_typed && (i.purchase_rate||0)>0 && Math.abs((parseFloat(i.margin_percentage)||0)-pinMg)>0.001) : [];
+  const applyPinToList=()=>{
+    const keys=new Set(pinPending.map(i=>i.key));
+    setItems(prev=>prev.map(i=>keys.has(i.key)?{...i,margin_percentage:pinMg,sale_rate:Math.ceil(i.purchase_rate*(1+pinMg/100))}:i));
+    message.success(`${pinMg}% applied to ${keys.size} new ${keys.size===1?'item':'items'}.`);
+  };
+
   // ── Color matrix popup ───────────────────────────────────────────
   // Multi-color products commonly arrive in mixed colors per receipt
   // (e.g. 5 Red, 3 Blue, 2 Green of "Lyra Leggings XL"). Scanning the
@@ -1530,6 +1559,17 @@ export default function PurchaseBillForm() {
   const roundOff     = +(roundedTotal-rawTotal).toFixed(2);
   const balance      = +(roundedTotal-paidAmt).toFixed(2);
   const boxQty       = items.reduce((s,i)=>s+(i.quantity||0)/(i.quantity_per_box||1),0);
+  // Profit on the bill: what these items sell for minus what they cost,
+  // cost taken after the bill discount. Same basis as each line's MG%
+  // (sale rate vs purchase rate, % on cost), before GST and freight.
+  // Lines without a sale rate are left out and counted separately.
+  const qtyLines     = items.filter(i=>(i.quantity||0)>0);
+  const pricedLines  = qtyLines.filter(i=>(i.sale_rate||0)>0);
+  const saleValue    = pricedLines.reduce((s,i)=>s+i.quantity*i.sale_rate,0);
+  const costValue    = pricedLines.reduce((s,i)=>s+i.quantity*(i.purchase_rate||0),0)*(1-discountRatio);
+  const profitAmt    = +(saleValue-costValue).toFixed(2);
+  const profitPct    = costValue>0 ? +(profitAmt/costValue*100).toFixed(1) : 0;
+  const unpricedN    = qtyLines.length-pricedLines.length;
 
   /* bidirectional disc amount state */
   const [discAmtVal, setDiscAmtVal]   = useState(0);
@@ -2576,18 +2616,25 @@ export default function PurchaseBillForm() {
                   {lbl2:'Rate ₹',  ref:rateRef,    field:'purchase_rate',    val:entry.purchase_rate||undefined,    idx:4, t:'num', min:0, onBlur:handleRateBlur,
                    wrapRef:rateWrapRef, onChangeFn:v=>handleRateInputChange(v||0)},
                   {lbl2:'P/Box',   ref:qpbRef,     field:'quantity_per_box', val:entry.quantity_per_box||undefined, idx:5, t:'num', min:1, onBlur:handleRateBlur, variantOnly:true},
-                  {lbl2:'Margin%', ref:marginRef,  field:'margin_percentage',val:entry.margin_percentage||undefined,idx:6, t:'num', variantOnly:true},
+                  {lbl2:'MG%',     ref:marginRef,  field:'margin_percentage',val:entry.margin_percentage||undefined,idx:6, t:'num', variantOnly:true},
                   {lbl2:'Sale ₹',  ref:saleRateRef,field:'sale_rate',        val:entry.sale_rate||undefined,        idx:7, t:'num', min:0, onBlur:handleRateBlur, variantOnly:true},
                   {lbl2:'GST%',    ref:gstRef,     field:'gst_rate',         val:entry.gst_rate||undefined,         idx:8, t:'num', min:0, variantOnly:true},
                 ].filter(f => !(f.variantOnly && globalProductMode === 'single'))
                  .map(({lbl2,ref,field,val,idx,t,min,onBlur,wrapRef,onChangeFn,onFocusFn})=>(
                   <div key={field} className={`pbf-cell ${t==='num'?'numeric':''}`} ref={wrapRef||undefined}>
-                    <div className="pbf-cell-lbl">{lbl2}</div>
+                    <div className="pbf-cell-lbl">{lbl2}
+                      {field==='margin_percentage' && (
+                        <button type="button" tabIndex={-1} className={`pbf-pin${pinActive?' on':''}`} onClick={togglePinMg}
+                          title={pinActive ? `Fixed at ${pinMg}% for every new item. Click, or press P in MG%, to stop.` : 'Use this margin for every new item (press P in MG%)'}>
+                          {pinActive ? <PushpinFilled /> : <PushpinOutlined />}
+                        </button>
+                      )}
+                    </div>
                     {t==='txt'
                       ? <Input ref={ref} value={val} placeholder=""
                           onChange={onChangeFn||(e=>updateEntry(field,e.target.value))}
                           onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur}/>
-                      : <InputNumber keyboard={false} ref={ref} value={val} style={{width:'100%'}} min={min} placeholder=""
+                      : <InputNumber keyboard={false} ref={ref} value={val} style={{width:'100%'}} min={min} placeholder={field==='margin_percentage' && pinActive ? String(pinMg) : ''}
                           onChange={onChangeFn||(v=>updateEntry(field,v||0))}
                           onKeyDown={e=>handleEntryKey(e,idx)} onBlur={onBlur} onFocus={onFocusFn}/>
                     }
@@ -2676,6 +2723,12 @@ export default function PurchaseBillForm() {
                   <span className="pbf-entry-hint-txt ok">Existing product</span>}
                 {!lookupLoading && !entry.product_id && entry.product_name &&
                   <span className="pbf-entry-hint-txt warn">New barcode will be created</span>}
+                {pinActive && (
+                  <span className="pbf-entry-hint-txt pin">
+                    Margin fixed at {pinMg}% for new items
+                    {pinPending.length > 0 && <> · <button type="button" className="pbf-hint-link" onClick={applyPinToList}>Apply to {pinPending.length} {pinPending.length===1?'item':'items'} already added</button></>}
+                  </span>
+                )}
               </div>
             )}
 
@@ -2894,6 +2947,16 @@ export default function PurchaseBillForm() {
                   <span className="k">{statusLabel}</span>
                   <span className="v">{fmtN(Math.abs(balance))}</span>
                 </div>
+                {billMode === 'item' && (
+                  <div className={`pbf-pay-line pbf-profit-line${profitAmt < 0 ? ' loss' : ''}${!pricedLines.length ? ' none' : ''}`}
+                    title={pricedLines.length
+                      ? `Sells for ₹${fmtN(saleValue)} − costs ₹${fmtN(costValue)}${discountAmt ? ' (after bill discount)' : ''}. % is on cost, like MG%. Before GST and freight.${unpricedN ? ` ${unpricedN} item${unpricedN===1?' has':'s have'} no sale rate and ${unpricedN===1?'is':'are'} not counted.` : ''}`
+                      : 'Profit shows once items have a sale rate.'}>
+                    <span className="k">{profitAmt < 0 ? 'Loss' : 'Profit'}{unpricedN > 0 && pricedLines.length > 0 ? ' *' : ''}</span>
+                    <span className="pbf-val-box pct">{pricedLines.length ? `${Math.abs(profitPct)}%` : '%'}</span>
+                    <span className="pbf-val-box">{pricedLines.length ? fmtN(Math.abs(profitAmt)) : '—'}</span>
+                  </div>
+                )}
               </div>
 
             </div>

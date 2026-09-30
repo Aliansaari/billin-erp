@@ -66,6 +66,7 @@ export const PREF_KEYS = {
   dashboardSections:      { legacy: 'zehen_ed_dashboard_sections_v1' },
   sbf_visible_cols:       { legacy: 'sbf_visible_cols' },
   pbf_visible_cols:       { legacy: 'pbf_visible_cols' },
+  pbf_pin_margin:         { legacy: null },
   srf_visible_cols:       { legacy: 'srf_visible_cols' },
   prf_visible_cols:       { legacy: 'prf_visible_cols' },
   psp_visible_cols:       { legacy: 'psp_visible_cols_v1' },
