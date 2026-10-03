@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Input, InputNumber, Select, Drawer, message } from 'antd';
+import { Modal, Input, Select, message } from 'antd';
 import {
-  WalletOutlined, PlusOutlined, SettingOutlined, MoreOutlined, CloseOutlined, CalendarOutlined,
-  FileTextOutlined, TeamOutlined, EditOutlined, ArrowRightOutlined, WarningOutlined, HistoryOutlined, SearchOutlined,
+  WalletOutlined, SettingOutlined, MoreOutlined,
+  FileTextOutlined, TeamOutlined, EditOutlined, WarningOutlined, HistoryOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { payrollAPI, bankAPI } from '../../../api';
@@ -10,6 +10,7 @@ import ActionStrip from '../../../components/keyboard/ActionStrip';
 import useListSelection from '../../../hooks/useListSelection';
 import StaffAvatar from '../StaffAvatar';
 import QuickEntry, { payable } from './QuickEntry';
+import StaffStatement from './StaffStatement';
 import { inr0, cap, errText, ordinal } from './shared';
 
 /*
@@ -29,10 +30,8 @@ import { inr0, cap, errText, ordinal } from './shared';
  * Monthly staff and own-cycle staff share the list; the server
  * (services/payrollHome.js) routes every action to the right engine.
  */
-const fmtD = (iso) => dayjs(iso).format('D MMM');
 const perText = (t) => (t === 'daily' ? 'a day' : t === 'hourly' ? 'an hour' : 'a month');
 const perShort = (t) => (t === 'daily' ? '/day' : t === 'hourly' ? '/hr' : '/mo');
-const payDayText = (p) => (p.mode === 'settle' ? `paid on the ${ordinal(p.cycle_day)}` : 'paid monthly');
 const outstanding = (r) => (r.taken || 0) + (r.advance || 0);
 const dueOf = (r) => (payable(r) ? r.due.amount : 0);
 const inField = (el) => !!el?.closest?.('input, textarea, .ant-select, [contenteditable="true"]');
@@ -45,7 +44,7 @@ function useBanks() {
 
 const TABS = [['all', 'All staff'], ['due', 'Due'], ['advance', 'Advances'], ['nosalary', 'Salary not set']];
 
-export default function PayrollHome({ staff, structures, onOpenView, onEditSalary, reloadBase, overlayOpen, menus, notPosted }) {
+export default function PayrollHome({ onOpenView, onEditSalary, reloadBase, overlayOpen, menus, notPosted, company }) {
   const [h, setH] = useState(null);
   const [err, setErr] = useState(null);
   const [payList, setPayList] = useState(null);    // people for "pay all / pay selected"
@@ -216,7 +215,7 @@ export default function PayrollHome({ staff, structures, onOpenView, onEditSalar
           { id: 'refresh', key: 'F5', label: 'Refresh', hidden: true, disabled: busy, onAction: () => load() },
           { id: 'payall', key: 'F6', label: 'Pay all', disabled: busy || !groups.due.length, onAction: () => setPayList(groups.due) },
           { id: 'month', key: 'F7', label: 'Payslips', hidden: true, disabled: busy, onAction: () => onOpenView('month') },
-          { id: 'details', key: 'F8', label: 'Details', disabled: busy || !single, onAction: () => details(single) },
+          { id: 'details', key: 'F8', label: 'Statement', disabled: busy || !single, onAction: () => details(single) },
           { id: 'enter', key: 'Enter', hidden: true, disabled: busy || !single, onAction: (e) => { if (!inField(e.target)) details(single); } },
           { id: 'rules', key: 'F9', label: 'Rules', hidden: true, disabled: busy, onAction: () => onOpenView('rules') },
           { id: 'export', key: 'F10', label: 'Export', disabled: busy || !visible.length, onAction: exportCsv },
@@ -227,9 +226,9 @@ export default function PayrollHome({ staff, structures, onOpenView, onEditSalar
       />
 
       <PayAllModal list={payList} h={h} banks={banks} onClose={() => setPayList(null)} onDone={async (d) => { setPayList(null); await after(d); }} />
-      <PersonSheet person={sheet ? h?.people.find((p) => p.staff_id === sheet) : null} structures={structures} staff={staff} onClose={() => setSheet(null)}
+      <StaffStatement person={sheet ? h?.people.find((p) => p.staff_id === sheet) : null} company={company} onClose={() => setSheet(null)}
         onPay={(p) => { setSheet(null); entry.current?.load(p.staff_id, 'pay'); }} onGive={(p) => { setSheet(null); entry.current?.load(p.staff_id, 'give'); }}
-        onEditSalary={onEditSalary} onChanged={async () => { await reloadBase(); await load(); }} onOpenView={onOpenView} />
+        onEditSalary={(id) => { setSheet(null); onEditSalary(id); }} onChanged={load} />
     </>
   );
 }
@@ -279,137 +278,11 @@ function PayAllModal({ list, h, banks, onClose, onDone }) {
   );
 }
 
-// ── everything about one person ──────────────────────────────────────
-
-function PersonSheet({ person: p, structures, staff, onClose, onPay, onGive, onEditSalary, onChanged, onOpenView }) {
-  const [hist, setHist] = useState(null);
-  const [edit, setEdit] = useState(null);
-  const [modal, modalCtx] = Modal.useModal();
-  const load = useCallback(async () => {
-    if (!p) return;
-    try {
-      if (p.mode === 'settle') {
-        const { data } = await payrollAPI.account(p.staff_id);
-        const items = [
-          ...data.given.map((g) => ({ key: `g${g.entry_id}`, date: g.given_on, text: g.kind === 'salary' ? 'Salary paid' : 'Money given', note: g.note, amount: -g.amount, void: g.voided_at, cancel: !g.voided_at && !g.settlement_id ? () => payrollAPI.voidMoney(g.entry_id, 'Cancelled from payroll') : null })),
-          ...data.settlements.map((s) => ({ key: `s${s.settlement_id}`, date: s.to_date, text: `Salary ${fmtD(s.from_date)} – ${fmtD(s.to_date)}`, amount: s.earned, void: s.voided_at, earned: true })),
-          ...data.old_advances.map((a) => ({ key: `a${a.advance_id}`, date: a.given_on, text: 'Advance', note: a.reason, amount: -a.outstanding })),
-        ].sort((a, b) => b.date.localeCompare(a.date));
-        setHist(items);
-      } else {
-        const { data } = await payrollAPI.advances();
-        setHist(data.filter((a) => a.staff_id === p.staff_id).map((a) => ({
-          key: `a${a.advance_id}`, date: a.given_on, text: 'Money given', note: a.reason, amount: -a.amount,
-          sub: a.outstanding > 0 ? `${inr0(a.outstanding)} still to come off salary` : 'Taken back from salary',
-          cancel: a.recovered === 0 ? () => payrollAPI.voidAdvance(a.advance_id, 'Cancelled from payroll') : null,
-        })).sort((a, b) => b.date.localeCompare(a.date)));
-      }
-    } catch { setHist([]); }
-  }, [p?.staff_id, p?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setHist(null); setEdit(null); load(); }, [load]);
-  if (!p) return <Drawer rootClassName="ar-pop" open={false} />;
-  const st = structures?.[p.staff_id]; const cur = st ? [...st].reverse().find((x) => x.effective_from <= dayjs().format('YYYY-MM-DD')) || st[0] : null;
-  const saveSalary = async () => {
-    try {
-      const details = { ...(cur?.details || {}) };
-      if (Number(edit.day) > 1) { details.pay_by = 'settle'; details.cycle_day = Number(edit.day); } else { delete details.pay_by; delete details.cycle_day; }
-      await payrollAPI.saveStructure(p.staff_id, { pay_type: edit.pay_type, amount: Number(edit.amount), effective_from: edit.from, details });
-      message.success('Salary saved.'); setEdit(null); await onChanged();
-    } catch (e) { message.error(errText(e, 'Could not save')); }
-  };
-  const cancelItem = (it) => modal.confirm({
-    rootClassName: 'ar-pop', title: `Cancel this ${inr0(Math.abs(it.amount))}?`, content: 'The cash or bank entry is reversed.', okText: 'Cancel it', okButtonProps: { danger: true },
-    onOk: async () => { try { await it.cancel(); await load(); await onChanged(); } catch (e) { message.error(errText(e, 'Could not cancel')); throw e; } },
-  });
-  const d = p.due;
-  return (
-    <Drawer rootClassName="ar-pop" open onClose={onClose} width={500} closeIcon={null} destroyOnHidden className="ph-sheet"
-      title={(
-        <div className="ph-sheet-h">
-          <StaffAvatar name={p.name} photo={p.photo} size={56} />
-          <div><b>{cap(p.name)}</b><span>{[p.designation, `${inr0(p.amount)} ${perText(p.pay_type)}`, payDayText(p)].filter(Boolean).join(' · ')}</span></div>
-          <button type="button" className="ar-dn-btn" aria-label="Close" onClick={onClose}><CloseOutlined /></button>
-        </div>
-      )}>
-      {modalCtx}
-      <div className="ph-sheet-due">
-        <div><span>{d && d.amount > 0 ? `Due · ${d.label}` : 'Nothing due'}</span><b>{inr0(d?.amount || 0)}</b>
-          {p.advance > 0 && <small className="tx-late">Advance {inr0(p.advance)} comes off the next salary</small>}
-          {!d?.amount && <small>Next salary day {dayjs(p.next_payday).format('D MMMM')}</small>}</div>
-        <div className="ph-sheet-btns">
-          <button type="button" className="plv-btn" onClick={() => onGive(p)}><PlusOutlined /> Give money</button>
-          {d && d.amount > 0 && <button type="button" className="plv-btn primary" onClick={() => onPay(p)}>Pay {inr0(d.amount)}</button>}
-        </div>
-      </div>
-
-      {p.so_far && (
-        <div className="ph-sheet-sec">
-          <h4><CalendarOutlined /> This cycle · {fmtD(p.cycle.from)} – {fmtD(p.cycle.to)}</h4>
-          <div className="ph-kv3">
-            <div><b>{inr0(p.so_far.earned)}</b><span>Earned so far</span></div>
-            <div><b>{p.so_far.paid_days}<small> / {p.so_far.days}</small></b><span>Paid days</span></div>
-            <div><b className={p.taken ? 'tx-late' : ''}>{inr0(p.taken)}</b><span>Taken already</span></div>
-          </div>
-        </div>
-      )}
-
-      <div className="ph-sheet-sec">
-        <h4><HistoryOutlined /> Money given and paid</h4>
-        {hist === null ? <p className="ph-muted">Loading…</p> : !hist.length ? <p className="ph-muted">Nothing yet. Money you give shows here and comes off their salary.</p> : (
-          <ul className="ph-hist">
-            {hist.slice(0, 12).map((it) => (
-              <li key={it.key} className={it.void ? 'is-void' : ''}>
-                <span className="dt">{fmtD(it.date)}</span>
-                <div><b>{it.text}</b>{(it.note || it.sub) && <small>{[it.note, it.sub].filter(Boolean).join(' · ')}</small>}</div>
-                <em className={it.earned ? 'plus' : ''}>{it.earned ? '+' : '−'}{inr0(Math.abs(it.amount))}</em>
-                {it.cancel && !it.void ? <button type="button" className="ar-link danger" onClick={() => cancelItem(it)}>Cancel</button> : <span />}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <div className="ph-sheet-sec">
-        <h4><EditOutlined /> Salary</h4>
-        {edit ? (
-          <div className="ph-salary-edit">
-            <div className="ph-payrow">
-              <InputNumber prefix="₹" min={0} value={edit.amount} onChange={(v) => setEdit({ ...edit, amount: v })} style={{ width: 150 }} autoFocus />
-              <Select value={edit.pay_type} onChange={(v) => setEdit({ ...edit, pay_type: v })} popupClassName="ar-pop" style={{ width: 120 }}
-                options={[{ value: 'monthly', label: 'a month' }, { value: 'daily', label: 'a day' }, { value: 'hourly', label: 'an hour' }]} />
-            </div>
-            <div className="ph-payrow">
-              <span className="ph-setup-lbl">Paid on the</span>
-              <Select value={edit.day} onChange={(v) => setEdit({ ...edit, day: v })} popupClassName="ar-pop" style={{ width: 130 }}
-                options={Array.from({ length: 28 }, (_, i) => ({ value: i + 1, label: i === 0 ? '1st (monthly)' : ordinal(i + 1) }))} />
-              <span className="ph-setup-lbl">from</span>
-              <Input type="date" value={edit.from} onChange={(e) => setEdit({ ...edit, from: e.target.value })} style={{ width: 160 }} />
-            </div>
-            {p.statutory && Number(edit.day) > 1 && <p className="ph-note">PF, ESI and PT are only deducted for monthly (1st) salaries.</p>}
-            <div className="ph-mfoot"><button type="button" className="plv-btn" onClick={() => setEdit(null)}>Cancel</button>
-              <button type="button" className="plv-btn primary" disabled={!(Number(edit.amount) > 0) || !edit.from} onClick={saveSalary}>Save salary</button></div>
-          </div>
-        ) : (
-          <div className="ph-salary">
-            <div><b>{inr0(p.amount)} {perText(p.pay_type)}</b><span>{p.mode === 'settle' ? `Paid on the ${ordinal(p.cycle_day)} for ${ordinal(p.cycle_day)} to ${ordinal(p.cycle_day - 1)}` : 'Paid for each calendar month'}</span></div>
-            <button type="button" className="plv-btn" onClick={() => setEdit({ amount: p.amount, pay_type: p.pay_type, day: p.cycle_day, from: p.cycle.from })}>Change</button>
-          </div>
-        )}
-        <button type="button" className="ar-link ph-more-link" onClick={() => onEditSalary(p.staff_id)}>Breakup, PF / ESI / PT, commission, bank details <ArrowRightOutlined /></button>
-      </div>
-
-      <div className="ph-sheet-links">
-        <button type="button" className="ar-link" onClick={() => onOpenView('month')}><FileTextOutlined /> Payslips and month details</button>
-      </div>
-    </Drawer>
-  );
-}
-
 // Kept for the header menu in Payroll.jsx.
 export const MORE_VIEWS = [
   ['month', 'Month details and payslips', <FileTextOutlined key="m" />],
   ['salaries', 'All salaries and breakups', <EditOutlined key="s" />],
-  ['accounts', 'Own-cycle statements', <HistoryOutlined key="a" />],
+  ['accounts', 'Settle a date range (own cycle)', <HistoryOutlined key="a" />],
   ['advances', 'Advances list', <WalletOutlined key="v" />],
 ];
 export const RULES_ICON = <SettingOutlined />;

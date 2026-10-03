@@ -920,6 +920,7 @@ export const payrollAPI = {
   home:            () => api.get('/payroll/home'),
   givePerson:      (staffId, data) => api.post(`/payroll/people/${staffId}/give`, data),
   payPerson:       (staffId, data) => api.post(`/payroll/people/${staffId}/pay`, data),
+  statement:       (staffId, params) => api.get(`/payroll/people/${staffId}/statement`, { params }),
   payAll:          (data) => api.post('/payroll/pay-all', data),
   getSettings:     () => api.get('/payroll/settings'),
   saveSettings:    (data) => api.put('/payroll/settings', data),

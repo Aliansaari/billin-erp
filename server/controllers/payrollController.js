@@ -173,6 +173,7 @@ exports.cancelSettlement = handle(async (req, res) => {
 // ── payroll home: one screen for the owner ──────────────────────────
 const home = require('../services/payrollHome');
 exports.home = handle(async () => home.overview());
+exports.statement = handle(async (req) => require('../services/staffStatement').statement(Number(req.params.staffId), { from: req.query.from || undefined, to: req.query.to || undefined }));
 exports.givePerson = handle(async (req, res) => {
   if ((await booksOn()) && !(await gateNew(req, res, [req.body?.given_on]))) return undefined;
   const r = await home.give(Number(req.params.staffId), req.body || {}, uid(req));

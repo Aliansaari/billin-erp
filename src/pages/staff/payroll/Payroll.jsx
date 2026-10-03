@@ -22,7 +22,7 @@ import './payroll-home.css';
  * payslips and PF/ESI, salary breakups, statements, rules) is one click
  * away under "More" and the gear, not in the owner's way.
  */
-const VIEWS = { month: 'Month details', salaries: 'Salaries', accounts: 'Own-cycle statements', advances: 'Advances', rules: 'Payroll rules' };
+const VIEWS = { month: 'Month details', salaries: 'Salaries', accounts: 'Settle a date range', advances: 'Advances', rules: 'Payroll rules' };
 
 export default function Payroll() {
   const [params, setParams] = useSearchParams();
@@ -69,7 +69,7 @@ export default function Payroll() {
   if (view === 'home') {
     return (
       <div className="plv-page ar pr pr-home">
-        <PayrollHome key={homeKey} staff={staff} structures={structures} reloadBase={loadBase} onOpenView={setView} onEditSalary={setSalaryFor}
+        <PayrollHome key={homeKey} company={company} reloadBase={loadBase} onOpenView={setView} onEditSalary={setSalaryFor}
           overlayOpen={!!salaryFor} menus={menus} notPosted={settings && !settings.post_to_accounts} />
         {drawer}
       </div>

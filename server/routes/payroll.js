@@ -14,6 +14,7 @@ router.use(authenticateToken, requirePermission('settings.manage_company'));
 router.get('/home',                         c.home);
 router.post('/people/:staffId/give',        c.givePerson);
 router.post('/people/:staffId/pay',         c.payPerson);
+router.get('/people/:staffId/statement',     c.statement);
 router.post('/pay-all',                     c.payAll);
 
 router.get('/settings',                     c.getSettings);
