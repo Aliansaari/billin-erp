@@ -81,7 +81,8 @@ async function entries(staffId) {
                            FROM staff_money_given WHERE staff_id = :s AND voided_at IS NULL`, { s: staffId });
   for (const g of given) {
     out.push({ date: g.given_on, kind: g.kind === 'salary' ? 'paid' : 'advance', text: g.kind === 'salary' ? 'Salary paid' : 'Money given',
-      detail: [g.note, g.payment_mode].filter(Boolean).join(' · '), earned: 0, paid: r2(g.amount), ref: `giv-${g.entry_id}`,
+      // A salary payment's note is usually 'Salary 15 Aug – 14 Sep'; don't say Salary twice.
+      detail: [g.kind === 'salary' && g.note ? g.note.replace(/^Salary\s+/i, '') : g.note, g.payment_mode].filter(Boolean).join(' · '), earned: 0, paid: r2(g.amount), ref: `giv-${g.entry_id}`,
       cancel: g.settlement_id ? null : { type: 'given', id: g.entry_id } });
   }
 

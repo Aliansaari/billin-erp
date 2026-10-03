@@ -10,7 +10,6 @@ import ActionStrip from '../../../components/keyboard/ActionStrip';
 import useListSelection from '../../../hooks/useListSelection';
 import StaffAvatar from '../StaffAvatar';
 import QuickEntry, { payable } from './QuickEntry';
-import StaffStatement from './StaffStatement';
 import { inr0, cap, errText, ordinal } from './shared';
 
 /*
@@ -44,11 +43,10 @@ function useBanks() {
 
 const TABS = [['all', 'All staff'], ['due', 'Due'], ['advance', 'Advances'], ['nosalary', 'Salary not set']];
 
-export default function PayrollHome({ onOpenView, onEditSalary, reloadBase, overlayOpen, menus, notPosted, company }) {
+export default function PayrollHome({ onOpenView, onEditSalary, reloadBase, overlayOpen, menus, notPosted, entryReq, onEntryReqDone }) {
   const [h, setH] = useState(null);
   const [err, setErr] = useState(null);
   const [payList, setPayList] = useState(null);    // people for "pay all / pay selected"
-  const [sheet, setSheet] = useState(null);        // staff_id
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
   const searchRef = useRef(null);
@@ -84,7 +82,7 @@ export default function PayrollHome({ onOpenView, onEditSalary, reloadBase, over
 
   // While a dialog or drawer is open the list and F-keys stand down, and come
   // back a moment after it closes so the key that closed it is not read twice.
-  const open = !!(payList || sheet || overlayOpen);
+  const open = !!(payList || overlayOpen);
   const [settling, setSettling] = useState(false);
   useEffect(() => {
     if (open) { setSettling(true); return undefined; }
@@ -123,7 +121,13 @@ export default function PayrollHome({ onOpenView, onEditSalary, reloadBase, over
     if (single) entry.current?.load(single.staff_id, 'pay');
   };
   const give = () => (single && !single.missing ? entry.current?.load(single.staff_id, 'give') : entry.current?.focus());
-  const details = (r) => { if (!r) return; if (r.missing) entry.current?.load(r.staff_id); else setSheet(r.staff_id); };
+  const details = (r) => { if (!r) return; if (r.missing) entry.current?.load(r.staff_id); else onOpenView('statement', r.staff_id); };
+  // Coming back from a statement's Pay / Give: load that person into the entry line.
+  useEffect(() => {
+    if (!h || !entryReq) return;
+    entry.current?.load(entryReq.id, entryReq.mode);
+    onEntryReqDone?.();
+  }, [h, entryReq]); // eslint-disable-line react-hooks/exhaustive-deps
   const exportCsv = () => {
     const head = ['Name', 'Designation', 'Salary', 'Per', 'Salary date', 'Earned this cycle', 'Advance', 'Due for', 'Due now'];
     const lines = visible.map((r) => [r.name, r.designation || '', r.amount || '', r.missing ? '' : perText(r.pay_type), r.missing ? '' : (r.mode === 'settle' ? ordinal(r.cycle_day) : '1st'),
@@ -226,9 +230,6 @@ export default function PayrollHome({ onOpenView, onEditSalary, reloadBase, over
       />
 
       <PayAllModal list={payList} h={h} banks={banks} onClose={() => setPayList(null)} onDone={async (d) => { setPayList(null); await after(d); }} />
-      <StaffStatement person={sheet ? h?.people.find((p) => p.staff_id === sheet) : null} company={company} onClose={() => setSheet(null)}
-        onPay={(p) => { setSheet(null); entry.current?.load(p.staff_id, 'pay'); }} onGive={(p) => { setSheet(null); entry.current?.load(p.staff_id, 'give'); }}
-        onEditSalary={(id) => { setSheet(null); onEditSalary(id); }} onChanged={load} />
     </>
   );
 }
