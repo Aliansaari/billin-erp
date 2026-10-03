@@ -25,12 +25,28 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 function db() { return require('../config/database'); }
 async function q(sql, replacements = {}) { return db().query(sql, { type: db().QueryTypes.SELECT, replacements }); }
 
+/**
+ * Voucher numbers from the books for payroll postings, keyed "source:id".
+ * Only live entries (not reversed). Empty when posting to accounts is off.
+ */
+async function voucherNumbers() {
+  const rows = await q(`SELECT DISTINCT ON (le.source_type, le.reference_id) le.source_type, le.reference_id, le.entry_number
+                          FROM ledger_entries le
+                         WHERE le.source_type IN ('payroll_run','payroll_payment','staff_advance','staff_money','staff_settlement')
+                           AND le.reversal_of_id IS NULL
+                           AND NOT EXISTS (SELECT 1 FROM ledger_entries m WHERE m.reversal_of_id = le.entry_id)
+                         ORDER BY le.source_type, le.reference_id, le.entry_id DESC`).catch(() => []);
+  return new Map(rows.map((r) => [`${r.source_type}:${r.reference_id}`, r.entry_number]));
+}
+
 /** Every money entry for one person, oldest first, with what can be cancelled. */
 async function entries(staffId) {
   const out = [];
+  const vno = await voucherNumbers();
+  const v = (src, id) => vno.get(`${src}:${id}`) || '';
 
   // Locked monthly payslips → earned.
-  const slips = await q(`SELECT p.payslip_id, r.period, p.gross::float AS gross, p.net::float AS net, p.snapshot, p.hold
+  const slips = await q(`SELECT p.payslip_id, r.run_id, r.period, p.gross::float AS gross, p.net::float AS net, p.snapshot, p.hold
                            FROM payslips p JOIN payroll_runs r ON r.run_id = p.run_id
                           WHERE p.staff_id = :s AND r.status = 'finalized'`, { s: staffId });
   for (const p of slips) {
@@ -42,7 +58,8 @@ async function entries(staffId) {
     if (!earned && !p.gross) continue;
     const detail = [statutory > 0 ? `Gross ₹${fmt(p.gross)} − deductions ₹${fmt(statutory)}` : null,
       advance > 0 ? `₹${fmt(advance)} advance taken back` : null, p.hold ? 'On hold' : null].filter(Boolean).join(' · ');
-    out.push({ date: periodEnd(p.period), kind: 'salary', text: `Salary for ${monthName(p.period)}`, detail, earned, paid: 0, ref: `slip-${p.payslip_id}` });
+    out.push({ date: periodEnd(p.period), kind: 'salary', text: `Salary for ${monthName(p.period)}`, detail, mode: '',
+      voucher_no: v('payroll_run', p.run_id), earned, paid: 0, ref: `slip-${p.payslip_id}` });
   }
 
   // Salary payments against payslips → paid.
@@ -50,8 +67,8 @@ async function entries(staffId) {
                           FROM payroll_payments pp JOIN payslips p ON p.payslip_id = pp.payslip_id JOIN payroll_runs r ON r.run_id = p.run_id
                          WHERE p.staff_id = :s AND pp.voided_at IS NULL`, { s: staffId });
   for (const p of pays) {
-    out.push({ date: p.paid_on, kind: 'paid', text: `Salary paid · ${monthName(p.period)}`, detail: [p.payment_mode, p.reference].filter(Boolean).join(' · '),
-      earned: 0, paid: r2(p.amount), ref: `pay-${p.payment_id}` });
+    out.push({ date: p.paid_on, kind: 'paid', text: `Salary paid for ${monthName(p.period)}`, detail: p.reference || '', mode: p.payment_mode || '',
+      voucher_no: v('payroll_payment', p.payment_id), earned: 0, paid: r2(p.amount), ref: `pay-${p.payment_id}` });
   }
 
   // Advances (monthly staff) → paid the day they were given.
@@ -63,8 +80,9 @@ async function entries(staffId) {
                               WHERE r.status = 'finalized' AND p.staff_id = :s AND d->>'code' = 'advance' GROUP BY 1`, { s: staffId });
   const rec = new Map(recovered.map((r) => [r.advance_id, r.amt]));
   for (const a of adv) {
-    out.push({ date: a.given_on, kind: 'advance', text: 'Advance', detail: [a.reason, a.payment_mode].filter(Boolean).join(' · '),
-      earned: 0, paid: r2(a.amount), ref: `adv-${a.advance_id}`, cancel: !(rec.get(a.advance_id) > 0) ? { type: 'advance', id: a.advance_id } : null });
+    out.push({ date: a.given_on, kind: 'advance', text: 'Advance', detail: a.reason || '', mode: a.payment_mode || '',
+      voucher_no: v('staff_advance', a.advance_id), earned: 0, paid: r2(a.amount), ref: `adv-${a.advance_id}`,
+      cancel: !(rec.get(a.advance_id) > 0) ? { type: 'advance', id: a.advance_id } : null });
   }
 
   // Own-cycle settlements → earned.
@@ -72,18 +90,21 @@ async function entries(staffId) {
                           FROM staff_settlements WHERE staff_id = :s AND voided_at IS NULL`, { s: staffId });
   for (const s of sets) {
     const days = s.snapshot?.attendance?.paid_days;
-    out.push({ date: s.to_date, kind: 'salary', text: `Salary ${shortDate(s.from_date)} – ${shortDate(s.to_date)}`,
-      detail: days != null ? `${days} paid days` : '', earned: r2(s.earned), paid: 0, ref: `set-${s.settlement_id}` });
+    out.push({ date: s.to_date, kind: 'salary', text: `Salary for ${shortDate(s.from_date)} – ${shortDate(s.to_date)}`,
+      detail: days != null ? `${days} paid days` : '', mode: '', voucher_no: v('staff_settlement', s.settlement_id),
+      earned: r2(s.earned), paid: 0, ref: `set-${s.settlement_id}` });
   }
 
   // Own-cycle money given / salary paid → paid.
   const given = await q(`SELECT entry_id, to_char(given_on,'YYYY-MM-DD') AS given_on, amount::float AS amount, kind, payment_mode, note, settlement_id
                            FROM staff_money_given WHERE staff_id = :s AND voided_at IS NULL`, { s: staffId });
   for (const g of given) {
-    out.push({ date: g.given_on, kind: g.kind === 'salary' ? 'paid' : 'advance', text: g.kind === 'salary' ? 'Salary paid' : 'Money given',
-      // A salary payment's note is usually 'Salary 15 Aug – 14 Sep'; don't say Salary twice.
-      detail: [g.kind === 'salary' && g.note ? g.note.replace(/^Salary\s+/i, '') : g.note, g.payment_mode].filter(Boolean).join(' · '), earned: 0, paid: r2(g.amount), ref: `giv-${g.entry_id}`,
-      cancel: g.settlement_id ? null : { type: 'given', id: g.entry_id } });
+    // A salary payment's note is usually 'Salary 15 Aug – 14 Sep': say "Salary paid for 15 Aug – 14 Sep".
+    const range = g.kind === 'salary' && g.note && /^Salary\s+/i.test(g.note) ? g.note.replace(/^Salary\s+/i, '') : null;
+    out.push({ date: g.given_on, kind: g.kind === 'salary' ? 'paid' : 'advance',
+      text: g.kind === 'salary' ? (range ? `Salary paid for ${range}` : 'Salary paid') : 'Money given',
+      detail: range ? '' : (g.note || ''), mode: g.payment_mode || '', voucher_no: v('staff_money', g.entry_id),
+      earned: 0, paid: r2(g.amount), ref: `giv-${g.entry_id}`, cancel: g.settlement_id ? null : { type: 'given', id: g.entry_id } });
   }
 
   // Same day: earnings first, then payments, so the running balance reads naturally.

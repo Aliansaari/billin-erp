@@ -58,6 +58,7 @@ import PurchaseReport from './pages/reports/PurchaseReport';
 import DayBook from './pages/reports/DayBook';
 import CustomerStatement from './pages/reports/CustomerStatement';
 import SupplierStatement from './pages/reports/SupplierStatement';
+import StaffStatementPage from './pages/staff/payroll/StaffStatementPage';
 import PartyLapseReport from './pages/reports/PartyLapseReport';
 import TopPartiesReport from './pages/reports/TopPartiesReport';
 import Ledger from './pages/reports/Ledger';
@@ -808,6 +809,7 @@ export default function App() {
               correct flavor. */}
           <Route path="reports/customer-statement" element={<RoleRoute perm="accounts.view"><CustomerStatement /></RoleRoute>} />
           <Route path="reports/supplier-statement" element={<RoleRoute perm="accounts.view"><SupplierStatement /></RoleRoute>} />
+          <Route path="reports/staff-statement" element={<RoleRoute perm="settings.manage_company"><StaffStatementPage /></RoleRoute>} />
           {/* One route serves both directions — ?direction=supplier|customer.
               The registry lists them as two cards so each is pinnable. */}
           <Route path="reports/party-lapse"        element={<RoleRoute perm="reports.view"><PartyLapseReport /></RoleRoute>} />

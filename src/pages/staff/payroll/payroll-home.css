@@ -132,3 +132,5 @@
 .ls-vt--advance { background: var(--warning-bg); color: var(--warning); }
 .ss2-sofar { margin-left: auto; font-size: 12px; color: var(--fg-tertiary); align-self: center; }
 .ss2-sofar b { color: var(--fg-primary); font-weight: 600; }
+/* Payroll voucher numbers (PMT-20260915-0006) are longer than bill numbers. */
+.ssp-page.has-vno .ls-table colgroup col:nth-child(3) { width: 172px !important; }

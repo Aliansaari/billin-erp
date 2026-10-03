@@ -250,6 +250,7 @@ export default function AppLayout() {
     '/reports/party-ledger',                   // legacy redirect — keep listed so flash-of-padded-frame doesn't show during the bounce
     '/reports/customer-statement',
     '/reports/supplier-statement',
+    '/reports/staff-statement',
     '/reports/ledger',
     '/reports/profit-loss',
     '/reports/aging', '/reports/receivables-aging', '/reports/payables-aging',

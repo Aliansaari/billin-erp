@@ -5,6 +5,7 @@ import {
   FileTextOutlined, TeamOutlined, EditOutlined, WarningOutlined, HistoryOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { useNavigate } from 'react-router-dom';
 import { payrollAPI, bankAPI } from '../../../api';
 import ActionStrip from '../../../components/keyboard/ActionStrip';
 import useListSelection from '../../../hooks/useListSelection';
@@ -121,7 +122,8 @@ export default function PayrollHome({ onOpenView, onEditSalary, reloadBase, over
     if (single) entry.current?.load(single.staff_id, 'pay');
   };
   const give = () => (single && !single.missing ? entry.current?.load(single.staff_id, 'give') : entry.current?.focus());
-  const details = (r) => { if (!r) return; if (r.missing) entry.current?.load(r.staff_id); else onOpenView('statement', r.staff_id); };
+  const navigate = useNavigate();
+  const details = (r) => { if (!r) return; if (r.missing) entry.current?.load(r.staff_id); else navigate(`/reports/staff-statement?id=${r.staff_id}&back=payroll`); };
   // Coming back from a statement's Pay / Give: load that person into the entry line.
   useEffect(() => {
     if (!h || !entryReq) return;

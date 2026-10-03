@@ -405,6 +405,16 @@ export const REPORTS = [
     aliases: ['supplier ledger', 'creditor statement', 'vendor statement'],
     isNew: true,
   },
+  {
+    id: 'staff_statement',
+    name: 'Staff Statement',
+    subtitle: 'Per-staff account · salary earned / paid / advances',
+    category: 'parties',
+    route: '/reports/staff-statement',
+    perm: 'settings.manage_company',
+    aliases: ['staff ledger', 'employee statement', 'salary statement', 'staff account', 'advance statement'],
+    isNew: true,
+  },
   // Top Parties — the league table. One route, two directions, listed
   // twice so each side is separately pinnable and searchable.
   {

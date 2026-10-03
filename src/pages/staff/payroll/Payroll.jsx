@@ -10,7 +10,6 @@ import Salaries, { SalaryDrawer } from './Salaries';
 import Advances from './Advances';
 import Accounts from './Accounts';
 import Rules from './Rules';
-import StaffStatementPage from './StaffStatementPage';
 import { errText } from './shared';
 import '../../parties/party-list-view.css';
 import '../attendance-register.css';
@@ -27,13 +26,18 @@ const VIEWS = { month: 'Month details', salaries: 'Salaries', accounts: 'Settle 
 
 export default function Payroll() {
   const [params, setParams] = useSearchParams();
-  const view = VIEWS[params.get('view')] || params.get('view') === 'statement' ? params.get('view') : 'home';
-  const statementId = Number(params.get('id')) || null;
-  // setView('statement', staffId) opens a person's statement; other views take no id.
-  const setView = (v, id) => setParams((p) => { const n = new URLSearchParams(p); if (v === 'home') n.delete('view'); else n.set('view', v); n.delete('tab');
-    if (v === 'statement' && id) n.set('id', String(id)); else n.delete('id'); return n; });
-  // Pay / Give pressed on a statement: back to the home with that person in the entry line.
-  const [entryReq, setEntryReq] = useState(null);
+  const view = VIEWS[params.get('view')] ? params.get('view') : 'home';
+  const setView = (v) => setParams((p) => { const n = new URLSearchParams(p); if (v === 'home') n.delete('view'); else n.set('view', v); n.delete('tab'); return n; });
+  // Pay / Give pressed on a Staff Statement (?entry=pay|give&id=…): load that
+  // person into the home's entry line once, then drop the params.
+  const [entryReq, setEntryReq] = useState(() => {
+    const mode = params.get('entry'); const id = Number(params.get('id'));
+    return (mode === 'pay' || mode === 'give') && id ? { id, mode } : null;
+  });
+  useEffect(() => {
+    if (!params.get('entry')) return;
+    setParams((p) => { const n = new URLSearchParams(p); n.delete('entry'); n.delete('id'); return n; }, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [period, setPeriod] = useState(() => (dayjs().date() >= 25 ? dayjs() : dayjs().subtract(1, 'month')).format('YYYY-MM'));
   const [staff, setStaff] = useState([]);
   const [structures, setStructures] = useState({});
@@ -70,15 +74,6 @@ export default function Payroll() {
     <SalaryDrawer person={person} settings={settings} meta={meta} onClose={() => setSalaryFor(null)}
       onSaved={async () => { setSalaryFor(null); await loadBase(); setHomeKey((k) => k + 1); }} onGoTab={setView} />
   );
-
-  if (view === 'statement') {
-    return (
-      <StaffStatementPage staffId={statementId} company={company} onBack={() => setView('home')}
-          onPick={(id) => setView('statement', id)}
-          onPay={(id) => { setEntryReq({ id, mode: 'pay' }); setView('home'); }}
-          onGive={(id) => { setEntryReq({ id, mode: 'give' }); setView('home'); }} />
-    );
-  }
 
   // The home is a ZEHEN list page of its own (header, cards, table, F-key strip).
   if (view === 'home') {
