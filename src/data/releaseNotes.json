@@ -2,6 +2,16 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.12",
+      "date": "2026-10-03",
+      "title": "Staff Statement in Reports",
+      "highlights": [
+        "Staff Statement now looks and works exactly like your Customer and Supplier statements, with voucher numbers from your books.",
+        "Find it in Reports or search, or press Enter on any staff member in Payroll.",
+        "Choose columns, print, or export to PDF and Excel the same way as other statements."
+      ]
+    },
+    {
       "version": "1.1.11",
       "date": "2026-10-03",
       "title": "Staff statements",
