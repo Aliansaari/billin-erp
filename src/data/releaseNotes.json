@@ -2,6 +2,17 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.11",
+      "date": "2026-10-03",
+      "title": "Staff statements",
+      "highlights": [
+        "Every staff member has a full statement: salary earned, salary paid, advances and money given, with a running balance.",
+        "See this month, the last 3 months, this year, everything or any dates you choose, with the opening balance carried over.",
+        "Print a clean A4 statement with staff and shop signature lines.",
+        "Pay, give money or change salary right from the statement."
+      ]
+    },
+    {
       "version": "1.1.10",
       "date": "2026-09-30",
       "title": "Barcode labels fix",
