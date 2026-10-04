@@ -2,6 +2,17 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.13",
+      "date": "2026-10-04",
+      "title": "Your bills are never lost",
+      "highlights": [
+        "An unfinished bill now saves itself as you type. If ZEHEN closes, the PC shuts down or the power goes, open Sales or Purchase and continue the bill where you left off.",
+        "ZEHEN keeps you signed in while it is open, so you are never signed out in the middle of a bill.",
+        "If you open ZEHEN while an update is still installing, it waits and opens the new version by itself instead of getting stuck.",
+        "Opening ZEHEN twice by mistake no longer starts two copies."
+      ]
+    },
+    {
       "version": "1.1.12",
       "date": "2026-10-03",
       "title": "Staff Statement in Reports",
