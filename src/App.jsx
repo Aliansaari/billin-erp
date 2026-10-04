@@ -548,9 +548,16 @@ export default function App() {
     const off = api.onConfirmExit(async () => {
       if (exitPromptOpen.current) return;
       exitPromptOpen.current = true;
+      // An update waiting to install at close: say so, so nobody reopens ZEHEN
+      // mid-install wondering where it went (it would wait and open anyway).
+      let upd = null;
+      try { upd = await api.updates?.getState?.(); } catch { /* no updater */ }
+      const installing = upd && upd.status === 'downloaded' && upd.autoInstall !== false;
       const ok = await confirmDialog({
         title: 'Exit ZEHEN?',
-        message: 'You will be signed out and the app will close.',
+        message: installing
+          ? `You will be signed out and the app will close. ZEHEN ${upd.version || ''} installs now and takes about a minute; open ZEHEN after that.`
+          : 'You will be signed out and the app will close.',
         confirmText: 'Exit & sign out',
         cancelText:  'Stay',
         danger: true,

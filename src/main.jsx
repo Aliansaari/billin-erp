@@ -9,6 +9,7 @@ import ViewportFit from './components/ViewportFit';
 import { MenuPopupProvider } from './components/keyboard/MenuPopup';
 import { DatePopupProvider } from './components/keyboard/DatePopup';
 import './styles/global.css';
+import { startSessionKeeper } from './utils/sessionKeeper';
 
 /* ── Self-heal stale localStorage on boot ─────────────────────────────
  *
@@ -48,6 +49,9 @@ try {
 // from anywhere — including the providers themselves. Without it, a
 // runtime error during React's first commit produces a silent blank
 // window.
+// Renew the sign-in while ZEHEN is open, so a session never runs out mid-bill.
+startSessionKeeper();
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <AppErrorBoundary>

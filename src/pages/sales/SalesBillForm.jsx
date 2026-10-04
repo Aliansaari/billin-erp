@@ -7,6 +7,7 @@ import { evaluateMembership, autoDiscountToApply } from '../../utils/membershipD
 import { printDocument, shareBillViaWhatsApp, whatsappReady } from '../../services/printer';
 import { whatsappAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import useBillAutosave from '../../hooks/useBillAutosave';
 import useBack from '../../hooks/useBack';
 import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled, useMultiColorEnabled, useSystemSettings } from '../../hooks/useSystemSettings';
 import CustomerInsightPanel from '../../components/CustomerInsightPanel';
@@ -307,6 +308,8 @@ export default function SalesBillForm() {
   // Tracks the draft this form was recalled from. When set AND save
   // succeeds, the backend deletes that draft inside the create txn.
   const [recalledDraftId, setRecalledDraftId] = useState(null);
+  // Autosave (useBillAutosave) — a ref so callbacks declared above the hook can reach it.
+  const autosaveRef = useRef(null);
   // Hold operation in flight — disables the Hold button so two F4
   // presses don't create two duplicate drafts.
   const [holdLoading, setHoldLoading] = useState(false);
@@ -1956,6 +1959,7 @@ export default function SalesBillForm() {
       };
       const{data}=isEdit?await salesAPI.update(id,body):await salesAPI.create(body);
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
+      if (!isEdit) autosaveRef.current?.settled();
       // Audit BILLS-2 — successful save: mint a fresh idempotency key
       // so the next bill (on a "new bill" reset) uses a different key.
       // Without this, a "create another" workflow would re-use the
@@ -2016,6 +2020,7 @@ export default function SalesBillForm() {
   },[form,items,inlineReturnItems,inlineReturnTotal,discPct,billDiscAmt,roundedTotal,splDisc,otherChr,freightChr,returnAmt,isEdit,id,navigate,backTarget,selectedParty,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct,redeemValue,redeemPointsClamped]);
 
   const handleReset=()=>{
+    autosaveRef.current?.discard();
     setItems([]);setEntry(EMPTY);
     setActiveCatId(null); setProdOpen(false);
     setSiblings([]); setSizeOpen(false);
@@ -2037,6 +2042,55 @@ export default function SalesBillForm() {
    * the customer steps away. The only gate is: a held draft must have
    * SOMETHING worth holding (at least a customer OR items OR amount).
    */
+  // The payload Hold saves — also what autosave writes (useBillAutosave).
+  const buildHoldPayload = () => {
+    const vals = form.getFieldsValue();
+    return {
+      // Reuse the same shape handleSave builds, so Recall can replay it
+      // directly into the form's state setters. We don't validate here —
+      // the user is mid-entry and the data may be incomplete by design.
+      bill_mode: billMode,
+      customer_id: vals.customer_id || null,
+      walk_in_name: String(vals.walk_in_name || '').trim() || null,
+      bill_date: vals.bill_date ? vals.bill_date.format('YYYY-MM-DD') : null,
+      due_date: vals.due_date ? vals.due_date.format('YYYY-MM-DD') : null,
+      sale_type: vals.sale_type || 'Retail',
+      salesman_name: vals.salesman_name || '',
+      salesman_id: vals.salesman_id || null,
+      special_discount: parseFloat(splDisc) || 0,
+      other_charges: parseFloat(otherChr) || 0,
+      freight_charges: parseFloat(freightChr) || 0,
+      return_amount: parseFloat(returnAmt) || 0,
+      payment_method: vals.payment_method || 'Cash',
+      bank_ledger_id: vals.bank_ledger_id || null,  // preserve bank pick across drafts
+      remarks: (vals.remarks || '').trim(),
+      paid_amount: parseFloat(vals.paid_amount) || 0,
+      discount_percentage: discPct,
+      gst_mode: gstMode,
+      cgst_pct: parseFloat(cgstPct) || 0,
+      sgst_pct: parseFloat(sgstPct) || 0,
+      igst_pct: parseFloat(igstPct) || 0,
+      items: billMode === 'item' ? items.map(i => ({
+        product_id: i.product_id, barcode: i.barcode,
+        category_id: i.category_id, category_name: i.category_name,
+        product_name: i.product_name, size: i.size,
+        article_number: i.article_number, hsn_code: i.hsn_code,
+        unit_type: i.unit_type || 'Pcs',
+        quantity: i.quantity, rate: i.rate, mrp: i.mrp,
+        discount_percentage: i.discount_percentage, gst_rate: i.gst_rate,
+        quantity_per_box: parseFloat(i.quantity_per_box) || 1,
+        batch_id: i.batch_id || null,
+      })) : [],
+      // Amount-mode echo
+      amount: billMode === 'amount' ? parseFloat(amountVal) || 0 : null,
+      gst_rate: billMode === 'amount' ? parseFloat(amountGstRate) || 0 : null,
+      hsn_code: billMode === 'amount' ? (amountHsnCode || '9999') : null,
+      description: billMode === 'amount' ? (amountDesc || '') : null,
+      // Denormalised for the list UI
+      _total_preview: roundedTotal || 0,
+  };
+  };
+
   const handleHold = useCallback(async () => {
     if (holdLoading || submittingRef.current) return;
     if (isEdit) {
@@ -2053,50 +2107,7 @@ export default function SalesBillForm() {
     }
     setHoldLoading(true);
     try {
-      const payload = {
-        // Reuse the same shape handleSave builds, so Recall can replay it
-        // directly into the form's state setters. We don't validate here —
-        // the user is mid-entry and the data may be incomplete by design.
-        bill_mode: billMode,
-        customer_id: vals.customer_id || null,
-        walk_in_name: String(vals.walk_in_name || '').trim() || null,
-        bill_date: vals.bill_date ? vals.bill_date.format('YYYY-MM-DD') : null,
-        due_date: vals.due_date ? vals.due_date.format('YYYY-MM-DD') : null,
-        sale_type: vals.sale_type || 'Retail',
-        salesman_name: vals.salesman_name || '',
-        salesman_id: vals.salesman_id || null,
-        special_discount: parseFloat(splDisc) || 0,
-        other_charges: parseFloat(otherChr) || 0,
-        freight_charges: parseFloat(freightChr) || 0,
-        return_amount: parseFloat(returnAmt) || 0,
-        payment_method: vals.payment_method || 'Cash',
-        bank_ledger_id: vals.bank_ledger_id || null,  // preserve bank pick across drafts
-        remarks: (vals.remarks || '').trim(),
-        paid_amount: parseFloat(vals.paid_amount) || 0,
-        discount_percentage: discPct,
-        gst_mode: gstMode,
-        cgst_pct: parseFloat(cgstPct) || 0,
-        sgst_pct: parseFloat(sgstPct) || 0,
-        igst_pct: parseFloat(igstPct) || 0,
-        items: billMode === 'item' ? items.map(i => ({
-          product_id: i.product_id, barcode: i.barcode,
-          category_id: i.category_id, category_name: i.category_name,
-          product_name: i.product_name, size: i.size,
-          article_number: i.article_number, hsn_code: i.hsn_code,
-          unit_type: i.unit_type || 'Pcs',
-          quantity: i.quantity, rate: i.rate, mrp: i.mrp,
-          discount_percentage: i.discount_percentage, gst_rate: i.gst_rate,
-          quantity_per_box: parseFloat(i.quantity_per_box) || 1,
-          batch_id: i.batch_id || null,
-        })) : [],
-        // Amount-mode echo
-        amount: billMode === 'amount' ? parseFloat(amountVal) || 0 : null,
-        gst_rate: billMode === 'amount' ? parseFloat(amountGstRate) || 0 : null,
-        hsn_code: billMode === 'amount' ? (amountHsnCode || '9999') : null,
-        description: billMode === 'amount' ? (amountDesc || '') : null,
-        // Denormalised for the list UI
-        _total_preview: roundedTotal || 0,
-      };
+      const payload = buildHoldPayload();
       // If we're holding a recalled draft (operator hit Hold instead of
       // Save after editing), update in place instead of creating a copy.
       if (recalledDraftId) {
@@ -2106,6 +2117,7 @@ export default function SalesBillForm() {
         const { data } = await salesDraftAPI.create(payload);
         message.success(`Held as ${data.draft_number} — form cleared for next bill`);
       }
+      autosaveRef.current?.settled();
       // Clear the form so the operator can start the next bill, but
       // STAY on the bill form (per user request — don't navigate to /sales).
       handleReset();
@@ -2139,6 +2151,7 @@ export default function SalesBillForm() {
       const mode = p.bill_mode === 'amount' ? 'amount' : 'item';
       setBillMode(mode);
       setRecalledDraftId(draft.draft_id);
+      if (draft.payload?._autosave) autosaveRef.current?.adopt(draft.draft_id);
       form.setFieldsValue({
         customer_id:        p.customer_id || undefined,
         walk_in_name:       p.walk_in_name || '',
@@ -2187,6 +2200,52 @@ export default function SalesBillForm() {
   const dirty = items.length > 0 || (billMode === 'amount' && parseFloat(amountVal) > 0);
   const confirmLeave = useUnsavedChangesWarning(dirty);
 
+  // ── Autosave: an unfinished bill survives a crash, power cut or sign-out ──
+  const currentUserId = useMemo(() => { try { return JSON.parse(localStorage.getItem('user') || 'null')?.user_id || null; } catch { return null; } }, []);
+  const autosave = useBillAutosave({
+    enabled: !isEdit, dirty, buildPayload: () => buildHoldPayload(), draftApi: salesDraftAPI,
+    recalledDraftId, setRecalledDraftId,
+    storageKey: `zehen_autosave_sale_${currentUserId || 'anon'}`, userId: currentUserId,
+  });
+  autosaveRef.current = autosave;
+
+  // Opening a new sale bill: offer to continue the last unfinished one.
+  const recoveryAskedRef = useRef(false);
+  useEffect(() => {
+    if (isEdit || recoveryAskedRef.current || location.state?.recallDraft) return;
+    recoveryAskedRef.current = true;
+    (async () => {
+      let list = []; let ok = true;
+      try { const { data } = await salesDraftAPI.list(); list = data?.data || []; } catch { ok = false; }
+      const rec = autosaveRef.current?.findRecovery(list, ok);
+      if (!rec) return;
+      const p = rec.source === 'server' ? (rec.draft.payload || {}) : (rec.payload || {});
+      const n = Array.isArray(p.items) ? p.items.length : 0;
+      const total = Number(p._total_preview) || 0;
+      const who = (rec.source === 'server' ? (rec.draft.customer?.party_name || rec.draft.supplier?.party_name) : null) || p.walk_in_name || '';
+      const when = dayjs(p._autosaved_at || rec.at).format('D MMM, h:mm A');
+      Modal.confirm({
+        title: 'Continue your unfinished bill?',
+        content: `${who ? `${who} · ` : ''}${n} item${n === 1 ? '' : 's'}${total ? ` · ₹${Math.round(total).toLocaleString('en-IN')}` : ''} · last saved ${when}. It was kept when ZEHEN closed before the bill was saved.`,
+        okText: 'Continue bill',
+        cancelText: rec.source === 'server' ? 'Leave in Drafts' : 'Discard',
+        onOk: async () => {
+          try {
+            let draftId = rec.source === 'server' ? rec.draft.draft_id : null;
+            if (!draftId) { const { data } = await salesDraftAPI.create({ ...p, _autosave: true }); draftId = data?.draft_id; }
+            if (draftId) { await recallDraft(draftId); autosaveRef.current?.adopt(draftId); }
+          } catch (e) { message.error(e?.response?.data?.error || 'Could not restore the bill'); }
+        },
+        onCancel: async () => {
+          if (rec.source === 'server') { try { await salesDraftAPI.update(rec.draft.draft_id, { ...p, _autosave: false }); } catch { /* stays as is */ } }
+          autosaveRef.current?.settled();
+          loadDrafts();
+        },
+      });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /* ── In-form Drafts list ─────────────────────────────────────
    * Operators want to see and recall held drafts without leaving
    * the bill form. This duplicates the SalesList Drafts modal but
@@ -2223,8 +2282,10 @@ export default function SalesBillForm() {
       if (!proceed) return;
     }
     setDraftsModalOpen(false);
+    // Replacing an autosaved bill with another draft: the autosave copy goes.
+    if (autosaveRef.current?.isOwned(recalledDraftId) && d.draft_id !== recalledDraftId) await autosaveRef.current.discard();
     await recallDraft(d.draft_id);
-  }, [dirty, recallDraft]);
+  }, [dirty, recallDraft, recalledDraftId]);
 
   /* Keyboard navigation inside the Drafts modal — Up/Down to move,
      Enter to recall the selected card, Delete to discard it. */
@@ -2653,7 +2714,7 @@ export default function SalesBillForm() {
                   </button>
                 </div>
               )}
-              {recalledDraftId && (
+              {recalledDraftId && !autosaveRef.current?.isOwned(recalledDraftId) && (
                 <span className="sbf-mode-recalled">Recalled draft</span>
               )}
             </div>
@@ -3651,7 +3712,7 @@ export default function SalesBillForm() {
               title: 'Open the smart-input date popup' },
             { id: 'reset', key: 'F5', label: 'Reset',
               onAction: handleReset },
-            { id: 'hold', key: 'F4', label: recalledDraftId ? 'Update Hold' : 'Hold',
+            { id: 'hold', key: 'F4', label: recalledDraftId && !autosaveRef.current?.isOwned(recalledDraftId) ? 'Update Hold' : 'Hold',
               hidden: isEdit, disabled: holdLoading,
               onAction: handleHold,
               title: 'Save as draft to resume later — does NOT affect ledger, GST, or stock' },
@@ -4131,6 +4192,7 @@ export default function SalesBillForm() {
               ? await salesAPI.update(id, retryPayload)
               : await salesAPI.create(retryPayload);
             message.success(`Bill ${data.bill_number} ${isEdit ? 'updated' : 'saved'} (override logged)`);
+            if (!isEdit) autosaveRef.current?.settled();
             if (retryOpts?.onSaved) { try { retryOpts.onSaved(data); } catch (err) { console.error('[lock retry onSaved]', err); } }
             if (isEdit) navigate(backTarget, { replace: true });
             else { handleReset(); setBillNo(''); }

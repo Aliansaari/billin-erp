@@ -473,6 +473,31 @@ exports.logout = (req, res) => {
 };
 
 // AUTH-H5 — exported so settingsController can re-use the same strength check.
+/**
+ * POST /auth/refresh — renew a still-valid session for another 24 h.
+ *
+ * Sessions are 24 h from sign-in. Without renewal, a counter left signed in
+ * overnight runs out mid-bill the next afternoon ("Access token required"
+ * while billing). The app calls this while it is open and in use; a session
+ * that has already expired still needs a real sign-in. The old token is not
+ * revoked: requests already in flight with it must not fail.
+ */
+exports.refresh = (req, res) => {
+  const d = req.tokenDecoded || {};
+  if (!req.user) return res.status(401).json({ error: 'Session expired — please sign in again', expired: true });
+  const claims = {
+    jti: tokenBlacklist.generateJti(),
+    user_id: d.user_id,
+    username: d.username,
+    role: (req.user.Role && req.user.Role.role_name) || d.role,
+    company_id: d.company_id,
+    must_change_password: !!d.must_change_password,
+  };
+  if (d.via) claims.via = d.via;
+  const token = jwt.sign(claims, process.env.JWT_SECRET, { expiresIn: '24h' });
+  return res.json({ token });
+};
+
 exports.checkPasswordStrength = checkPasswordStrength;
 
 exports.verifyDeveloperPassword = async (req, res) => {

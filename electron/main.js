@@ -5,6 +5,7 @@ const http = require('http');
 const os = require('os');
 const { startEmbeddedPostgres, stopEmbeddedPostgres } = require('./embeddedPostgres');
 const updater = require('./updater');
+const updateGuard = require('./updateGuard');
 
 // Set when an update is about to install: the window must close without the
 // exit-confirm round trip, or the installer's quit would be cancelled.
@@ -331,7 +332,10 @@ function pingServer(url, timeoutMs = 1500) {
 // linger underneath a new launch and look like the new one is "blank".
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
-  app.quit();
+  // Exit right away. app.quit() alone let this second copy carry on far
+  // enough to start the database and a window before it went away (two
+  // "log starting" lines, two postgres starts at the same moment).
+  app.exit(0);
 }
 app.on('second-instance', () => {
   if (mainWindow) {
@@ -870,7 +874,15 @@ ipcMain.handle('shell:show-item', async (_ev, filePath) => {
 });
 
 app.whenReady().then(async () => {
+  if (!gotLock) return;               // second launch: already exiting
   const bootStart = Date.now();
+
+  // ── 0. Never start in the middle of our own update ──────────────────
+  // If ZEHEN was opened while the update installer is still replacing files,
+  // wait for it (showing "Finishing the update…"), then start the new
+  // version. See electron/updateGuard.js.
+  const guard = await updateGuard.waitIfInstalling();
+  if (guard.handover) return;
 
   // ── 1. Show the window immediately ──────────────────────────────────
   // createWindow() renders a loading spinner and returns as soon as the
@@ -882,6 +894,7 @@ app.whenReady().then(async () => {
   // IPC that resolves that await, so the spinner appears almost instantly.
   createWindow();
   console.log(`[perf] window created +${Date.now() - bootStart}ms`);
+  if (guard.win && !guard.win.isDestroyed()) setTimeout(() => { try { guard.win.destroy(); } catch { /* gone */ } }, 800);
 
   // Software updates (electron/updater.js). Checks quietly in the
   // background; installs only at close or when the owner asks.

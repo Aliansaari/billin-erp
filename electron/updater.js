@@ -175,6 +175,7 @@ function friendly(e) {
 
 async function installNow() {
   if (state.status !== 'downloaded' || !updater) return false;
+  require('./updateGuard').markInstalling(state.version);
   try { beforeInstall(); } catch (e) { console.error('[updater] beforeInstall:', e.message); }
   // Silent install, then start the new version.
   setImmediate(() => updater.quitAndInstall(true, true));
@@ -258,6 +259,8 @@ function init({ window: windowGetter, clientMode, onBeforeInstall }) {
   // Installing at close: make room for the installer first (rule 1 + Postgres).
   app.on('before-quit', () => {
     if (state.status === 'downloaded' && state.autoInstall) {
+      // Tell the next launch an install is under way (electron/updateGuard.js).
+      require('./updateGuard').markInstalling(state.version);
       try { beforeInstall(); } catch (e) { console.error('[updater] beforeInstall:', e.message); }
     }
   });

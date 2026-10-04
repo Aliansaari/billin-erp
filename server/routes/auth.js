@@ -22,6 +22,8 @@ router.post('/sso', loginRateLimit, authController.ssoExchange);
 router.post('/sso-switch', authenticateToken, authController.ssoSwitchCompany);
 router.get('/profile', authenticateToken, authController.getProfile);
 router.post('/logout', authenticateToken, authController.logout);
+// Keep an open, in-use session alive (see authController.refresh).
+router.post('/refresh', authenticateToken, authController.refresh);
 router.post('/change-password', authenticateToken, authController.changePassword);
 
 // In-place company switch — caller must already be authenticated; supplies

@@ -11,6 +11,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import useBillAutosave from '../../hooks/useBillAutosave';
 import useBack from '../../hooks/useBack';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 import { partySelectProps } from '../../utils/partySelectProps';
@@ -371,6 +372,8 @@ export default function PurchaseBillForm() {
   // Tracks which draft (if any) the form was recalled from so handleSave
   // can pass the draft_id to the backend for same-txn deletion.
   const [recalledDraftId, setRecalledDraftId] = useState(null);
+  // Autosave (useBillAutosave) — a ref so callbacks declared above the hook can reach it.
+  const autosaveRef = useRef(null);
   const [holdLoading, setHoldLoading]         = useState(false);
   const [drafts, setDrafts]                   = useState([]);
   const [draftsModalOpen, setDraftsModalOpen] = useState(false);
@@ -1788,6 +1791,7 @@ export default function PurchaseBillForm() {
         isEdit ? purchaseAPI.update(id, b).then(r => r.data) : purchaseAPI.create(b).then(r => r.data)
       ));
       message.success(`Bill ${data.bill_number} ${isEdit?'updated':'saved'}!`);
+      if (!isEdit) autosaveRef.current?.settled();
       // Audit BILLS-2 — mint a fresh key after a successful save so
       // a subsequent "new bill" save uses a different key.
       idempotencyKeyRef.current = (typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -1832,6 +1836,7 @@ export default function PurchaseBillForm() {
   },[form,items,discountPct,discountAmt,otherChr,freightChr,roundedTotal,isEdit,id,billMode,amountVal,amountGstRate,amountHsnCode,amountDesc,recalledDraftId,gstMode,cgstPct,sgstPct,igstPct,guardedSave]);
 
   const handleReset=()=>{
+    autosaveRef.current?.discard();
     setItems([]); setEntry(EMPTY_ENTRY); setBarcodeError('');
     setVariantOptions([]); setShowVariantPicker(false); setVariantPickerIdx(-1);
     setPickerRateFilter(null); setPickerArticleFilter(null);
@@ -1850,6 +1855,52 @@ export default function PurchaseBillForm() {
   // unsaved-work confirmation. Amount-mode counts as dirty when an amount > 0.
   const dirty = items.length > 0 || (billMode === 'amount' && parseFloat(amountVal) > 0);
   const confirmLeave = useUnsavedChangesWarning(dirty);
+
+  // ── Autosave: an unfinished bill survives a crash, power cut or sign-out ──
+  const currentUserId = useMemo(() => { try { return JSON.parse(localStorage.getItem('user') || 'null')?.user_id || null; } catch { return null; } }, []);
+  const autosave = useBillAutosave({
+    enabled: !isEdit, dirty, buildPayload: () => buildHoldPayload(), draftApi: purchaseDraftAPI,
+    recalledDraftId, setRecalledDraftId,
+    storageKey: `zehen_autosave_purchase_${currentUserId || 'anon'}`, userId: currentUserId,
+  });
+  autosaveRef.current = autosave;
+
+  // Opening a new purchase bill: offer to continue the last unfinished one.
+  const recoveryAskedRef = useRef(false);
+  useEffect(() => {
+    if (isEdit || recoveryAskedRef.current || location.state?.recallDraft) return;
+    recoveryAskedRef.current = true;
+    (async () => {
+      let list = []; let ok = true;
+      try { const { data } = await purchaseDraftAPI.list(); list = data?.data || []; } catch { ok = false; }
+      const rec = autosaveRef.current?.findRecovery(list, ok);
+      if (!rec) return;
+      const p = rec.source === 'server' ? (rec.draft.payload || {}) : (rec.payload || {});
+      const n = Array.isArray(p.items) ? p.items.length : 0;
+      const total = Number(p._total_preview) || 0;
+      const who = (rec.source === 'server' ? (rec.draft.customer?.party_name || rec.draft.supplier?.party_name) : null) || p.walk_in_name || '';
+      const when = dayjs(p._autosaved_at || rec.at).format('D MMM, h:mm A');
+      Modal.confirm({
+        title: 'Continue your unfinished bill?',
+        content: `${who ? `${who} · ` : ''}${n} item${n === 1 ? '' : 's'}${total ? ` · ₹${Math.round(total).toLocaleString('en-IN')}` : ''} · last saved ${when}. It was kept when ZEHEN closed before the bill was saved.`,
+        okText: 'Continue bill',
+        cancelText: rec.source === 'server' ? 'Leave in Drafts' : 'Discard',
+        onOk: async () => {
+          try {
+            let draftId = rec.source === 'server' ? rec.draft.draft_id : null;
+            if (!draftId) { const { data } = await purchaseDraftAPI.create({ ...p, _autosave: true }); draftId = data?.draft_id; }
+            if (draftId) { await recallDraft(draftId); autosaveRef.current?.adopt(draftId); }
+          } catch (e) { message.error(e?.response?.data?.error || 'Could not restore the bill'); }
+        },
+        onCancel: async () => {
+          if (rec.source === 'server') { try { await purchaseDraftAPI.update(rec.draft.draft_id, { ...p, _autosave: false }); } catch { /* stays as is */ } }
+          autosaveRef.current?.settled();
+          loadDrafts();
+        },
+      });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const goBack = useBack('/purchases');
 
   // F1 / F2 / F3 / F4 / F5 / F6 / F9 / Esc / Ctrl+Enter (alias of F1) /
@@ -1931,6 +1982,49 @@ export default function PurchaseBillForm() {
   useEffect(() => { loadDrafts(); }, [loadDrafts]);
   useEffect(() => { if (draftsModalOpen) setSelectedDraftIdx(0); }, [draftsModalOpen]);
 
+  // The payload Hold saves — also what autosave writes (useBillAutosave).
+  const buildHoldPayload = () => {
+    const values = form.getFieldsValue();
+    return {
+      supplier_id:        values.supplier_id || null,
+      walk_in_name:       String(values.walk_in_name || '').trim() || null,
+      bill_date:          values.bill_date ? values.bill_date.format('YYYY-MM-DD') : null,
+      due_date:           values.due_date  ? values.due_date.format('YYYY-MM-DD')  : null,
+      supplier_bill_number: values.supplier_bill_number || '',
+      transport_name:     values.transport_name || '',
+      vehicle_number:     values.vehicle_number || '',
+      lr_number:          values.lr_number || '',
+      remarks:            (values.remarks || '').trim(),
+      discount_percentage: parseFloat(values.discount_percentage) || 0,
+      other_charges:       parseFloat(values.other_charges) || 0,
+      freight_charges:     parseFloat(values.freight_charges) || 0,
+      paid_amount:         parseFloat(values.paid_amount) || 0,
+      gst_mode: gstMode, cgst_pct: cgstPct, sgst_pct: sgstPct, igst_pct: igstPct,
+      bill_mode: billMode,
+      amount:    billMode === 'amount' ? parseFloat(amountVal) || 0 : null,
+      gst_rate:  billMode === 'amount' ? parseFloat(amountGstRate) || 0 : null,
+      hsn_code:  billMode === 'amount' ? (amountHsnCode || '9999') : null,
+      description: billMode === 'amount' ? amountDesc : null,
+      items: billMode === 'amount' ? [] : items.map(i => ({
+        product_id: i.product_id, barcode: i.barcode,
+        category_id: i.category_id, category_name: i.category_name,
+        product_name: i.product_name, size: i.size,
+        article_number: i.article_number, hsn_code: i.hsn_code,
+        quantity: i.quantity, quantity_per_box: i.quantity_per_box || 1,
+        purchase_rate: i.purchase_rate, margin_percentage: i.margin_percentage,
+        sale_rate: i.sale_rate, mrp: i.mrp, gst_rate: i.gst_rate,
+        // Batch fields preserved on Hold so a recalled draft restores
+        // them on next open. is_batch_tracked is rehydrated from the
+        // product on recall, not the draft payload.
+        batch_number: i.batch_number || null,
+        manufacture_date: i.manufacture_date || null,
+        expiry_date: i.expiry_date || null,
+        batch_notes: i.batch_notes || null,
+      })),
+      _total_preview: roundedTotal,
+    };
+  };
+
   const handleHold = useCallback(async () => {
     if (isEdit) return;                    // edit mode is a real bill, not a draft
     if (holdLoading) return;
@@ -1941,45 +2035,7 @@ export default function PurchaseBillForm() {
     }
     setHoldLoading(true);
     try {
-      const values = form.getFieldsValue();
-      const payload = {
-        supplier_id:        values.supplier_id || null,
-        walk_in_name:       String(values.walk_in_name || '').trim() || null,
-        bill_date:          values.bill_date ? values.bill_date.format('YYYY-MM-DD') : null,
-        due_date:           values.due_date  ? values.due_date.format('YYYY-MM-DD')  : null,
-        supplier_bill_number: values.supplier_bill_number || '',
-        transport_name:     values.transport_name || '',
-        vehicle_number:     values.vehicle_number || '',
-        lr_number:          values.lr_number || '',
-        remarks:            (values.remarks || '').trim(),
-        discount_percentage: parseFloat(values.discount_percentage) || 0,
-        other_charges:       parseFloat(values.other_charges) || 0,
-        freight_charges:     parseFloat(values.freight_charges) || 0,
-        paid_amount:         parseFloat(values.paid_amount) || 0,
-        gst_mode: gstMode, cgst_pct: cgstPct, sgst_pct: sgstPct, igst_pct: igstPct,
-        bill_mode: billMode,
-        amount:    billMode === 'amount' ? parseFloat(amountVal) || 0 : null,
-        gst_rate:  billMode === 'amount' ? parseFloat(amountGstRate) || 0 : null,
-        hsn_code:  billMode === 'amount' ? (amountHsnCode || '9999') : null,
-        description: billMode === 'amount' ? amountDesc : null,
-        items: billMode === 'amount' ? [] : items.map(i => ({
-          product_id: i.product_id, barcode: i.barcode,
-          category_id: i.category_id, category_name: i.category_name,
-          product_name: i.product_name, size: i.size,
-          article_number: i.article_number, hsn_code: i.hsn_code,
-          quantity: i.quantity, quantity_per_box: i.quantity_per_box || 1,
-          purchase_rate: i.purchase_rate, margin_percentage: i.margin_percentage,
-          sale_rate: i.sale_rate, mrp: i.mrp, gst_rate: i.gst_rate,
-          // Batch fields preserved on Hold so a recalled draft restores
-          // them on next open. is_batch_tracked is rehydrated from the
-          // product on recall, not the draft payload.
-          batch_number: i.batch_number || null,
-          manufacture_date: i.manufacture_date || null,
-          expiry_date: i.expiry_date || null,
-          batch_notes: i.batch_notes || null,
-        })),
-        _total_preview: roundedTotal,
-      };
+      const payload = buildHoldPayload();
       // Update if recalled, else create.
       if (recalledDraftId) {
         await purchaseDraftAPI.update(recalledDraftId, payload);
@@ -1988,6 +2044,7 @@ export default function PurchaseBillForm() {
         const { data } = await purchaseDraftAPI.create(payload);
         message.success(`Held as ${data.draft_number}`);
       }
+      autosaveRef.current?.settled();
       handleReset();
       setRecalledDraftId(null);
       loadDrafts();
@@ -2008,6 +2065,7 @@ export default function PurchaseBillForm() {
       const mode = p.bill_mode === 'amount' ? 'amount' : 'item';
       setBillMode(mode);
       setRecalledDraftId(draft.draft_id);
+      if (draft.payload?._autosave) autosaveRef.current?.adopt(draft.draft_id);
       form.setFieldsValue({
         supplier_id:        p.supplier_id || undefined,
         walk_in_name:       p.walk_in_name || '',
@@ -2064,8 +2122,10 @@ export default function PurchaseBillForm() {
       if (!proceed) return;
     }
     setDraftsModalOpen(false);
+    // Replacing an autosaved bill with another draft: the autosave copy goes.
+    if (autosaveRef.current?.isOwned(recalledDraftId) && d.draft_id !== recalledDraftId) await autosaveRef.current.discard();
     await recallDraft(d.draft_id);
-  }, [dirty, recallDraft]);
+  }, [dirty, recallDraft, recalledDraftId]);
 
   /* Keyboard navigation inside the Drafts modal — Up/Down to move,
      Enter to recall, Esc closed by AntD by default. */
@@ -2361,7 +2421,7 @@ export default function PurchaseBillForm() {
                     </button>
                   </div>
                 )}
-                {recalledDraftId && (
+                {recalledDraftId && !autosaveRef.current?.isOwned(recalledDraftId) && (
                   <span className="pbf-mode-recalled">Recalled draft</span>
                 )}
               </div>
@@ -2979,7 +3039,7 @@ export default function PurchaseBillForm() {
               title: 'Open the smart-input date popup' },
             { id: 'reset', key: 'F5', label: 'Reset',
               onAction: handleReset },
-            { id: 'hold', key: 'F4', label: recalledDraftId ? 'Update Hold' : 'Hold',
+            { id: 'hold', key: 'F4', label: recalledDraftId && !autosaveRef.current?.isOwned(recalledDraftId) ? 'Update Hold' : 'Hold',
               hidden: isEdit, disabled: holdLoading,
               onAction: handleHold,
               title: 'Save as draft to resume later' },
