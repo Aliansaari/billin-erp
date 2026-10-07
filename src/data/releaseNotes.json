@@ -2,6 +2,18 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.14",
+      "date": "2026-10-07",
+      "title": "A faster, clearer purchase bill",
+      "highlights": [
+        "Purchase bills show the Category of every line, like sale bills.",
+        "The entry row fits every screen, from laptops to large monitors, and text in the items list lines up neatly.",
+        "A supplier bill number you already entered is flagged as Duplicate, so the same bill is not entered twice.",
+        "For products from your list at their usual rate, Enter on Rate adds the line straight away.",
+        "Lines without a sale price or MRP are highlighted so nothing is missed."
+      ]
+    },
+    {
       "version": "1.1.13",
       "date": "2026-10-04",
       "title": "Your bills are never lost",
