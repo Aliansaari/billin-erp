@@ -2,6 +2,15 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.15",
+      "date": "2026-10-07",
+      "title": "See how each supplier's products sell",
+      "highlights": [
+        "Product Sales Detail has a new Bought from filter: pick a supplier to see the sales of the products you bought from them.",
+        "Combine it with customer, category, product and dates; totals, print and export follow the filter."
+      ]
+    },
+    {
       "version": "1.1.14",
       "date": "2026-10-07",
       "title": "A faster, clearer purchase bill",
