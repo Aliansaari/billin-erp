@@ -656,6 +656,12 @@
   text-align: right !important;
   font-variant-numeric: tabular-nums !important;
 }
+/* Text columns (barcode, product, size, art#) read left like their
+ * headings and like the sales bill; only numbers sit on the right. */
+.pbf-tbl-wrap .ant-input:not(.ant-input-number-input) {
+  text-align: left !important;
+  padding-left: 8px !important;
+}
 .pbf-tbl-wrap .ant-table-tbody > tr > td:has(.ant-input-number-focused),
 .pbf-tbl-wrap .ant-table-tbody > tr > td:has(.ant-input:focus) {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel)) !important;
@@ -1315,3 +1321,25 @@
 .pbf-profit-line .pbf-val-box.pct { justify-content: center; font-size: 12px; padding: 0 6px; }
 .pbf-profit-line.loss .k, .pbf-profit-line.loss .pbf-val-box { color: var(--danger); }
 .pbf-profit-line.none .k, .pbf-profit-line.none .pbf-val-box { color: var(--fg-tertiary); font-weight: 500; }
+
+/* Supplier bill number already entered: a small amber tag inside the field
+   (details on hover), so the header row never shifts or overlaps. */
+.pbf-dup-tag {
+  font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+  color: var(--warning); background: color-mix(in srgb, var(--warning) 14%, transparent);
+  border-radius: 4px; padding: 1px 6px; cursor: help; white-space: nowrap;
+}
+
+/* Missing prices in the items table (see the Sale ₹ / MRP ₹ columns). */
+.pbf-tbl-wrap .ant-table-tbody > tr > td.pbf-missing {
+  background: color-mix(in srgb, var(--danger) 9%, transparent) !important;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--danger) 55%, transparent);
+}
+.pbf-tbl-wrap td.pbf-missing .ant-input-number-input { color: var(--danger) !important; }
+.pbf-tbl-wrap td.pbf-soft-missing .ant-input-number-input { color: var(--warning) !important; }
+/* The bill-number field carries a suffix (for the tag), which wraps the
+   input in an affix wrapper: the wrapper is the box, the inner input is not. */
+.pbf-page .pbf-field .ant-input-affix-wrapper > input.ant-input {
+  border: 0 !important; box-shadow: none !important; background: transparent !important;
+  padding: 0 !important; height: auto !important; border-radius: 0 !important;
+}

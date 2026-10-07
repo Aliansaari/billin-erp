@@ -431,6 +431,7 @@ export const productColorAPI = {
 export const purchaseAPI = {
   getAll: (params) => api.get('/purchases', { params }),
   getById: (id) => api.get(`/purchases/${id}`),
+  checkSupplierBill: (params) => api.get('/purchases/check-supplier-bill', { params }),
   create: (data) => api.post('/purchases', data),
   update: (id, data) => api.put(`/purchases/${id}`, data),
   cancel: (id) => api.post(`/purchases/${id}/cancel`),

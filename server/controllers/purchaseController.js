@@ -2137,3 +2137,37 @@ exports.cancel = async (req, res) => {
     respondWithError(res, error);
   }
 };
+
+
+/**
+ * GET /purchases/check-supplier-bill?supplier_id=&number=&exclude_id=
+ *
+ * Earlier, not-cancelled purchase bills from the same supplier carrying the
+ * same supplier bill number (case and spaces ignored). The purchase form
+ * shows a warning so the same delivery isn't entered twice. Read-only,
+ * never blocks a save: two genuinely different bills can share a number.
+ */
+exports.checkSupplierBill = async (req, res) => {
+  try {
+    const supplierId = Number(req.query.supplier_id);
+    const number = String(req.query.number || '').trim();
+    const excludeId = Number(req.query.exclude_id) || null;
+    if (!supplierId || !number) return res.json({ matches: [] });
+    const sequelizeDb = require('../config/database');
+    const rows = await sequelizeDb.query(
+      `SELECT purchase_bill_id, bill_number, to_char(bill_date, 'YYYY-MM-DD') AS bill_date, total_amount::float AS total_amount
+         FROM purchase_bills
+        WHERE supplier_id = :sid
+          AND COALESCE(is_cancelled, false) = false
+          AND lower(regexp_replace(COALESCE(supplier_bill_number, ''), '\\s+', '', 'g')) = lower(regexp_replace(:num, '\\s+', '', 'g'))
+          AND (CAST(:ex AS INTEGER) IS NULL OR purchase_bill_id <> CAST(:ex AS INTEGER))
+        ORDER BY bill_date DESC, purchase_bill_id DESC
+        LIMIT 5`,
+      { replacements: { sid: supplierId, num: number, ex: excludeId }, type: sequelizeDb.QueryTypes.SELECT },
+    );
+    return res.json({ matches: rows });
+  } catch (err) {
+    console.error('checkSupplierBill:', err.message);
+    return res.json({ matches: [] });   // a check, never an obstacle
+  }
+};

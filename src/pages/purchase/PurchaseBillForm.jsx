@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
-import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Popover, Checkbox } from 'antd';
+import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Popover, Checkbox, Tooltip } from 'antd';
 import { SettingOutlined, UserAddOutlined, PushpinOutlined, PushpinFilled } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -394,6 +394,16 @@ export default function PurchaseBillForm() {
   // F6 = Jump to Amt Paid input — attached to the Antd InputNumber.
   const paidInputRef = useRef(null);
   const [tblHeight, setTblHeight] = useState(300);
+  // Entry row columns, built from the boxes actually shown (single mode hides
+  // six, batch tracking adds four). Each box has a minimum width and a share of
+  // any spare width, so the row always fits a laptop screen (no sideways jump
+  // when the cursor reaches GST%) and fills a wide monitor edge to edge.
+  const ENTRY_TRACK = {
+    barcode: [100, 1.2], category: [120, 1.5], product: [160, 2.8],
+    size: [52, 0.7], article_number: [60, 0.8], quantity: [58, 0.8], purchase_rate: [76, 1],
+    quantity_per_box: [62, 0.7], margin_percentage: [66, 0.8], sale_rate: [76, 1], gst_rate: [56, 0.7],
+    lot: [80, 1], mfg: [112, 1.1], exp: [112, 1.1], notes: [90, 1.1], add: [84, 0.9],
+  };
   const barcodeRef  = useRef(null);
   const supplierRef = useRef(null);
   // Purchase flow is "category → product → details" (wholesale-buy style)
@@ -710,6 +720,7 @@ export default function PurchaseBillForm() {
         mrp:parseFloat(data.mrp)||0,margin_percentage:deriveMg(data.margin_percentage, data.purchase_rate, data.sale_rate),
         hsn_code:data.hsn_code||'',gst_rate:parseFloat(data.gst_rate)||0,
         quantity_per_box:parseFloat(data.quantity_per_box)||1,quantity:1,
+        _master_rate:parseFloat(data.purchase_rate)||0,
         is_batch_tracked:!!data.is_batch_tracked,
         product_mode:data.product_mode||'variant',
         batch_number:'', manufacture_date:null, expiry_date:null, batch_notes:'',
@@ -1030,6 +1041,7 @@ export default function PurchaseBillForm() {
       size:pickedSize,
       article_number:pickedArt,
       purchase_rate:parseFloat(variant.purchase_rate)||0,
+      _master_rate:parseFloat(variant.purchase_rate)||0,
       quantity_per_box:parseFloat(variant.quantity_per_box)||1,
       sale_rate:parseFloat(variant.sale_rate)||0,
       mrp:parseFloat(variant.mrp)||0,
@@ -1131,6 +1143,18 @@ export default function PurchaseBillForm() {
       // this skip, leaving the operator stranded mid-row.
       let nextIdx = idx + 1;
       while (nextIdx < entryRefs.length && !entryRefs[nextIdx]?.current) nextIdx++;
+      // Known product at its own price: P/Box, MG%, Sale and GST came from the
+      // product, so Enter skips them (Arrow keys and clicks still reach them).
+      // Only from Rate onwards, only on Enter, and only while the typed rate
+      // still equals the product's — a different rate means a new variant,
+      // whose pricing the operator must see.
+      const en = entryRef.current || {};
+      if (e.key === 'Enter' && idx >= 4 && en.product_id && en._master_rate != null
+          && Math.abs((parseFloat(en.purchase_rate) || 0) - en._master_rate) < 0.005) {
+        const filled = { 5: en.quantity_per_box, 6: en.margin_percentage, 7: en.sale_rate, 8: en.gst_rate };
+        while (nextIdx <= 8 && (!entryRefs[nextIdx]?.current || (filled[nextIdx] != null && parseFloat(filled[nextIdx]) > 0))) nextIdx++;
+        while (nextIdx < entryRefs.length && !entryRefs[nextIdx]?.current) nextIdx++;
+      }
       if (nextIdx >= entryRefs.length) addItem();
       else { entryRefs[nextIdx].current.focus(); entryRefs[nextIdx].current.select?.(); }
     }else if(e.key==='ArrowDown'||(e.key==='ArrowRight'&&atEnd)){
@@ -1529,6 +1553,22 @@ export default function PurchaseBillForm() {
   // Watch supplier so we can show the walk-in vendor name field only when
   // the system "Cash" party is selected. Same UX as the sales form.
   const supplierIdW  = Form.useWatch('supplier_id', form);
+  // Same supplier bill number entered before? Warn (never block): the same
+  // delivery keyed in twice is a costly mistake that is easy to make.
+  const supplierBillW = Form.useWatch('supplier_bill_number', form);
+  const [dupSupplierBill, setDupSupplierBill] = useState(null);
+  useEffect(() => {
+    const num = String(supplierBillW || '').trim();
+    if (!supplierIdW || !num) { setDupSupplierBill(null); return undefined; }
+    let stale = false;
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await purchaseAPI.checkSupplierBill({ supplier_id: supplierIdW, number: num, exclude_id: isEdit ? id : undefined });
+        if (!stale) setDupSupplierBill(data?.matches?.length ? data.matches : null);
+      } catch { if (!stale) setDupSupplierBill(null); }
+    }, 450);
+    return () => { stale = true; clearTimeout(t); };
+  }, [supplierIdW, supplierBillW, isEdit, id]);
   const isCashSupplierSelected = !!parties.find(
     p => p.party_id === supplierIdW && p.is_system_cash,
   );
@@ -2309,8 +2349,13 @@ export default function PurchaseBillForm() {
     { key:'qpb',      title:'P/Box', dataIndex:'quantity_per_box',  width:70,  align:'center', className:'num-cell', render:(v,r,ri)=>numCell(ri,5,v,'quantity_per_box',1) },
     { key:'rate',     required:true, title:'Rate ₹',dataIndex:'purchase_rate',    width:100, align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,6,v,'purchase_rate',0) },
     { key:'margin',   title:'MG%',   dataIndex:'margin_percentage', width:70,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,7,v,'margin_percentage',null) },
-    { key:'sale_rate',title:'Sale ₹',dataIndex:'sale_rate',         width:100, align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,8,v,'sale_rate',0) },
-    { key:'mrp',      title:'MRP ₹', dataIndex:'mrp',               width:90,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,9,v,'mrp',0) },
+    // Missing prices are marked, not blocked: no sale rate leaves the line out
+    // of the bill's profit and prints a label with no price; MRP 0 is often
+    // fine, so it is only a soft hint.
+    { key:'sale_rate',title:'Sale ₹',dataIndex:'sale_rate',         width:100, align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,8,v,'sale_rate',0),
+      onCell:(r)=>((parseFloat(r.sale_rate)||0)<=0 ? { className:'pbf-missing', title:'No sale rate: this line is not counted in the bill profit and its barcode label will have no price.' } : {}) },
+    { key:'mrp',      title:'MRP ₹', dataIndex:'mrp',               width:90,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,9,v,'mrp',0),
+      onCell:(r)=>((parseFloat(r.mrp)||0)<=0 ? { className:'pbf-soft-missing', title:'No MRP on this line.' } : {}) },
     { key:'gst',      title:'GST%',  dataIndex:'gst_rate',          width:70,  align:'right',  className:'num-cell', render:(v,r,ri)=>numCell(ri,10,v,'gst_rate',0) },
     { key:'amount',   required:true, title:'Amount ₹', width:116, align:'right', className:'num-cell',
       render:(_,r)=><span style={{color:'var(--fg-primary)',fontWeight:700,fontSize:13,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',textAlign:'right'}}>{fmtN((r.quantity||0)*(r.purchase_rate||0))}</span>,
@@ -2392,6 +2437,16 @@ export default function PurchaseBillForm() {
   const isDue      = balance > 0.001;
   const statusClass = isDue ? 'due' : isOverpaid ? 'over' : 'paid';
   const statusLabel = isDue ? 'Balance due' : isOverpaid ? 'Overpaid' : 'Paid in full';
+
+  const ENTRY_VARIANT_ONLY = new Set(['size', 'article_number', 'quantity_per_box', 'margin_percentage', 'sale_rate', 'gst_rate']);
+  const entryGridColumns = [
+    '40px',
+    'barcode', 'category', 'product',
+    ...['size', 'article_number', 'quantity', 'purchase_rate', 'quantity_per_box', 'margin_percentage', 'sale_rate', 'gst_rate']
+      .filter((k) => !(ENTRY_VARIANT_ONLY.has(k) && globalProductMode === 'single')),
+    ...(batchTrackingEnabled ? ['lot', 'mfg', 'exp', 'notes'] : []),
+    'add',
+  ].map((k) => (ENTRY_TRACK[k] ? 'minmax(' + ENTRY_TRACK[k][0] + 'px, ' + ENTRY_TRACK[k][1] + 'fr)' : k)).join(' ');
 
   return (
     <Form form={form} component={false}>
@@ -2522,7 +2577,12 @@ export default function PurchaseBillForm() {
                   stays stable when toggling Cash on/off. */}
               <div className="pbf-field" style={{ display: isCashSupplierSelected ? 'none' : 'flex' }}>
                 <Form.Item name="supplier_bill_number" noStyle>
-                  <Input placeholder="Supp. bill #"/>
+                  <Input placeholder="Supp. bill #" status={dupSupplierBill ? 'warning' : undefined}
+                    suffix={dupSupplierBill ? (
+                      <Tooltip title={<>Already entered from this supplier:<br />{dupSupplierBill.map((m) => <div key={m.purchase_bill_id}>Bill {m.bill_number} · {dayjs(m.bill_date).format('D MMM YYYY')} · ₹{Number(m.total_amount || 0).toLocaleString('en-IN')}</div>)}</>}>
+                        <span className="pbf-dup-tag">Duplicate</span>
+                      </Tooltip>
+                    ) : <span />}/>
                 </Form.Item>
               </div>
               <div className="pbf-field" style={{ display: isCashSupplierSelected ? 'flex' : 'none' }}>
@@ -2573,7 +2633,7 @@ export default function PurchaseBillForm() {
              * ────────────────────────────────────────────────────────── */}
             {billMode === 'item' && (
             <div className="pbf-entry-ledger">
-              <div className="pbf-entry-grid">
+              <div className="pbf-entry-grid" style={{ gridTemplateColumns: entryGridColumns }}>
                 {/* +Add Product — small icon affordance (40px) at the
                     start of the row. Opens the existing Add Product
                     modal so the operator can register a missing product
