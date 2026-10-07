@@ -151,6 +151,8 @@ export default function ProductItemsReport({ side }) {
   const [partyIds, setPartyIds]   = useState(() => initialArrFromUrl('party_ids').map(Number).filter(Number.isFinite));
   const [categoryIds, setCategoryIds] = useState(() => initialArrFromUrl('category_ids').map(Number).filter(Number.isFinite));
   const [productIds, setProductIds] = useState(() => initialArrFromUrl('product_ids').map(Number).filter(Number.isFinite));
+  // Sales side only: "Bought from" — sales of products purchased from these suppliers.
+  const [supplierIds, setSupplierIds] = useState(() => initialArrFromUrl('supplier_ids').map(Number).filter(Number.isFinite));
   const [barcode, setBarcode] = useState(() => initialFromUrl('barcode'));
   const [hsnCode, setHsnCode] = useState(() => initialFromUrl('hsn_code'));
   const [searchInput, setSearchInput] = useState(() => initialFromUrl('search'));
@@ -165,6 +167,7 @@ export default function ProductItemsReport({ side }) {
   const [partyOpen, setPartyOpen]       = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [productOpen, setProductOpen]   = useState(false);
+  const [supplierOpen, setSupplierOpen] = useState(false);
 
   // Decide when to auto-close a multi-select dropdown:
   //   • newVal.length > prevVal.length  → user ADDED an option;
@@ -231,12 +234,13 @@ export default function ProductItemsReport({ side }) {
     if (partyIds.length) next.party_ids      = partyIds.join(',');
     if (categoryIds.length) next.category_ids = categoryIds.join(',');
     if (productIds.length)  next.product_ids  = productIds.join(',');
+    if (supplierIds.length) next.supplier_ids = supplierIds.join(',');
     if (barcode)         next.barcode        = barcode;
     if (hsnCode)         next.hsn_code       = hsnCode;
     if (search)          next.search         = search;
     setSearchParamsRef.current(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromDate, toDate, presetKey, partyIds, categoryIds, productIds, barcode, hsnCode, search]);
+  }, [fromDate, toDate, presetKey, partyIds, categoryIds, productIds, supplierIds, barcode, hsnCode, search]);
 
   // ── Server filters → virtualized hook ────────────────────────────
   const filters = useMemo(() => ({
@@ -245,10 +249,11 @@ export default function ProductItemsReport({ side }) {
     party_ids:      partyIds.length    ? partyIds.join(',')    : undefined,
     category_ids:   categoryIds.length ? categoryIds.join(',') : undefined,
     product_ids:    productIds.length  ? productIds.join(',')  : undefined,
+    supplier_ids:   side === 'sales' && supplierIds.length ? supplierIds.join(',') : undefined,
     barcode:        barcode || undefined,
     hsn_code:       hsnCode || undefined,
     search:         search || undefined,
-  }), [fromDate, toDate, partyIds, categoryIds, productIds, barcode, hsnCode, search]);
+  }), [fromDate, toDate, partyIds, categoryIds, productIds, supplierIds, side, barcode, hsnCode, search]);
 
   const { rows, totalCount, summary, ensureChunk, loading, refresh } = useVirtualizedReport({
     fetcher: cfg.fetcher,
@@ -294,6 +299,21 @@ export default function ProductItemsReport({ side }) {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [cfg.partyTypeQuery]);
+
+  // ── Supplier options for "Bought from" (sales side) ────────────────
+  const [supplierOptions, setSupplierOptions] = useState([]);
+  useEffect(() => {
+    if (side !== 'sales') return undefined;
+    let cancelled = false;
+    partyAPI.getAll({ party_type: 'Supplier', limit: 5000 })
+      .then((r) => {
+        if (cancelled) return;
+        const list = r?.data?.data || r?.data || [];
+        setSupplierOptions(list.map((p) => ({ value: p.party_id, label: p.party_name + (p.city ? ` · ${p.city}` : '') })));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [side]);
 
   // ── Product options — filtered by selected categories ────────────
   // Mirrors the sales/purchase bill-entry form: when the operator
@@ -605,6 +625,20 @@ export default function ProductItemsReport({ side }) {
             allowClear maxTagCount={2}
             style={{ minWidth: 220, maxWidth: 360 }}
           />
+          {side === 'sales' && (
+            <Tooltip title="Show sales of products bought from these suppliers">
+              <Select size="small" mode="multiple"
+                placeholder="Bought from (supplier)"
+                value={supplierIds}
+                open={supplierOpen}
+                onDropdownVisibleChange={setSupplierOpen}
+                onChange={(v) => { setSupplierIds(v); closeOn(v, supplierIds, setSupplierOpen); }}
+                options={supplierOptions} optionFilterProp="label" showSearch
+                allowClear maxTagCount={1}
+                style={{ minWidth: 200, maxWidth: 300 }}
+              />
+            </Tooltip>
+          )}
           <Select size="small" mode="multiple"
             placeholder="Category"
             value={categoryIds}
@@ -655,9 +689,9 @@ export default function ProductItemsReport({ side }) {
       <div className="bo-tablewrap">
         {totalCount === 0 && !loading ? (
           <div className="bo-empty">
-            {(partyIds.length || categoryIds.length || productIds.length || barcode || hsnCode || search)
+            {(partyIds.length || categoryIds.length || productIds.length || supplierIds.length || barcode || hsnCode || search)
               ? <>No matches — <a onClick={() => {
-                  setPartyIds([]); setCategoryIds([]); setProductIds([]);
+                  setPartyIds([]); setCategoryIds([]); setProductIds([]); setSupplierIds([]);
                   setBarcode(''); setHsnCode('');
                   setSearchInput(''); setSearch('');
                 }}>clear filters</a></>

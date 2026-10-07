@@ -17,6 +17,9 @@
 //   to_date         YYYY-MM-DD     bill-date ceiling (default: today)
 //   party_ids       int[]          customer/supplier multi-select
 //   category_ids    int[]          category multi-select
+//   supplier_ids    int[]          sales side only: products bought from
+//                                  these suppliers (any non-cancelled
+//                                  purchase bill carrying the product)
 //   product_search  string         ILIKE on product_name
 //   barcode         string         exact match
 //   hsn_code        string         exact match (or ILIKE prefix)
@@ -144,6 +147,15 @@ async function _itemsList(req, side) {
       + 'EXISTS (SELECT 1 FROM products pp WHERE pp.product_id = i.product_id AND pp.category_id IN (:categoryIds))'
       + ')');
     params.categoryIds = categoryIds;
+  }
+  // "Bought from": sales of products that were purchased from the chosen
+  // supplier(s). Matched by product, so a product bought from two suppliers
+  // shows all its sales under either (stock isn't tracked per supplier).
+  const supplierIds = isSales ? toIntArr(q.supplier_ids) : [];
+  if (supplierIds.length) {
+    where.push('EXISTS (SELECT 1 FROM purchase_bill_items pi JOIN purchase_bills pb ON pb.purchase_bill_id = pi.purchase_bill_id'
+      + ' WHERE pi.product_id = i.product_id AND pb.is_cancelled = false AND pb.supplier_id IN (:supplierIds))');
+    params.supplierIds = supplierIds;
   }
   if (toIntArr(q.product_ids).length) {
     where.push('i.product_id IN (:productIds)');
