@@ -405,6 +405,10 @@ exports.getById = async (req, res) => {
                 where: { is_active: true },
                 required: false,
                 attributes: ['color_id', 'color_name', 'current_stock'],
+              }, {
+                // Category name for lines saved without one (the Category
+                // column on the purchase bill falls back to it).
+                model: Category, attributes: ['category_name'], required: false,
               }],
             },
             { model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date', 'notes'] },

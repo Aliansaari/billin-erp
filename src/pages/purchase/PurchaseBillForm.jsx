@@ -299,15 +299,25 @@ export default function PurchaseBillForm() {
   // entry typically wants the full pricing rhythm. Stored against the
   // signed-in user so the choice survives reloads and follows them to
   // another machine.
-  const PBF_COL_DEFAULTS = ['barcode','size','article','qpb','margin','sale_rate','mrp','gst'];
+  const PBF_COL_DEFAULTS = ['barcode','category','size','article','qpb','margin','sale_rate','mrp','gst'];
   const [pbfVisibleCols, setPbfVisibleCols] = useState(() => {
     const saved = getPref('pbf_visible_cols', null);
-    return Array.isArray(saved) ? new Set(saved) : new Set(PBF_COL_DEFAULTS);
+    if (!Array.isArray(saved)) return new Set(PBF_COL_DEFAULTS);
+    // Category was added later (to match the sales bill). Switch it on once
+    // for column choices saved before it existed; '__cat' marks that this
+    // happened, so turning it off afterwards sticks.
+    if (!saved.includes('__cat')) {
+      const next = [...saved, 'category', '__cat'];
+      setPref('pbf_visible_cols', next);
+      return new Set(next);
+    }
+    return new Set(saved);
   });
   const togglePbfCol = (key) => {
     setPbfVisibleCols(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
+      next.add('__cat');
       setPref('pbf_visible_cols', [...next]);
       return next;
     });
@@ -599,7 +609,7 @@ export default function PurchaseBillForm() {
           key:it.purchase_bill_item_id||idx,
           purchase_bill_item_id:it.purchase_bill_item_id,
           product_id:it.product_id, barcode:it.barcode||'',
-          category_id:it.category_id, category_name:it.category_name||'',
+          category_id:it.category_id, category_name:it.category_name||it.product?.Category?.category_name||'',
           product_name:it.product_name||'', size:it.size||'',
           article_number:it.article_number||'',
           purchase_rate:parseFloat(it.purchase_rate)||0,
@@ -2218,6 +2228,7 @@ export default function PurchaseBillForm() {
         </div>
       ) : <span style={{color:'var(--fg-tertiary)'}}>—</span>,
     }] : []),
+    { key:'category', title:'Category', dataIndex:'category_name', width:130, render:(v)=>readCell(v,{color:'var(--fg-secondary)',fontWeight:600}) },
     { key:'product_name', required:true, title:'Product Name', dataIndex:'product_name', width:180,
       render:(v,r,ri)=>(
         <div id={`tc-${ri}-1`}>
@@ -2340,6 +2351,7 @@ export default function PurchaseBillForm() {
         </div>
         {[
           {key:'barcode',title:'Barcode'},
+          {key:'category',title:'Category'},
           {key:'size',   title:'Size'},
           {key:'article',title:'Art#'},
           {key:'qpb',    title:'P/Box'},
