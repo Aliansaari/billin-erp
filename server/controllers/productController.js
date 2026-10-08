@@ -279,6 +279,10 @@ exports.getAll = async (req, res) => {
           // into the size picker.
           [fn('COALESCE', fn('SUM', col('current_stock')), 0), 'total_stock'],
           [fn('MIN', col('Product.product_id')), 'sample_product_id'],
+          // For a one-variant family the dropdown shows its size · art,
+          // same as the purchase bill does.
+          [fn('MIN', col('size_value')), 'size_value'],
+          [fn('MIN', col('article_number')), 'article_number'],
           // One family per (name, category): "GHAGHRA CHOLI" in CHOLI and in
           // LEHENGA are different products and must be separate choices.
           'category_id',
@@ -299,6 +303,8 @@ exports.getAll = async (req, res) => {
           sample_product_id: parseInt(r.sample_product_id, 10),
           category_id:       r.category_id == null ? null : parseInt(r.category_id, 10),
           category_name:     r.category_name || null,
+          size_value:        r.size_value || null,
+          article_number:    r.article_number || null,
         })),
       });
     }

@@ -2647,8 +2647,8 @@ export default function SalesBillForm() {
           <div className="sbf-pick-row fam">
             <span className="nm">{p.product_name}</span>
             <span className={`cat${p.category_name ? '' : ' none'}`}>{p.category_name || '—'}</span>
-            <span className="meta">{n > 1 ? `${n} variants` : '1 variant'}</span>
-            <span className={`stk${famStock <= 0 ? ' zero' : famStock <= 5 ? ' low' : ''}`}>{famStock <= 0 ? 'Out' : famStock}</span>
+            <span className="meta">{n > 1 ? `${n} variants` : [p.size_value, p.article_number].filter(Boolean).join(' · ') || '—'}</span>
+            <span className={`stk${famStock <= 0 ? ' zero' : famStock <= 5 ? ' low' : ''}`}>{Number.isInteger(famStock) ? famStock : famStock.toFixed(1)}</span>
           </div>
         </Select.Option>
       );
@@ -2661,7 +2661,7 @@ export default function SalesBillForm() {
           <span className={`cat${p.Category?.category_name ? '' : ' none'}`}>{p.Category?.category_name || '—'}</span>
           <span className="meta">{[p.size_value, p.article_number].filter(Boolean).join(' · ') || '—'}</span>
           <span className="rate">₹{parseFloat(p.sale_rate || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-          <span className={`stk${stock <= 0 ? ' zero' : stock <= 5 ? ' low' : ''}`}>{stock <= 0 ? 'Out' : stock}</span>
+          <span className={`stk${stock <= 0 ? ' zero' : stock <= 5 ? ' low' : ''}`}>{Number.isInteger(stock) ? stock : stock.toFixed(1)}</span>
         </div>
       </Select.Option>
     );
@@ -3052,13 +3052,13 @@ export default function SalesBillForm() {
                     }}
                     allowClear
                     placeholder="Product name" notFoundContent={null}
-                    listHeight={360} dropdownMatchSelectWidth={globalProductMode === 'variant' ? 600 : 680}
+                    listHeight={360} dropdownMatchSelectWidth={globalProductMode === 'variant' ? 620 : 680}
                     popupClassName="sbf-pick-pop"
                     // Column headings, like the customer picker.
                     dropdownRender={(menu) => (
                       <div>
                         {prodOpts.length > 0 && (globalProductMode === 'variant'
-                          ? <div className="sbf-pick-head fam"><span>Product</span><span>Category</span><span>Variants</span><span className="r">Stock</span></div>
+                          ? <div className="sbf-pick-head fam"><span>Product</span><span>Category</span><span>Size · Art</span><span className="r">Stock</span></div>
                           : <div className="sbf-pick-head"><span>Product</span><span>Category</span><span>Size · Art</span><span className="r">Rate</span><span className="r">Stock</span></div>)}
                         {menu}
                       </div>
@@ -3165,53 +3165,31 @@ export default function SalesBillForm() {
                       placeholder={siblingsLoading ? 'Loading…' : 'Pick a size'}
                       loading={siblingsLoading}
                       optionLabelProp="label"
-                      dropdownMatchSelectWidth={420}
+                      dropdownMatchSelectWidth={520}
                       listHeight={320}
+                      popupClassName="sbf-pick-pop"
+                      // Same table pattern as the product dropdown.
+                      dropdownRender={(menu) => (
+                        <div>
+                          {siblings.length > 0 && <div className="sbf-pick-head size"><span>Size</span><span>Art #</span><span>Per box</span><span className="r">Rate</span><span className="r">Stock</span></div>}
+                          {menu}
+                        </div>
+                      )}
                     >
                       {siblings.map((s) => {
                         const stock = parseFloat(s.current_stock || 0);
-                        const stockColor = stock <= 0 ? 'var(--danger)' : stock <= 5 ? 'var(--warning)' : 'var(--fg-tertiary)';
                         const qpb = parseFloat(s.quantity_per_box) || 1;
-                        // Trigger label: show whatever's most meaningful for
-                        // this row. Size > Art# > Barcode, so even rows with
-                        // null size/article still get a unique-looking label
-                        // in the cell after the pick instead of a bare "—".
+                        // Trigger label: Size > Art# > Barcode, so rows with no
+                        // size/article still get a unique label after the pick.
                         const triggerLabel = s.size_value || s.article_number || s.barcode || '—';
                         return (
-                          <Select.Option
-                            key={s.product_id}
-                            value={s.product_id}
-                            label={triggerLabel}
-                            sibling={s}
-                          >
-                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, padding:'4px 0' }}>
-                              <div style={{ minWidth:0, flex:1 }}>
-                                {/* Three-tier layout — siblings all share the
-                                 *  same product_name (that's the family key),
-                                 *  so the actual differentiator is Art# +
-                                 *  Size. Promote those to their own bolder
-                                 *  line; demote barcode + qty/box to small
-                                 *  grey support text below. */}
-                                <div style={{ fontWeight:700, fontSize:13, color:'var(--fg-primary)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                                  {s.product_name}
-                                </div>
-                                <div style={{ fontWeight:600, fontSize:12, color:'var(--fg-secondary)', marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                                  {[
-                                    s.article_number && `Art# ${s.article_number}`,
-                                    s.size_value && `Size ${s.size_value}`,
-                                  ].filter(Boolean).join(' · ') || <span style={{color:'var(--fg-tertiary)',fontWeight:500,fontStyle:'italic'}}>No size / article</span>}
-                                </div>
-                                <div style={{ fontSize:10.5, color:'var(--fg-tertiary)', marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                                  {[
-                                    qpb > 1 ? `${qpb} pcs/box` : null,
-                                    s.barcode,
-                                  ].filter(Boolean).join(' · ')}
-                                </div>
-                              </div>
-                              <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, flexShrink:0 }}>
-                                <span style={{ color:'var(--success)', fontWeight:700, fontSize:13 }}>₹{parseFloat(s.sale_rate||0).toFixed(2)}</span>
-                                <span style={{ color:stockColor, fontSize:10.5, fontWeight:600 }}>{stock <= 0 ? 'Out of stock' : `Stock: ${stock}`}</span>
-                              </div>
+                          <Select.Option key={s.product_id} value={s.product_id} label={triggerLabel} sibling={s}>
+                            <div className="sbf-pick-row size" title={s.barcode || ''}>
+                              <span className="nm">{s.size_value || '—'}</span>
+                              <span className="cat">{s.article_number || '—'}</span>
+                              <span className="meta">{qpb > 1 ? `${qpb} pcs` : '—'}</span>
+                              <span className="rate">₹{parseFloat(s.sale_rate || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                              <span className={`stk${stock <= 0 ? ' zero' : stock <= 5 ? ' low' : ''}`}>{Number.isInteger(stock) ? stock : stock.toFixed(1)}</span>
                             </div>
                           </Select.Option>
                         );
