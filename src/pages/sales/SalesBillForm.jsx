@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import { PickName, PickCat, PickStock, PickMeta } from '../../utils/pickList';
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Tag, Checkbox } from 'antd';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -1078,6 +1079,8 @@ export default function SalesBillForm() {
   // handleProdSearch — fires when user types in the Select search box.
   // Family mode (variant) collapses results to one row per product_name;
   // single mode keeps the flat per-row list so behaviour is unchanged.
+  // Text the current results were fetched for, to mark it in the rows.
+  const [prodQuery,setProdQuery]=useState('');
   const handleProdSearch=useCallback((v)=>{
     if(searchTimerRef.current) clearTimeout(searchTimerRef.current);
     if(!v){ if(!activeCatId) setProdOpts([]); return; }
@@ -1093,6 +1096,7 @@ export default function SalesBillForm() {
         const{data}=await productAPI.search(v, params);
         if(reqId!==searchReqRef.current) return;
         setProdOpts(data.data||[]);
+        setProdQuery(v);
       }catch{}
     },150);
   },[activeCatId, globalProductMode]);
@@ -2645,10 +2649,10 @@ export default function SalesBillForm() {
       return (
         <Select.Option key={`${p.product_name}\u241F${p.category_id ?? ''}`} value={`${p.product_name}\u241F${p.category_id ?? ''}`} label={p.product_name} family={p}>
           <div className="sbf-pick-row fam">
-            <span className="nm">{p.product_name}</span>
-            <span className={`cat${p.category_name ? '' : ' none'}`}>{p.category_name || '—'}</span>
-            <span className="meta">{n > 1 ? `${n} variants` : [p.size_value, p.article_number].filter(Boolean).join(' · ') || '—'}</span>
-            <span className={`stk${famStock <= 0 ? ' zero' : famStock <= 5 ? ' low' : ''}`}>{Number.isInteger(famStock) ? famStock : famStock.toFixed(1)}</span>
+            <PickName name={p.product_name} q={prodQuery} />
+            <PickCat id={p.category_id} name={p.category_name} />
+            <PickMeta variants={n} size={p.size_value} art={p.article_number} />
+            <PickStock value={famStock} />
           </div>
         </Select.Option>
       );
@@ -2657,15 +2661,15 @@ export default function SalesBillForm() {
     return (
       <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
         <div className="sbf-pick-row">
-          <span className="nm">{p.product_name}</span>
-          <span className={`cat${p.Category?.category_name ? '' : ' none'}`}>{p.Category?.category_name || '—'}</span>
-          <span className="meta">{[p.size_value, p.article_number].filter(Boolean).join(' · ') || '—'}</span>
+          <PickName name={p.product_name} q={prodQuery} />
+          <PickCat id={p.category_id} name={p.Category?.category_name} />
+          <PickMeta size={p.size_value} art={p.article_number} />
           <span className="rate">₹{parseFloat(p.sale_rate || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-          <span className={`stk${stock <= 0 ? ' zero' : stock <= 5 ? ' low' : ''}`}>{Number.isInteger(stock) ? stock : stock.toFixed(1)}</span>
+          <PickStock value={stock} />
         </div>
       </Select.Option>
     );
-  }), [prodOpts, globalProductMode]);
+  }), [prodOpts, globalProductMode, prodQuery]);
 
   /* ─── Status badge (Paid / Balance / Overpaid) ───────────────────────── */
   const isOverpaid = balance < -0.001;
@@ -3189,7 +3193,7 @@ export default function SalesBillForm() {
                               <span className="cat">{s.article_number || '—'}</span>
                               <span className="meta">{qpb > 1 ? `${qpb} pcs` : '—'}</span>
                               <span className="rate">₹{parseFloat(s.sale_rate || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                              <span className={`stk${stock <= 0 ? ' zero' : stock <= 5 ? ' low' : ''}`}>{Number.isInteger(stock) ? stock : stock.toFixed(1)}</span>
+                              <PickStock value={stock} />
                             </div>
                           </Select.Option>
                         );

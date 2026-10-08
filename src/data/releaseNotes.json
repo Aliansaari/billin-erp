@@ -8,7 +8,8 @@
       "highlights": [
         "Searching a product on a sale or purchase bill shows its category, size and stock in neat columns, so you pick the right one.",
         "A product name used in two categories now shows as two choices, and the Category box fills in when you pick.",
-        "The row you are on with the arrow keys is clearly highlighted in every dropdown."
+        "The row you are on with the arrow keys is clearly highlighted in every dropdown.",
+        "The letters you typed are marked in each name, every category has its own colour dot, and the sale Size list uses the same tidy table."
       ]
     },
     {

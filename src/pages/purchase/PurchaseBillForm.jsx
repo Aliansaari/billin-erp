@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import { PickName, PickCat, PickStock, PickMeta } from '../../utils/pickList';
 import ReactDOM from 'react-dom';
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Popover, Checkbox, Tooltip } from 'antd';
 import { SettingOutlined, UserAddOutlined, PushpinOutlined, PushpinFilled } from '@ant-design/icons';
@@ -783,6 +784,8 @@ export default function PurchaseBillForm() {
     return [...map.values()];
   },[prodRawList]);
 
+  // Text the current results were fetched for, to mark it in the rows.
+  const [prodQuery,setProdQuery]=useState('');
   const handleProductSearch=useCallback((value)=>{
     if(searchTimerRef.current) clearTimeout(searchTimerRef.current);
     if(!value){ if(!activeCatId) setProdRawList([]); return; }
@@ -793,6 +796,7 @@ export default function PurchaseBillForm() {
         const{data}=await productAPI.search(value,{name_only:'true',limit:500,...(activeCatId?{category_id:activeCatId}:{})});
         if(reqId!==searchReqRef.current) return;
         setProdRawList(data.data||[]);
+        setProdQuery(value);
       }catch(e){ if(reqId===searchReqRef.current) setProdRawList([]); }
       finally{ if(reqId===searchReqRef.current) setProductSearching(false); }
     },150);
@@ -2722,16 +2726,15 @@ export default function PurchaseBillForm() {
                     )}>
                     {dedupedProducts.map(p=>{
                       const stock = parseFloat(p._totalStock||p.current_stock||0);
-                      const many = (p._variants||1) > 1;
                       return(
                         // value is unique per (name, category) so two same-name
                         // products are separate choices; the box still shows the name.
                         <Select.Option key={p.product_id} value={`${p.product_name}\u241F${p.category_id??''}`} label={p.product_name} product={p}>
                           <div className="pbf-pick-row">
-                            <span className="nm">{p.product_name}</span>
-                            <span className={`cat${p.Category?.category_name ? '' : ' none'}`}>{p.Category?.category_name||'—'}</span>
-                            <span className="meta">{many ? `${p._variants} variants` : [p.size_value, p.article_number].filter(Boolean).join(' · ') || '—'}</span>
-                            <span className={`stk${stock<=0 ? ' zero' : stock<=5 ? ' low' : ''}`}>{Number.isInteger(stock) ? stock : stock.toFixed(1)}</span>
+                            <PickName name={p.product_name} q={prodQuery}/>
+                            <PickCat id={p.category_id} name={p.Category?.category_name}/>
+                            <PickMeta variants={p._variants||1} size={p.size_value} art={p.article_number}/>
+                            <PickStock value={stock}/>
                           </div>
                         </Select.Option>
                       );
