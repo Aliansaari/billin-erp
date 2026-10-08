@@ -762,11 +762,14 @@ export default function PurchaseBillForm() {
   const dedupedProducts=useMemo(()=>{
     const map=new Map();
     prodRawList.forEach(p=>{
-      const key=(p.product_name||'').toLowerCase().trim();
+      // Name AND category: "GHAGHRA CHOLI" in CHOLI and in LEHENGA are two
+      // products, shown as two rows so the operator picks the right one.
+      const key=(p.product_name||'').toLowerCase().trim()+'\u0000'+(p.category_id??'');
       if(!map.has(key)){
-        map.set(key,{...p, _totalStock:parseFloat(p.current_stock||0), is_batch_tracked:!!p.is_batch_tracked});
+        map.set(key,{...p, _totalStock:parseFloat(p.current_stock||0), is_batch_tracked:!!p.is_batch_tracked, _variants:1});
       } else {
         const existing=map.get(key);
+        existing._variants=(existing._variants||1)+1;
         existing._totalStock+=parseFloat(p.current_stock||0);
         if(p.is_batch_tracked) existing.is_batch_tracked=true;
         // Replace with single-mode sibling if found — single takes priority.
@@ -2658,7 +2661,7 @@ export default function PurchaseBillForm() {
                 </div>
                 <div className="pbf-cell has-arrow">
                   <div className="pbf-cell-lbl">Category</div>
-                  <Select ref={categoryRef} value={activeCatId} placeholder="Category" showSearch
+                  <Select ref={categoryRef} value={activeCatId ?? entry.category_id ?? undefined} placeholder="Category" showSearch popupClassName="pbf-pick-pop"
                     filterOption={(input,opt)=>!input||opt.children.toLowerCase().includes(input.toLowerCase())}
                     allowClear notFoundContent={null} dropdownMatchSelectWidth={300}
                     onChange={(v,opt)=>{
@@ -2707,20 +2710,20 @@ export default function PurchaseBillForm() {
                     allowClear
                     placeholder={activeCatId?'Product name (in category)':'Product name'}
                     notFoundContent={productSearching?'Searching…':null}
-                    listHeight={320} dropdownMatchSelectWidth={520}>
+                    listHeight={360} dropdownMatchSelectWidth={600} popupClassName="pbf-pick-pop">
                     {dedupedProducts.map(p=>{
                       const stock = parseFloat(p._totalStock||p.current_stock||0);
                       const stockColor = stock<=0 ? 'var(--danger)' : stock<=5 ? 'var(--warning)' : 'var(--success)';
+                      const many = (p._variants||1) > 1;
                       return(
-                        <Select.Option key={p.product_id} value={p.product_name} label={p.product_name} product={p}>
-                          <div style={{display:'grid',gridTemplateColumns:'1fr 90px 70px 60px 72px',columnGap:10,alignItems:'center',fontVariantNumeric:'tabular-nums'}}>
-                            <span style={{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.product_name}</span>
-                            <span style={{fontSize:11,color:'var(--fg-tertiary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.Category?.category_name||'—'}</span>
-                            <span style={{fontSize:12,color:'var(--fg-tertiary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.article_number||'—'}</span>
-                            <span style={{fontSize:12,color:'var(--fg-tertiary)'}}>{p.size_value||'—'}</span>
-                            <span style={{fontSize:11,fontWeight:600,color:stockColor,justifySelf:'end'}}>
-                              {stock<=0?'out':stock}
-                            </span>
+                        // value is unique per (name, category) so two same-name
+                        // products are separate choices; the box still shows the name.
+                        <Select.Option key={p.product_id} value={`${p.product_name}\u241F${p.category_id??''}`} label={p.product_name} product={p}>
+                          <div className="pbf-pick-row">
+                            <span className="nm">{p.product_name}</span>
+                            <span className={`cat${p.Category?.category_name ? '' : ' none'}`}>{p.Category?.category_name||'No category'}</span>
+                            <span className="meta">{many ? `${p._variants} variants` : [p.size_value, p.article_number].filter(Boolean).join(' · ') || '—'}</span>
+                            <span className="stk" style={{color:stockColor}}>{stock<=0?'out':stock}</span>
                           </div>
                         </Select.Option>
                       );

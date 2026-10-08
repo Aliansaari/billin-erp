@@ -2016,3 +2016,16 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
   border-color: var(--accent, #4F46E5);
 }
 .sbf-cols-btn .anticon { font-size: 12px; }
+
+/* ── Dropdown keyboard highlight ─────────────────────────────────────
+   The option you are on with ↑ / ↓ must be unmistakable in every theme:
+   an accent wash plus an accent bar on the left. The chosen value keeps
+   a fainter wash so the two never look alike. */
+.ant-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: color-mix(in srgb, var(--accent, #B1472F) 18%, var(--bg-panel, #fff)) !important;
+  box-shadow: inset 3px 0 0 var(--accent, #B1472F);
+}
+.ant-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-active):not(.ant-select-item-option-disabled) {
+  background: color-mix(in srgb, var(--accent, #B1472F) 7%, transparent) !important;
+}
+.ant-select-dropdown .ant-select-item-option { transition: none; }
