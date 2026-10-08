@@ -1915,3 +1915,26 @@
 .sbf-addparty:hover  { filter: brightness(1.08); }
 .sbf-addparty:active { transform: translateY(1px); }
 .sbf-addparty .anticon { font-size: 15px; }
+
+/* Product dropdown — the customer picker's pattern: a heading row over
+   aligned columns. Variant mode (families): product · category · variants ·
+   stock. Single mode adds the sale rate. Same look as the purchase bill. */
+.sbf-pick-head, .sbf-pick-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 150px 130px 84px 56px; column-gap: 14px; align-items: center;
+}
+.sbf-pick-head.fam, .sbf-pick-row.fam { grid-template-columns: minmax(0, 1fr) 150px 110px 56px; }
+.sbf-pick-head {
+  padding: 7px 12px; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--fg-tertiary); background: var(--bg-muted); border-bottom: 1px solid var(--border-subtle);
+}
+.sbf-pick-head .r { text-align: right; }
+.sbf-pick-row { font-variant-numeric: tabular-nums; min-height: 22px; }
+.sbf-pick-row .nm { font-weight: 600; font-size: 13px; color: var(--fg-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbf-pick-row .cat { font-size: 12.5px; font-weight: 600; color: var(--fg-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbf-pick-row .cat.none, .sbf-pick-row .meta { color: var(--fg-tertiary); }
+.sbf-pick-row .meta { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbf-pick-row .rate { font-size: 12.5px; font-weight: 700; text-align: right; color: var(--fg-primary); }
+.sbf-pick-row .stk { font-size: 12.5px; font-weight: 600; text-align: right; color: var(--fg-secondary); }
+.sbf-pick-row .stk.zero { color: var(--danger); font-weight: 600; }
+.sbf-pick-row .stk.low { color: var(--warning); }
+.sbf-pick-pop .ant-select-item-option { padding: 8px 12px; }

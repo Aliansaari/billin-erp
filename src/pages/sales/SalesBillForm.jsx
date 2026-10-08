@@ -1118,7 +1118,10 @@ export default function SalesBillForm() {
       // does nothing — the server's where-clause is only built when a
       // search term is present.
       productAPI.search(fam.product_name, {
-        category_id: activeCatId,
+        // The family row carries its category (families are per name AND
+        // category), so siblings come from the right one even when no
+        // category was chosen first.
+        category_id: fam.category_id ?? activeCatId,
         name_exact: 'true',
         name_only: 'true',
         limit: 500,
@@ -1154,6 +1157,8 @@ export default function SalesBillForm() {
             ...prev,
             product_id: null,
             product_name: fam.product_name,
+            category_id: fam.category_id ?? prev.category_id ?? null,
+            category_name: fam.category_name || prev.category_name || '',
             barcode: '',
             size: '', article_number: '',
             rate: 0, mrp: 0, hsn_code: '', gst_rate: 0,
@@ -2635,35 +2640,28 @@ export default function SalesBillForm() {
     // SUM of sibling stock; single-mode renders the original per-row card.
     if (globalProductMode === 'variant') {
       const famStock = parseFloat(p.total_stock || 0);
-      const famStockColor = famStock <= 0 ? 'var(--danger)' : famStock <= 5 ? 'var(--warning)' : 'var(--fg-secondary)';
+      const n = p.variant_count || 1;
+      // value is unique per (name, category); the box still shows the name.
       return (
-        <Select.Option key={p.product_name} value={p.product_name} label={p.product_name} family={p}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
-            <div style={{minWidth:0,flex:1,fontWeight:600,fontSize:13,color:'var(--fg-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
-              {p.product_name}
-            </div>
-            <div style={{flexShrink:0,fontSize:12,color:famStockColor,fontWeight:700}}>
-              {famStock <= 0 ? 'Out of stock' : `Stock: ${famStock}`}
-            </div>
+        <Select.Option key={`${p.product_name}\u241F${p.category_id ?? ''}`} value={`${p.product_name}\u241F${p.category_id ?? ''}`} label={p.product_name} family={p}>
+          <div className="sbf-pick-row fam">
+            <span className="nm">{p.product_name}</span>
+            <span className={`cat${p.category_name ? '' : ' none'}`}>{p.category_name || '—'}</span>
+            <span className="meta">{n > 1 ? `${n} variants` : '1 variant'}</span>
+            <span className={`stk${famStock <= 0 ? ' zero' : famStock <= 5 ? ' low' : ''}`}>{famStock <= 0 ? 'Out' : famStock}</span>
           </div>
         </Select.Option>
       );
     }
     const stock = parseFloat(p.current_stock || 0);
-    const stockColor = stock <= 0 ? 'var(--danger)' : stock <= 5 ? 'var(--warning)' : 'var(--fg-tertiary)';
     return (
       <Select.Option key={p.product_id} value={p.product_id} label={p.product_name} product={p}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'2px 0'}}>
-          <div style={{minWidth:0,flex:1}}>
-            <div style={{fontWeight:600,fontSize:13,color:'var(--fg-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.product_name}</div>
-            <div style={{fontSize:10,color:'var(--fg-tertiary)',marginTop:1}}>
-              {[p.Category?.category_name,p.article_number&&`Art# ${p.article_number}`,p.size_value&&`Size ${p.size_value}`].filter(Boolean).join(' · ')}
-            </div>
-          </div>
-          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
-            <span style={{color:'var(--success)',fontWeight:700,fontSize:12}}>₹{parseFloat(p.sale_rate||0).toFixed(2)}</span>
-            <span style={{color:stockColor,fontSize:10,fontWeight:600}}>{stock<=0?'Out of stock':`Stock: ${stock}`}</span>
-          </div>
+        <div className="sbf-pick-row">
+          <span className="nm">{p.product_name}</span>
+          <span className={`cat${p.Category?.category_name ? '' : ' none'}`}>{p.Category?.category_name || '—'}</span>
+          <span className="meta">{[p.size_value, p.article_number].filter(Boolean).join(' · ') || '—'}</span>
+          <span className="rate">₹{parseFloat(p.sale_rate || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+          <span className={`stk${stock <= 0 ? ' zero' : stock <= 5 ? ' low' : ''}`}>{stock <= 0 ? 'Out' : stock}</span>
         </div>
       </Select.Option>
     );
@@ -2953,7 +2951,7 @@ export default function SalesBillForm() {
                 </div>
                 <div className="sbf-cell has-arrow">
                   <div className="sbf-cell-lbl">Category</div>
-                  <Select value={activeCatId}
+                  <Select value={activeCatId ?? entry.category_id ?? undefined}
                     onChange={(v,opt)=>{
                       justSelectedRef.current = false;
                       // Clear any stale skip flag from a previous product
@@ -3054,7 +3052,17 @@ export default function SalesBillForm() {
                     }}
                     allowClear
                     placeholder="Product name" notFoundContent={null}
-                    listHeight={320} dropdownMatchSelectWidth={460}
+                    listHeight={360} dropdownMatchSelectWidth={globalProductMode === 'variant' ? 600 : 680}
+                    popupClassName="sbf-pick-pop"
+                    // Column headings, like the customer picker.
+                    dropdownRender={(menu) => (
+                      <div>
+                        {prodOpts.length > 0 && (globalProductMode === 'variant'
+                          ? <div className="sbf-pick-head fam"><span>Product</span><span>Category</span><span>Variants</span><span className="r">Stock</span></div>
+                          : <div className="sbf-pick-head"><span>Product</span><span>Category</span><span>Size · Art</span><span className="r">Rate</span><span className="r">Stock</span></div>)}
+                        {menu}
+                      </div>
+                    )}
                   >
                     {productOptionNodes}
                   </Select>

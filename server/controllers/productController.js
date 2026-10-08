@@ -279,8 +279,12 @@ exports.getAll = async (req, res) => {
           // into the size picker.
           [fn('COALESCE', fn('SUM', col('current_stock')), 0), 'total_stock'],
           [fn('MIN', col('Product.product_id')), 'sample_product_id'],
+          // One family per (name, category): "GHAGHRA CHOLI" in CHOLI and in
+          // LEHENGA are different products and must be separate choices.
+          'category_id',
+          [literal('(SELECT c.category_name FROM categories c WHERE c.category_id = "Product"."category_id")'), 'category_name'],
         ],
-        group: ['product_name'],
+        group: ['product_name', 'category_id'],
         order: familyOrder,
         limit,
         offset,
@@ -293,6 +297,8 @@ exports.getAll = async (req, res) => {
           variant_count:     parseInt(r.variant_count, 10),
           total_stock:       parseFloat(r.total_stock || 0),
           sample_product_id: parseInt(r.sample_product_id, 10),
+          category_id:       r.category_id == null ? null : parseInt(r.category_id, 10),
+          category_name:     r.category_name || null,
         })),
       });
     }
