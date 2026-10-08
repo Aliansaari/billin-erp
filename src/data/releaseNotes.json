@@ -2,6 +2,16 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.16",
+      "date": "2026-10-08",
+      "title": "Clearer product search on bills",
+      "highlights": [
+        "Searching a product on a sale or purchase bill shows its category, size and stock in neat columns, so you pick the right one.",
+        "A product name used in two categories now shows as two choices, and the Category box fills in when you pick.",
+        "The row you are on with the arrow keys is clearly highlighted in every dropdown."
+      ]
+    },
+    {
       "version": "1.1.15",
       "date": "2026-10-07",
       "title": "See how each supplier's products sell",
