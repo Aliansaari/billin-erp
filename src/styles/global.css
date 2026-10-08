@@ -2019,13 +2019,14 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
 
 /* ── Dropdown keyboard highlight ─────────────────────────────────────
    The option you are on with ↑ / ↓ must be unmistakable in every theme:
-   an accent wash plus an accent bar on the left. The chosen value keeps
-   a fainter wash so the two never look alike. */
+   a soft accent wash plus a crisp accent bar on the left. The chosen value
+   keeps a fainter wash (no bar) so the two never look alike. */
 .ant-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
-  background: color-mix(in srgb, var(--accent, #B1472F) 18%, var(--bg-panel, #fff)) !important;
+  background: color-mix(in srgb, var(--accent, #B1472F) 13%, var(--bg-panel, #fff)) !important;
   box-shadow: inset 3px 0 0 var(--accent, #B1472F);
+  border-radius: 4px 6px 6px 4px;
 }
 .ant-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-active):not(.ant-select-item-option-disabled) {
-  background: color-mix(in srgb, var(--accent, #B1472F) 7%, transparent) !important;
+  background: color-mix(in srgb, var(--accent, #B1472F) 6%, transparent) !important;
 }
 .ant-select-dropdown .ant-select-item-option { transition: none; }

@@ -2710,10 +2710,18 @@ export default function PurchaseBillForm() {
                     allowClear
                     placeholder={activeCatId?'Product name (in category)':'Product name'}
                     notFoundContent={productSearching?'Searching…':null}
-                    listHeight={360} dropdownMatchSelectWidth={600} popupClassName="pbf-pick-pop">
+                    listHeight={360} dropdownMatchSelectWidth={620} popupClassName="pbf-pick-pop"
+                    // Column headings, like the customer picker on the sale bill.
+                    dropdownRender={(menu) => (
+                      <div>
+                        {dedupedProducts.length > 0 && (
+                          <div className="pbf-pick-head"><span>Product</span><span>Category</span><span>Size · Art</span><span className="r">Stock</span></div>
+                        )}
+                        {menu}
+                      </div>
+                    )}>
                     {dedupedProducts.map(p=>{
                       const stock = parseFloat(p._totalStock||p.current_stock||0);
-                      const stockColor = stock<=0 ? 'var(--danger)' : stock<=5 ? 'var(--warning)' : 'var(--success)';
                       const many = (p._variants||1) > 1;
                       return(
                         // value is unique per (name, category) so two same-name
@@ -2721,9 +2729,9 @@ export default function PurchaseBillForm() {
                         <Select.Option key={p.product_id} value={`${p.product_name}\u241F${p.category_id??''}`} label={p.product_name} product={p}>
                           <div className="pbf-pick-row">
                             <span className="nm">{p.product_name}</span>
-                            <span className={`cat${p.Category?.category_name ? '' : ' none'}`}>{p.Category?.category_name||'No category'}</span>
+                            <span className={`cat${p.Category?.category_name ? '' : ' none'}`}>{p.Category?.category_name||'—'}</span>
                             <span className="meta">{many ? `${p._variants} variants` : [p.size_value, p.article_number].filter(Boolean).join(' · ') || '—'}</span>
-                            <span className="stk" style={{color:stockColor}}>{stock<=0?'out':stock}</span>
+                            <span className={`stk${stock<=0 ? ' zero' : stock<=5 ? ' low' : ''}`}>{Number.isInteger(stock) ? stock : stock.toFixed(1)}</span>
                           </div>
                         </Select.Option>
                       );
