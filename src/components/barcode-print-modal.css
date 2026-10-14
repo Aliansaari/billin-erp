@@ -56,23 +56,41 @@
   max-height: 56vh;
 }
 .bpm-table-wrap .ant-table { width: 100%; }
+/* Sticky header needs the scroll container to be the wrapper, not AntD's
+   own (we never pass scroll={}), and separate borders so the header's
+   accent rule travels with it. */
+.bpm-table-wrap .ant-table-wrapper,
+.bpm-table-wrap .ant-table-container,
+.bpm-table-wrap .ant-table-content { overflow: visible !important; }
 .bpm-table-wrap .ant-table-cell { white-space: nowrap; }
 
-/* Header — refined, never wraps */
+/* Grid — the purchase form's item table (.pbf-tbl-wrap): 28px rows,
+   full-height column rules, uppercase header on an accent underline. One
+   bill line = one row at the same height, so a 90-line bill stays scannable. */
 .bpm-modal .ant-table-thead > tr > th {
+  position: sticky; top: 0; z-index: 2;
   background: var(--bg-muted) !important;
-  color: var(--fg-tertiary) !important;
+  color: var(--fg-secondary) !important;
   font-size: 11px; font-weight: 700;
-  letter-spacing: .06em; text-transform: uppercase;
+  letter-spacing: .5px; text-transform: uppercase;
   white-space: nowrap;
-  border-bottom: 1px solid var(--border) !important;
+  border-bottom: 2px solid var(--accent) !important;
   border-right: 1px solid var(--border) !important;
-  padding: 11px 14px !important;
+  padding: 9px 8px !important;
 }
+.bpm-modal .ant-table-thead > tr > th::before { display: none !important; }
 .bpm-modal .ant-table-tbody > tr > td {
-  padding: 11px 14px !important;
+  height: 28px;
+  padding: 3px 8px !important;
+  font-size: 13px;
   border-bottom: 1px solid var(--border-subtle) !important;
   border-right: 1px solid var(--border-subtle) !important;
+  vertical-align: middle;
+}
+.bpm-modal .ant-table-tbody > tr > td .ant-typography { font-size: 13px; }
+.bpm-sn {
+  font-weight: 700; color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
 }
 /* Last column has no inner divider — the wrapper border closes the grid */
 .bpm-modal .ant-table-thead > tr > th:last-child,
@@ -134,16 +152,19 @@
 /* ── Spreadsheet cells (Custom Label + Labels columns) ──────────────────── */
 .bpm-cell {
   cursor: cell;
-  margin: -8px -10px;           /* bleed into the td padding so the border
+  margin: -3px -8px;            /* bleed into the td padding so the border
                                    sits right at the cell gridline */
-  padding: 6px 8px;
+  padding: 1px 6px;
+  min-height: 27px;
+  display: flex; align-items: center;
   border: 2px solid transparent;
   border-radius: 0;
   transition: border-color .1s;
 }
 .bpm-cell:hover { border-color: var(--border); }
-.bpm-cell--focused { border-color: #1677ff !important; background: rgba(22, 119, 255, .06); }
-.bpm-cell--num { text-align: center; font-variant-numeric: tabular-nums; }
+.bpm-cell--focused { border-color: var(--accent) !important; background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel)); }
+.bpm-cell--num { justify-content: center; text-align: center; font-variant-numeric: tabular-nums; }
+.bpm-cell--num .ant-input-number-input { font-weight: 700 !important; }
 
 /* Make inputs invisible — they look like plain cell text */
 .bpm-cell-input,
@@ -156,7 +177,7 @@
 .bpm-cell-input input,
 .bpm-cell .ant-input-number-input {
   padding: 0 !important; height: auto !important;
-  font-size: 14px !important; color: var(--fg-primary) !important;
+  font-size: 13px !important; color: var(--fg-primary) !important;
 }
 .bpm-cell--num .ant-input-number-input { text-align: center !important; font-weight: 600; }
 .bpm-cell .ant-input-number-handler-wrap { display: none !important; }
@@ -180,7 +201,8 @@
   margin-top: 2px; padding-left: 43px;   /* clears the 32px icon + 11px gap */
 }
 
-/* ── Toolbar (reprint) ───────────────────────────────────────────────────── */
+/* ── Toolbar (both modes) ────────────────────────────────────────────────── */
+.bpm-modal--bill .bpm-toolbar,
 .bpm-modal--reprint .bpm-toolbar {
   align-items: flex-end; gap: 18px;
   border-bottom: 1px solid var(--border-subtle);
@@ -204,6 +226,13 @@
   background: var(--accent-bg); border-color: var(--accent-border);
   color: var(--accent-text);
 }
+.bpm-preset--wide { padding: 0 11px; }
+/* Bulk controls sit on the same 38px line as the brand input, so both
+   field captions line up and the row reads as one strip. */
+.bpm-bulk .bpm-preset { height: 38px; min-width: 38px; }
+.bpm-bulk .bpm-bulk__num { height: 38px; }
+.bpm-bulk .bpm-bulk__num .ant-input-number-input { height: 36px; }
+.bpm-bulk .ant-btn { height: 38px; }
 .bpm-hint { color: var(--fg-tertiary); font-size: 12.5px; padding: 4px 2px; }
 
 /* Search-and-add dropdown rows */
@@ -223,10 +252,10 @@
 /* ── Body split: table + preview rail ───────────────────────────────────── */
 .bpm-body { display: flex; align-items: stretch; gap: 0; }
 .bpm-body__main { flex: 1; min-width: 0; }
-.bpm-modal--reprint .bpm-table-wrap { margin: 18px 0 18px 22px; max-height: 52vh; }
+.bpm-body .bpm-table-wrap { margin: 18px 0 18px 22px; max-height: min(54vh, calc(100vh - 400px)); min-height: 200px; }
 
 .bpm-preview {
-  flex: 0 0 268px; width: 268px;
+  flex: 0 0 248px; width: 248px;
   display: flex; flex-direction: column;
   padding: 18px 22px;
   border-left: 1px solid var(--border-subtle);
@@ -303,4 +332,199 @@
 .bpm-empty__hint {
   max-width: 420px; margin: 8px auto 0;
   font-size: 12.5px; line-height: 1.6; color: var(--fg-tertiary);
+}
+
+/* ── Serial-number picker (bill mode) ───────────────────────────────────── */
+.bpm-field--pick { flex: 1.3 1 340px; }
+.bpm-pick__hint {
+  min-height: 18px; font-size: 12px; color: var(--fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.bpm-pick__hint b { color: var(--fg-primary); font-weight: 700; }
+.bpm-pick__warn { color: var(--warning-text, #b8923c); font-weight: 600; }
+/* Bill mode has no preview rail: the table spans the modal again. */
+.bpm-modal--bill .bpm-toolbar { align-items: flex-start; }
+.bpm-modal--bill .bpm-toolbar__all { margin-top: 23px; }
+
+/* ===========================================================================
+ * ZEHEN house finish — the label window wears the same clothes as the
+ * Parties / bill-list pages: warm app canvas, white panel cards, small
+ * tracked-out captions, stat cards, 7px-radius buttons with an accent glow.
+ * Bill mode gets the full treatment; shared pieces lift reprint too.
+ * ========================================================================= */
+.bpm-modal .ant-modal-content {
+  border-radius: 14px;
+  background: var(--bg-app);
+  box-shadow: 0 24px 64px rgba(29, 26, 21, .22), 0 2px 6px rgba(29, 26, 21, .06);
+}
+.bpm-modal .ant-modal-header {
+  background: transparent;
+  padding: 20px 24px 14px;
+  border-bottom: 0;
+}
+.bpm-modal .ant-modal-close { top: 18px; inset-inline-end: 18px; }
+.bpm-head { gap: 12px; }
+.bpm-head__icon {
+  width: 38px; height: 38px; border-radius: 10px; font-size: 18px;
+  border: 1px solid var(--accent-border);
+}
+.bpm-head__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.bpm-head__title { font-size: 19px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; }
+.bpm-head__meta { font-size: 12.5px; font-weight: 500; color: var(--fg-secondary); }
+.bpm-head__meta b { color: var(--fg-primary); font-weight: 700; font-variant-numeric: tabular-nums; }
+.bpm-modal--reprint .bpm-head__sub { padding-left: 50px; }
+
+/* ── Controls row (bill mode) — sits on the canvas, no band ─────────────── */
+.bpm-modal--bill .bpm-toolbar {
+  padding: 14px 24px 12px;
+  gap: 14px;
+  background: transparent;
+  border-bottom: 0;
+}
+.bpm-field__lbl { font-size: 10.5px; letter-spacing: 1.2px; }
+.bpm-field--pick  { flex: 1.6 1 360px; }
+.bpm-modal--bill .bpm-field--brand { flex: 1 1 240px; min-width: 220px; }
+.bpm-modal .bpm-toolbar .ant-input-affix-wrapper {
+  height: 38px; border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 1px 2px rgba(45, 31, 21, .04);
+}
+.bpm-pick__hash {
+  font-weight: 800; color: var(--accent); margin-right: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.bpm-modal--bill .bpm-field--pick .ant-input { font-weight: 700; letter-spacing: .02em; }
+.bpm-pick__hint { padding-left: 2px; }
+.bpm-modal--bill .bpm-toolbar__all { margin-top: 22px; }
+
+/* House buttons — .plv-btn: 7px radius, lift on hover, accent glow on
+   the primary. Applies to the toolbar toggle and both footer actions. */
+.bpm-modal .bpm-toolbar__all,
+.bpm-modal .bpm-foot .ant-btn {
+  height: 38px; padding: 0 15px;
+  border-radius: 7px;
+  font-weight: 600; font-size: 13px;
+  box-shadow: 0 1px 2px rgba(45, 31, 21, .04);
+  transition: all .15s cubic-bezier(.2, .7, .2, 1);
+}
+.bpm-modal .bpm-toolbar__all:hover:not(:disabled),
+.bpm-modal .bpm-foot .ant-btn-default:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(45, 31, 21, .08);
+}
+.bpm-modal .bpm-foot .ant-btn-primary {
+  padding: 0 18px;
+  box-shadow: 0 2px 10px var(--accent-bg);
+}
+.bpm-modal .bpm-foot .ant-btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* ── Table card ─────────────────────────────────────────────────────────── */
+.bpm-modal--bill .bpm-table-wrap {
+  margin: 0 24px 18px;
+  /* modal sits 24px from the top; header + stats + controls + footer take
+     ~430px, the grid gets the rest (never less than ~7 rows). */
+  max-height: calc(100vh - 460px);
+  min-height: 220px;
+  background: var(--bg-panel);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(45, 31, 21, .04);
+}
+/* Unpicked rows recede; the serial number stays readable so the operator
+   can still find "row 63" while scanning. */
+.bpm-row--off > td { opacity: .38; }
+.bpm-row--off > td:first-child { opacity: .7; }
+.bpm-modal .ant-table-tbody > tr.bpm-row > td:first-child { background: var(--bg-muted); }
+.bpm-modal .ant-table-tbody > tr.bpm-row--active > td:first-child {
+  background: var(--accent) !important; color: #FDFAF2;
+}
+.bpm-modal .ant-table-tbody > tr.bpm-row--active > td:first-child .bpm-sn { color: #FDFAF2; }
+
+/* ── Footer — panel band like a page ActionStrip ───────────────────────── */
+.bpm-modal .ant-modal-footer {
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  padding: 12px 24px;
+}
+.bpm-foot__sum { font-size: 13px; }
+
+/* ===========================================================================
+ * Premium pass — fewer boxes, more air. One hairline under the header, a
+ * soft-shadowed table card, a quiet footer whose only loud thing is the
+ * label count and the Print button.
+ * ========================================================================= */
+.bpm-modal .ant-modal-content {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, .5) inset,
+    0 30px 80px -12px rgba(29, 26, 21, .30),
+    0 8px 24px -8px rgba(29, 26, 21, .12);
+}
+.bpm-modal--bill .ant-modal-header {
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bpm-modal--bill .bpm-head__icon {
+  width: 40px; height: 40px; border-radius: 11px; font-size: 18px;
+  background: linear-gradient(145deg,
+    color-mix(in srgb, var(--accent) 16%, var(--bg-panel)),
+    color-mix(in srgb, var(--accent) 6%, var(--bg-panel)));
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: 0 1px 2px rgba(45, 31, 21, .06), inset 0 1px 0 rgba(255, 255, 255, .4);
+}
+.bpm-modal--bill .bpm-head__title { font-size: 20px; letter-spacing: -0.02em; }
+.bpm-modal--bill .bpm-head__meta { font-size: 13px; margin-top: 1px; }
+
+.bpm-modal--bill .bpm-toolbar { padding: 20px 28px 16px; gap: 16px; }
+.bpm-modal--bill .bpm-field__lbl { color: var(--fg-secondary); opacity: .8; }
+.bpm-modal .bpm-toolbar .ant-input-affix-wrapper {
+  height: 40px; border-radius: 9px;
+  border-color: color-mix(in srgb, var(--border) 85%, transparent);
+  box-shadow: inset 0 1px 2px rgba(45, 31, 21, .04);
+  transition: border-color .15s, box-shadow .15s;
+}
+.bpm-modal .bpm-toolbar .ant-input-affix-wrapper:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.bpm-modal .bpm-toolbar .ant-input-affix-wrapper-focused {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.bpm-modal--bill .bpm-toolbar__all { height: 40px; margin-top: 22px; border-radius: 9px; }
+.bpm-modal--bill .bpm-pick__hint { margin-top: 2px; }
+
+.bpm-modal--bill .bpm-table-wrap {
+  margin: 0 28px 22px;
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--border) 85%, transparent);
+  box-shadow: 0 1px 2px rgba(45, 31, 21, .04), 0 6px 20px -10px rgba(45, 31, 21, .14);
+  max-height: calc(100vh - 360px);
+}
+.bpm-modal--bill .ant-table-thead > tr > th {
+  background: color-mix(in srgb, var(--bg-muted) 70%, var(--bg-panel)) !important;
+  padding: 10px 8px !important;
+}
+
+/* Footer: big tabular label count, hairline dividers between facts */
+.bpm-modal--bill .ant-modal-footer { padding: 14px 28px; }
+.bpm-foot__sum { display: inline-flex; align-items: baseline; gap: 0; color: var(--fg-tertiary); }
+.bpm-foot__big {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--fg-primary); font-variant-numeric: tabular-nums;
+  margin-right: 6px;
+}
+.bpm-foot__unit { font-size: 13px; font-weight: 600; color: var(--fg-secondary); }
+.bpm-foot__sep {
+  display: inline-block; width: 1px; height: 14px; margin: 0 14px;
+  background: var(--border); align-self: center;
+}
+.bpm-modal .bpm-foot .ant-btn { height: 40px; border-radius: 9px; }
+.bpm-modal .bpm-foot .ant-btn-primary {
+  padding: 0 20px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 92%, #fff),
+    var(--accent));
+  border-color: var(--accent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset,
+              0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent);
 }

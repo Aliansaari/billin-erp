@@ -337,6 +337,36 @@ export function productToItem(p) {
   };
 }
 
+// Parse a serial-number selection typed by the operator into row numbers.
+//   "1-20"            → 1..20            "36-50, 63"  → 36..50 + 63
+//   "50-51-52-63"     → 50, 51, 52, 63   (3+ numbers joined by dashes are
+//                                          a list, not a range)
+//   "5 to 9", "20-1"  → 5..9, 1..20      (words and reversed ranges work)
+// Returns { nums: Set<number>, outOfRange: number[] } — numbers outside
+// 1..count are reported, not silently dropped.
+export function parseRowPick(text, count) {
+  const nums = new Set();
+  const outOfRange = new Set();
+  const add = (n) => { if (n >= 1 && n <= count) nums.add(n); else outOfRange.add(n); };
+  const cleaned = String(text || '').toLowerCase()
+    .replace(/\s*(?:to|–|—)\s*/g, '-')   // "5 to 9", en/em dashes → "5-9"
+    .replace(/\s*-\s*/g, '-');           // "36 - 50" → "36-50"
+  for (const tok of cleaned.split(/[^0-9-]+/)) {
+    const parts = tok.split('-').filter(Boolean).map(Number);
+    if (!parts.length) continue;
+    if (parts.length === 2) {
+      const [a, b] = parts[0] <= parts[1] ? parts : [parts[1], parts[0]];
+      // Clamp the range end so "80-200" on an 87-row bill still picks 80..87.
+      if (a > count) { outOfRange.add(a); continue; }
+      if (b > count) outOfRange.add(b);
+      for (let n = Math.max(1, a); n <= Math.min(b, count); n++) nums.add(n);
+    } else {
+      parts.forEach(add);
+    }
+  }
+  return { nums, outOfRange: [...outOfRange].sort((x, y) => x - y) };
+}
+
 // ── Main Modal ────────────────────────────────────────────────────────────────
 export default function BarcodePrintModal({
   visible, onClose, billNumber, items, initialCompany = '',
@@ -356,13 +386,14 @@ export default function BarcodePrintModal({
   const [layout, setLayout]           = useState(FALLBACK_LAYOUT);
   const [activeCell, setActiveCell]   = useState({ row: 0, col: 0 }); // col: 0=custom_label, 1=no_of_prints
 
-  /* ── Reprint-only state ────────────────────────────────────────────
-     Search-and-add box (find any product by name / barcode / article and
-     drop it straight into the print list) + the live label preview. */
+  /* ── Search-and-add box (reprint only: find any product by name /
+     barcode / article and drop it into the print list), the bulk
+     label-count control and the live label preview (both modes). */
   const [addQuery, setAddQuery]   = useState('');
   const [addOpts, setAddOpts]     = useState([]);
   const [searching, setSearching] = useState(false);
   const [bulkCount, setBulkCount] = useState(1);
+  const [pick, setPick]           = useState('');   // bill mode: "1-20, 36-50, 63"
   const [preview, setPreview]     = useState({ svg: '', wMm: 0, hMm: 0 });
   const addRef = useRef(null);
 
@@ -384,6 +415,7 @@ export default function BarcodePrintModal({
   // One table row from a product / bill item. Bill mode defaults the label
   // count to the number of boxes; reprint mode defaults to a single label
   // (you're replacing one that went bad, not labelling a whole carton).
+  const perBoxCount = (r) => Math.ceil((parseFloat(r.quantity) || 0) / (parseFloat(r.quantity_per_box) || 1));
   //
   // `uniqueKey` is the row's identity in this list. A bill can carry the
   // same barcode on several lines (repeat lines, colours of one variant),
@@ -392,11 +424,10 @@ export default function BarcodePrintModal({
   // is untouched and still printed as-is.
   const makeRow = (item, savedLabels = {}, uniqueKey) => {
     const qpb = parseFloat(item.quantity_per_box) || 1;
-    const qty = parseFloat(item.quantity) || 0;
     const key = uniqueKey || item.key || item.barcode || `row-${Math.random().toString(36).slice(2)}`;
     return {
       ...item, key, quantity_per_box: qpb,
-      no_of_prints: isReprint ? 1 : Math.ceil(qty / qpb),
+      no_of_prints: isReprint ? 1 : perBoxCount({ ...item, quantity_per_box: qpb }),
       // A product with no barcode has nothing to print — it stays in the
       // list (so the operator can see why) but can't be selected.
       selected: !!item.barcode,
@@ -427,6 +458,7 @@ export default function BarcodePrintModal({
       return makeRow(item, savedLabels, n === 1 ? base : `${base}#${n}`);
     }));
     setActiveCell({ row: 0, col: 0 });
+    setPick('');
   }, [visible, items]);
 
   // In reprint mode the list starts from the selection but is meant to be
@@ -473,10 +505,35 @@ export default function BarcodePrintModal({
   // would sit permanently on "Select all" and never flip).
   const printableRows = rows.filter(r => r.barcode);
   const allSelected   = printableRows.length > 0 && printableRows.every(r => r.selected);
-  const toggleAll     = () => setRows(prev => prev.map(r => ({ ...r, selected: r.barcode ? !allSelected : false })));
+  const toggleAll     = () => {
+    setPick('');
+    setRows(prev => prev.map(r => ({ ...r, selected: r.barcode ? !allSelected : false })));
+  };
+  // Serial-number selection — applied live as the operator types. An empty
+  // box means "everything"; a box with nothing parseable leaves the current
+  // ticks alone so a half-typed "3" → "36-" never flashes the grid empty.
+  const pickInfo = pick.trim() ? parseRowPick(pick, rows.length) : null;
+  const applyPick = (text) => {
+    setPick(text);
+    if (!text.trim()) {
+      setRows(prev => prev.map(r => ({ ...r, selected: !!r.barcode })));
+      return;
+    }
+    const { nums } = parseRowPick(text, rows.length);
+    if (!nums.size) return;
+    setRows(prev => prev.map((r, i) => ({ ...r, selected: !!r.barcode && nums.has(i + 1) })));
+    // Scroll the first picked row into view — scroll only: moving the row
+    // cursor would focus a cell input and steal the caret mid-typing.
+    const first = Math.min(...nums) - 1;
+    requestAnimationFrame(() => {
+      const trs = document.querySelectorAll('.bpm-modal .ant-table-tbody > tr[data-row-key]');
+      trs[first]?.scrollIntoView({ block: 'center' });
+    });
+  };
   const selectedCount = rows.filter(r => r.selected).length;
   const totalLabels   = rows.filter(r => r.selected).reduce((s, r) => s + (r.no_of_prints || 0), 0);
   const missingCount  = rows.length - printableRows.length;
+  const totalPieces   = rows.filter(r => r.selected).reduce((s, r) => s + (parseFloat(r.quantity) || 0), 0);
 
   /* ── Search-and-add (reprint mode) ──────────────────────────────────
      Type any part of a product name, barcode or article number; pick a
@@ -714,8 +771,14 @@ export default function BarcodePrintModal({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [visible]);
 
+  // Serial number — same "#" column the purchase form's item grid leads with,
+  // so a label row can be matched to its bill line at a glance.
+  const colIndex = {
+    title: '#', dataIndex: '__sn', width: 44, align: 'center',
+    render: (_, __, idx) => <span className="bpm-sn">{idx + 1}</span>,
+  };
   const colBarcode = {
-    title: 'Barcode', dataIndex: 'barcode', width: 116,
+    title: 'Barcode', dataIndex: 'barcode', width: 98,
     render: (v) => v
       ? <span className="bpm-bc">{v}</span>
       : <Tooltip title="This product has no barcode yet. Add one from Products → Edit, then reprint.">
@@ -724,12 +787,12 @@ export default function BarcodePrintModal({
   };
   const colProduct = { title: 'Product', dataIndex: 'product_name', ellipsis: true,
     render: v => v ? <Text strong>{v}</Text> : <Text type="secondary">—</Text> };
-  const colArticle = { title: 'Article', dataIndex: 'article_number', width: 96, ellipsis: true,
+  const colArticle = { title: 'Article', dataIndex: 'article_number', width: 90, ellipsis: true,
     render: v => v ? <Text>{v}</Text> : <Text type="secondary">—</Text> };
-  const colSize = { title: 'Size', dataIndex: 'size', width: 62, align: 'center',
+  const colSize = { title: 'Size', dataIndex: 'size', width: 64, align: 'center',
     render: v => v ? <Text>{v}</Text> : <Text type="secondary">—</Text> };
   const colCustom = {
-    title: 'Custom label', dataIndex: 'custom_label', width: 120,
+    title: 'Custom label', dataIndex: 'custom_label', width: 104,
     render: (v, record, idx) => (
       <div className={`bpm-cell${activeCell.row === idx && activeCell.col === 0 ? ' bpm-cell--focused' : ''}`}
         data-cell={`${idx}-0`}
@@ -743,7 +806,7 @@ export default function BarcodePrintModal({
     ),
   };
   const colLabels = {
-    title: 'Labels', dataIndex: 'no_of_prints', width: 90, align: 'center',
+    title: 'Labels', dataIndex: 'no_of_prints', width: 70, align: 'center',
     render: (v, record, idx) => (
       <div className={`bpm-cell bpm-cell--num${activeCell.row === idx && activeCell.col === 1 ? ' bpm-cell--focused' : ''}`}
         data-cell={`${idx}-1`}
@@ -757,7 +820,7 @@ export default function BarcodePrintModal({
     ),
   };
   const colPrint = {
-    title: 'Print', dataIndex: '__print', width: 56, align: 'center',
+    title: 'Print', dataIndex: '__print', width: 52, align: 'center',
     render: (_, record) => (
       <Checkbox checked={record.selected} disabled={!record.barcode}
         onChange={e => updateRow(record.key, 'selected', e.target.checked)} />
@@ -773,7 +836,7 @@ export default function BarcodePrintModal({
   // and spends the width on the live preview instead.
   const columns = isReprint
     ? [
-        colBarcode, colProduct, colArticle, colSize, colCustom,
+        colIndex, colBarcode, colProduct, colArticle, colSize, colCustom,
         { title: 'Stock', dataIndex: 'quantity', width: 70, align: 'right',
           render: v => <Text type="secondary" className="bpm-num">{fmtPrice(v || 0)}</Text> },
         money('MRP', 'mrp', { width: 76 }),
@@ -790,21 +853,21 @@ export default function BarcodePrintModal({
           ) },
       ]
     : [
-        colBarcode, colProduct, colArticle, colCustom, colSize,
-        { title: 'Pieces', dataIndex: 'quantity', width: 64, align: 'right',
-          render: v => <Text strong className="bpm-num">{v}</Text> },
-        { title: 'Per box', dataIndex: 'quantity_per_box', width: 64, align: 'right',
+        colIndex, colBarcode, colProduct, colArticle, colCustom, colSize,
+        { title: 'Pieces', dataIndex: 'quantity', width: 62, align: 'right',
+          render: v => <Text strong className="bpm-num">{fmtPrice(v || 0)}</Text> },
+        { title: 'Per box', dataIndex: 'quantity_per_box', width: 62, align: 'right',
           render: v => <Text type="secondary" className="bpm-num">{v}</Text> },
-        money('Pur rate', 'purchase_rate'),
-        { title: 'Margin', dataIndex: 'margin_percentage', width: 74, align: 'right',
+        money('Pur rate', 'purchase_rate', { width: 72 }),
+        { title: 'Margin', dataIndex: 'margin_percentage', width: 66, align: 'right',
           render: (_, r) => {
             const m = marginPct(r);
             return <Text className="bpm-num" type={m < 0 ? 'danger' : undefined}>
               {m ? `${m.toFixed(1)}%` : '—'}
             </Text>;
           } },
-        money('MRP', 'mrp', { width: 76 }),
-        money('Sale rate', 'sale_rate', { width: 82, muted: true }),
+        money('MRP', 'mrp', { width: 68 }),
+        money('Sale rate', 'sale_rate', { width: 76, muted: true }),
         colLabels, colPrint,
       ];
 
@@ -849,6 +912,48 @@ export default function BarcodePrintModal({
     </div>
   );
 
+  // Bill mode: pick rows by serial number instead of ticking 87 boxes.
+  // The hint reads the parsed pick back as compact ranges ("1–20, 36–50,
+  // 63") so the operator can see exactly what the box understood.
+  const pickRanges = (() => {
+    if (!pickInfo?.nums.size) return '';
+    const ns = [...pickInfo.nums].sort((a, b) => a - b);
+    const out = [];
+    for (let i = 0; i < ns.length; i++) {
+      let j = i;
+      while (j + 1 < ns.length && ns[j + 1] === ns[j] + 1) j++;
+      out.push(j > i ? `${ns[i]}–${ns[j]}` : String(ns[i]));
+      i = j;
+    }
+    return out.join(', ');
+  })();
+  const pickBox = (
+    <div className="bpm-field bpm-field--pick">
+      <label className="bpm-field__lbl" htmlFor="bpm-pick">Select rows by serial no.</label>
+      <Input id="bpm-pick" value={pick} allowClear autoComplete="off"
+        prefix={<span className="bpm-pick__hash">#</span>}
+        placeholder="1-20   ·   36-50   ·   50, 51, 52, 63"
+        onChange={e => applyPick(e.target.value)}
+        status={pickInfo && (!pickInfo.nums.size || pickInfo.outOfRange.length) ? 'warning' : undefined} />
+      <div className="bpm-pick__hint">
+        {!pickInfo ? (
+          <>All rows are selected. Type ranges and single rows together, like <b>1-20, 36-50, 63</b></>
+        ) : !pickInfo.nums.size ? (
+          <span className="bpm-pick__warn">No rows match. This bill has rows 1–{rows.length}.</span>
+        ) : (
+          <>
+            Rows <b>{pickRanges}</b>
+            {pickInfo.outOfRange.length ? (
+              <span className="bpm-pick__warn">
+                &nbsp;&middot;&nbsp;{pickInfo.outOfRange.join(', ')} not in this bill (1–{rows.length})
+              </span>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   const previewPane = (
     <aside className="bpm-preview">
       <div className="bpm-preview__hd">
@@ -889,18 +994,26 @@ export default function BarcodePrintModal({
 
   return (
     <Modal
-      className={`bpm-modal${isReprint ? ' bpm-modal--reprint' : ''}`}
+      className={`bpm-modal${isReprint ? ' bpm-modal--reprint' : ' bpm-modal--bill'}`}
       open={visible}
       onCancel={onClose}
       width={isReprint ? 1320 : 1240}
+      style={isReprint ? undefined : { top: 24, paddingBottom: 0 }}
       title={
         <div className="bpm-head">
           <span className="bpm-head__icon"><PrinterOutlined /></span>
-          <span className="bpm-head__title">
-            {isReprint ? 'Reprint Barcode Labels' : 'Print Barcode Labels'}
-            {billNumber ? <span className="bpm-head__bill">&nbsp;&middot;&nbsp;{billNumber}</span> : null}
+          <span className="bpm-head__text">
+            <span className="bpm-head__title">
+              {isReprint ? 'Reprint Barcode Labels' : 'Print Barcode Labels'}
+            </span>
+            {!isReprint ? (
+              <span className="bpm-head__meta">
+                {billNumber ? <>Purchase bill <b>{billNumber}</b>&nbsp;&middot;&nbsp;</> : null}
+                <b>{rows.length}</b> item{rows.length === 1 ? '' : 's'}
+              </span>
+            ) : null}
           </span>
-          {totalLabels > 0 ? (
+          {isReprint && totalLabels > 0 ? (
             <span className="bpm-chip">{totalLabels} label{totalLabels === 1 ? '' : 's'}</span>
           ) : null}
           {isReprint ? (
@@ -913,7 +1026,13 @@ export default function BarcodePrintModal({
       footer={
         <div className="bpm-foot">
           <span className="bpm-foot__sum">
-            <b>{totalLabels}</b> label{totalLabels === 1 ? '' : 's'} across <b>{selectedCount}</b> item{selectedCount === 1 ? '' : 's'}
+            <span className="bpm-foot__big">{totalLabels.toLocaleString('en-IN')}</span>
+            <span className="bpm-foot__unit">label{totalLabels === 1 ? '' : 's'}</span>
+            <span className="bpm-foot__sep" />
+            <b>{selectedCount}</b>{!isReprint ? <>&nbsp;of {printableRows.length}</> : null} item{selectedCount === 1 ? '' : 's'}
+            {!isReprint && totalPieces > 0 ? (
+              <><span className="bpm-foot__sep" /><b>{totalPieces.toLocaleString('en-IN')}</b>&nbsp;pcs</>
+            ) : null}
             {missingCount > 0 ? (
               <span className="bpm-foot__warn">
                 &nbsp;&middot;&nbsp;<WarningOutlined /> {missingCount} item{missingCount === 1 ? '' : 's'} without a barcode skipped
@@ -926,7 +1045,9 @@ export default function BarcodePrintModal({
             </Button>
             <Button type="primary" icon={<PrinterOutlined />} onClick={handlePrint}
               loading={printing} disabled={totalLabels === 0}>
-              <span className="bpm-kbd">F1</span>{printing ? 'Preparing…' : 'Print'}
+              <span className="bpm-kbd">F1</span>
+              {printing ? 'Preparing…' : isReprint ? 'Print'
+                : `Print ${totalLabels} label${totalLabels === 1 ? '' : 's'}`}
             </Button>
           </div>
         </div>
@@ -971,13 +1092,13 @@ export default function BarcodePrintModal({
       ) : (
         <>
           <div className="bpm-toolbar">
-            <div className="bpm-field">
+            <div className="bpm-field bpm-field--brand">
               <label className="bpm-field__lbl" htmlFor="bpm-company">Brand / company on label</label>
               <Input id="bpm-company" placeholder="e.g. Sabina Traders"
                 value={companyName} onChange={handleCompanyChange} allowClear />
             </div>
-            <div className="bpm-toolbar__spacer" />
-            <Button onClick={toggleAll}>
+            {pickBox}
+            <Button className="bpm-toolbar__all" onClick={toggleAll}>
               <span className="bpm-kbd">F2</span>{allSelected ? 'Deselect all' : 'Select all'}
             </Button>
           </div>

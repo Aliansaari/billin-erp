@@ -710,10 +710,13 @@ ipcMain.handle('print:silent', async (_ev, payload) => {
   const contentPxW = (w > 0 && !Number.isNaN(w)) ? Math.max(160, Math.ceil(w / MM_PER_PX)) : 800;
 
   const win = new BrowserWindow({ show: false, useContentSize: true, width: contentPxW, height: 1200, webPreferences: { sandbox: true } });
+  // Load from a temp file, not a data: URL. Chromium caps URLs at 2 MB, and
+  // every barcode label embeds its own QR PNG, so a run of ~510+ labels
+  // overflowed it and failed with ERR_INVALID_URL (-300).
+  const tmpFile = path.join(os.tmpdir(), `zehen-print-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.html`);
   try {
-    // Load the HTML as a data: URL so we don't need a temp file.
-    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
-    await win.loadURL(dataUrl);
+    fs.writeFileSync(tmpFile, html, 'utf8');
+    await win.loadFile(tmpFile);
 
     const opts = {
       silent: true,
@@ -771,6 +774,7 @@ ipcMain.handle('print:silent', async (_ev, payload) => {
     return { error: e.message };
   } finally {
     setTimeout(() => { try { win.close(); } catch {} }, 500);
+    try { fs.unlinkSync(tmpFile); } catch {}
   }
 });
 
