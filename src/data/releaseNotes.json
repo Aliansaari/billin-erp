@@ -2,6 +2,17 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.17",
+      "date": "2026-10-14",
+      "title": "Barcode labels for big bills",
+      "highlights": [
+        "Printing labels for a large purchase bill works every time, no matter how many labels you print at once.",
+        "Pick the rows to print by serial number: type 1-20, 36-50 or 50, 51, 52, 63 and those rows are selected for you.",
+        "Each row now shows its serial number, in a compact grid that matches the purchase bill.",
+        "A cleaner label window with the label count, items and pieces always in view, and a Print button that says exactly how many labels it will print."
+      ]
+    },
+    {
       "version": "1.1.16",
       "date": "2026-10-08",
       "title": "Clearer product search on bills",
