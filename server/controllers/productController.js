@@ -79,7 +79,11 @@ function validateCostingMethod(data) {
 
 exports.getAll = async (req, res) => {
   try {
-    const { search, category_id, stock_status, name_only, name_exact, search_field } = req.query;
+    const { category_id, stock_status, name_only, name_exact, search_field } = req.query;
+    // Trimmed once here so a stray space before or after ("1234 ", " babla")
+    // never turns into part of the match — every branch and the ranking
+    // below see the clean value. Spaces-only counts as no search.
+    const search = String(req.query.search ?? '').trim() || undefined;
     // Clamp page/limit (see helpers.sanitizePagination).
     const { page, limit, offset } = sanitizePagination(req.query.page, req.query.limit);
     const where = { is_active: true };
@@ -88,6 +92,15 @@ exports.getAll = async (req, res) => {
       // Audit P3-D — escape % / _ wildcards so a search like "%" doesn't
       // turn the indexed iLike into a full-table scan.
       const s = escapeLike(search);
+      // Word-by-word matching, so "babla 1234" or "1234 suit" finds the
+      // product named BABLA SUIT with article 1234: every word has to hit
+      // one of the fields, in any order. The whole-string match stays as an
+      // alternative so a value containing spaces still matches as typed.
+      const words = String(search).trim().split(/\s+/).filter(Boolean).slice(0, 8).map(escapeLike);
+      const anyField = (cols, w) => ({ [Op.or]: cols.map((c) => ({ [c]: { [Op.iLike]: `%${w}%` } })) });
+      const byWords = (cols) => (words.length > 1
+        ? { [Op.or]: [anyField(cols, s), { [Op.and]: words.map((w) => anyField(cols, w)) }] }
+        : anyField(cols, s));
       if (name_exact === 'true') {
         // Variant picker: exact product-name match — needed to escape the 200-row cap
         // when the substring `%PLAZO%` would pull in hundreds of unrelated rows.
@@ -110,25 +123,32 @@ exports.getAll = async (req, res) => {
           name:    ['product_name'],
           hsn:     ['hsn_code'],
         };
-        const cols = FIELDS[String(search_field).toLowerCase()];
-        if (cols) {
-          where[Op.or] = cols.map((c) => ({ [c]: { [Op.iLike]: `%${s}%` } }));
+        const field = String(search_field).toLowerCase();
+        const cols = FIELDS[field];
+        if (field === 'article' && words.length > 1) {
+          // Article scope with a name typed alongside ("babla 1234"): each
+          // word may hit the name or the article, but at least one word
+          // must be in the article number — still an article search, so
+          // a barcode that happens to contain the digits never matches.
+          where[Op.or] = [
+            anyField(['article_number'], s),
+            {
+              [Op.and]: [
+                ...words.map((w) => anyField(['article_number', 'product_name'], w)),
+                { [Op.or]: words.map((w) => ({ article_number: { [Op.iLike]: `%${w}%` } })) },
+              ],
+            },
+          ];
+        } else if (cols) {
+          Object.assign(where, byWords(cols));
         } else {
           // Unknown scope — fall back to the full search rather than
           // returning nothing, which would look like "no such product".
-          where[Op.or] = [
-            { product_name:   { [Op.iLike]: `%${s}%` } },
-            { barcode:        { [Op.iLike]: `%${s}%` } },
-            { article_number: { [Op.iLike]: `%${s}%` } },
-          ];
+          Object.assign(where, byWords(['product_name', 'barcode', 'article_number']));
         }
       } else {
-        // Product management page: full search across name, barcode, article
-        where[Op.or] = [
-          { product_name: { [Op.iLike]: `%${s}%` } },
-          { barcode: { [Op.iLike]: `%${s}%` } },
-          { article_number: { [Op.iLike]: `%${s}%` } },
-        ];
+        // Product management page / global search: name, barcode, article.
+        Object.assign(where, byWords(['product_name', 'barcode', 'article_number']));
       }
     }
     // category_id: accept either a single value (legacy callers) or an
@@ -222,6 +242,12 @@ exports.getAll = async (req, res) => {
     // doubling is the SQL-injection backstop, because Sequelize can't carry a
     // bind param inside literal().
     const escRank = escapeLike(search || '').replace(/'/g, "''");
+    // Exact article / barcode hit on any single typed word ranks first too,
+    // so "babla 1234" puts article 1234 above article 12345.
+    const wordExact = String(search || '').trim().split(/\s+/).filter(Boolean).slice(0, 8)
+      .map((w) => escapeLike(w).replace(/'/g, "''"))
+      .map((w) => `OR "article_number" ILIKE '${w}' OR "barcode" ILIKE '${w}'`)
+      .join(' ');
     const orderClause = !search
       ? [['product_name', 'ASC']]
       : name_only === 'true'
@@ -236,7 +262,7 @@ exports.getAll = async (req, res) => {
         // article/barcode first, then any starts-with, then the rest A→Z.
         : [
             [literal(`CASE
-              WHEN "article_number" ILIKE '${escRank}' OR "barcode" ILIKE '${escRank}' THEN 0
+              WHEN "article_number" ILIKE '${escRank}' OR "barcode" ILIKE '${escRank}' ${wordExact} THEN 0
               WHEN "article_number" ILIKE '${escRank}%' OR "product_name" ILIKE '${escRank}%' OR "barcode" ILIKE '${escRank}%' THEN 1
               ELSE 2 END`), 'ASC'],
             ['product_name', 'ASC'],

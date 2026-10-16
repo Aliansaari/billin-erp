@@ -411,8 +411,8 @@ const SCOPE_LABEL = {
 };
 // Scope placeholders — tell the operator what the chip now searches on.
 const SCOPE_PLACEHOLDER = {
-  products: 'Product name, article no. or barcode…',
-  articles: 'Type an article number…',
+  products: 'Product name, article no. or barcode — or name + article…',
+  articles: 'Article number, or name with it — e.g. babla 1234…',
   barcodes: 'Scan or type a barcode…',
 };
 // Footer order — also the order of the clickable scope tips.
@@ -778,7 +778,10 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
   // for correctness, also faster because the backend filter sees the
   // real terms. Declared up here (before any effect that references it)
   // so the telemetry effect below doesn't hit a temporal-dead-zone error.
-  const scopedQuery = query;
+  // What we actually search for: the typed text with stray spaces before,
+  // after or doubled in the middle removed, so "1234 " or " babla  1234"
+  // find the same rows as the clean text. The input keeps what was typed.
+  const scopedQuery = useMemo(() => query.trim().replace(/\s+/g, ' '), [query]);
 
   // Session telemetry (#13). We log a single CLICK or ABANDON per
   // palette-open cycle. lastQueryRef tracks the most recent query that
