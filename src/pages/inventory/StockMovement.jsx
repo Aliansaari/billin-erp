@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Input, Spin, message, Select } from 'antd';
 import { SearchOutlined, AppstoreOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -70,6 +70,11 @@ export default function StockMovement() {
   const params = useParams();
   const productId = params['*'] || undefined;
   const navigate = useNavigate();
+  // ?combine=1 — show every size of this name + article number as one
+  // ledger. Opt-in only (toggle in the header, or the global-search
+  // "combined movement" row); a plain link always opens the one product.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const combine = searchParams.get('combine') === '1';
 
   // Esc handling is now owned by the ActionStrip below — keeps a single
   // source of truth for window keybindings on this page.
@@ -127,6 +132,47 @@ export default function StockMovement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
 
+  /* Sibling variants — same product name AND same article number (the
+   * sizes / colours of one design). Looked up on the server by article so
+   * the 200-row picker list can't leave one out. */
+  const [siblings, setSiblings] = useState([]);
+  useEffect(() => {
+    // Moving between sizes of the same article keeps the chips steady;
+    // anything else clears them until the new lookup lands.
+    setSiblings((prev) => (prev.some((p) => String(p.product_id) === String(selected?.product_id)) ? prev : []));
+    const art = String(selected?.article_number || '').trim();
+    if (!selected || !art) return;
+    let cancelled = false;
+    const norm = (v) => String(v || '').trim().toLowerCase();
+    productAPI.getAll({ search: art, search_field: 'article', page: 1, limit: 200 })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const list = (data.data || []).filter((p) =>
+          norm(p.product_name) === norm(selected.product_name) && norm(p.article_number) === norm(art));
+        // Always include the selected row itself, even if the list missed it.
+        if (!list.some((p) => String(p.product_id) === String(selected.product_id))) list.unshift(selected);
+        setSiblings(list);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selected?.product_id, selected?.article_number, selected?.product_name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const canCombine = siblings.length > 1;
+  const combined = combine && canCombine;
+  const siblingIdsKey = siblings
+    .map((p) => p.product_id)
+    .filter((id) => String(id) !== String(selected?.product_id))
+    .join(',');
+  const combinedStock = useMemo(
+    () => siblings.reduce((sum, p) => sum + parseFloat(p.current_stock || 0), 0),
+    [siblings],
+  );
+  const setCombine = useCallback((on) => {
+    const next = new URLSearchParams(searchParams);
+    if (on) next.set('combine', '1'); else next.delete('combine');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   /* Load transactions whenever selected product changes.
    * We deliberately do NOT clear `transactions` synchronously — that causes a
    * visible "blink" where the header stats snap to zero and the ledger
@@ -138,7 +184,8 @@ export default function StockMovement() {
     if (!selected) { setTransactions([]); return; }
     setTxLoading(true);
     let cancelled = false;
-    productAPI.getStockMovement(selected.product_id)
+    const movementParams = combined ? { merge_ids: siblingIdsKey } : undefined;
+    productAPI.getStockMovement(selected.product_id, movementParams)
       .then(({ data }) => {
         if (cancelled) return;
         setTransactions(data || []);
@@ -153,7 +200,7 @@ export default function StockMovement() {
         setTxLoading(false);
       });
     return () => { cancelled = true; };
-  }, [selected]);
+  }, [selected, combined, siblingIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadProducts = async () => {
     setLoadingList(true);
@@ -297,6 +344,9 @@ export default function StockMovement() {
     return { totIn, totOut, openQty, closing };
   }, [groupedTx, selected]);
 
+  // Size / colour label for a variant row ("M", "M · Red").
+  const variantLabel = (p) => [p?.size_value, p?.color_label].filter(Boolean).join(' · ');
+
   const handleExport = async () => {
     if (!selected) return;
     try {
@@ -387,7 +437,11 @@ export default function StockMovement() {
             <div className="sm-hd">
               <div className="sm-hd-top">
                 <div>
-                  <h1>{selected.product_name}{selected.size_value ? ` · ${selected.size_value}` : ''}</h1>
+                  <h1>
+                    {selected.product_name}
+                    {!combined && selected.size_value ? ` · ${selected.size_value}` : ''}
+                    {combined && <span className="sm-combined-badge">All {siblings.length} sizes combined</span>}
+                  </h1>
                   <div className="meta-row">
                     {selected.Category?.category_name && (
                       <span className="tag">
@@ -395,7 +449,7 @@ export default function StockMovement() {
                         {selected.Category.category_name}
                       </span>
                     )}
-                    {selected.barcode   && <span className="tag">BC {selected.barcode}</span>}
+                    {!combined && selected.barcode && <span className="tag">BC {selected.barcode}</span>}
                     {selected.hsn_code  && <span className="tag">HSN {selected.hsn_code}</span>}
                     {selected.gst_rate != null && <span className="tag">GST {selected.gst_rate}%</span>}
                     {selected.article_number && <span className="tag">Art. {selected.article_number}</span>}
@@ -413,11 +467,47 @@ export default function StockMovement() {
                 </div>
               </div>
 
+              {canCombine && (
+                <div className="sm-variants">
+                  <div className="sm-view-toggle" role="group" aria-label="Movement view">
+                    <button type="button" className={!combined ? 'on' : ''} onClick={() => setCombine(false)}>
+                      This size only
+                    </button>
+                    <button type="button" className={combined ? 'on' : ''} onClick={() => setCombine(true)}>
+                      All {siblings.length} sizes combined
+                    </button>
+                  </div>
+                  {/* Every size of this article with its stock; click one to
+                      open that size on its own. */}
+                  <div className="sm-variant-chips">
+                    {siblings.map((p) => {
+                      const isSel = String(p.product_id) === String(selected.product_id);
+                      const qty = parseFloat(p.current_stock || 0);
+                      return (
+                        <button
+                          type="button"
+                          key={p.product_id}
+                          className={`sm-variant-chip${isSel && !combined ? ' on' : ''}${qty <= 0 ? ' empty' : ''}`}
+                          onClick={() => handleSelect(p)}
+                          title={`Open ${variantLabel(p) || p.barcode || 'this variant'} only`}
+                        >
+                          <span className="lbl">{variantLabel(p) || p.barcode || '—'}</span>
+                          <span className="qty">{fmtQty(qty)}</span>
+                        </button>
+                      );
+                    })}
+                    <span className="sm-variant-total">
+                      Total <b>{fmtQty(combinedStock)}</b> {selected.unit_of_measurement || 'pcs'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div className="sm-stats">
                 <div className="sm-stat">
-                  <div className="k">On Hand</div>
-                  <div className={`v ${healthOf(selected).kind === 'out' ? 'out' : healthOf(selected).kind === 'low' ? 'warn' : 'ok'}`}>
-                    {fmtQty(selected.current_stock)} {selected.unit_of_measurement || 'pcs'}
+                  <div className="k">{combined ? 'On Hand (all sizes)' : 'On Hand'}</div>
+                  <div className={`v ${combined ? (combinedStock <= 0 ? 'out' : 'ok') : healthOf(selected).kind === 'out' ? 'out' : healthOf(selected).kind === 'low' ? 'warn' : 'ok'}`}>
+                    {fmtQty(combined ? combinedStock : selected.current_stock)} {selected.unit_of_measurement || 'pcs'}
                   </div>
                 </div>
                 <div className="sm-stat">
@@ -450,7 +540,9 @@ export default function StockMovement() {
                 </div>
                 <div className="sm-stat">
                   <div className="k">Stock Value</div>
-                  <div className="v">₹ {fmtMoney(selected.display_stock_value ?? (parseFloat(selected.current_stock || 0) * parseFloat(selected.purchase_rate || 0)))}</div>
+                  <div className="v">₹ {fmtMoney(combined
+                    ? siblings.reduce((sum, p) => sum + parseFloat(p.current_stock || 0) * parseFloat(p.purchase_rate || 0), 0)
+                    : (selected.display_stock_value ?? (parseFloat(selected.current_stock || 0) * parseFloat(selected.purchase_rate || 0))))}</div>
                 </div>
               </div>
             </div>
@@ -567,6 +659,9 @@ export default function StockMovement() {
                             <span className="sm-party">
                               {tx.party_name || tx.remarks || '—'}
                               {tx._count > 1 && <span className="r">{tx._count} items bundled</span>}
+                              {combined && tx._count === 1 && variantLabel(tx.Product) && (
+                                <span className="r">Size {variantLabel(tx.Product)}</span>
+                              )}
                               {tx.remarks && tx.party_name && tx.remarks !== tx.party_name && <span className="r">{tx.remarks}</span>}
                               {/* Lot sub-line — visible only in 'All Batches'
                                *  mode for batched products. When the operator

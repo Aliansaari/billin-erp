@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   SearchOutlined, ShoppingCartOutlined, InboxOutlined, UserOutlined, TeamOutlined,
@@ -365,6 +365,15 @@ function stripVoucherPrefix(q) {
  *   /l bank   → ledger scope
  *   /r gst    → report scope
  *   /a sale   → actions / command scope
+ *   /n 1234   → article-number scope (products matched on article no. ONLY)
+ *   /b 8901   → barcode scope (products matched on barcode ONLY)
+ *
+ * /n and /b exist because article numbers are often plain digits: an
+ * unscoped "1234" also substring-matches every barcode containing 1234,
+ * and those rows crowd out the article the operator actually meant. The
+ * field restriction runs on the server (search_field=article|barcode) so
+ * the page limit can't cut the real match. "/art" is accepted as a
+ * spelled-out alias of /n.
  *
  * "/" is universal command-mode in Slack, Discord, Notion, GitHub — two
  * keystrokes total, no shift required, no muscle-memory clash with names.
@@ -386,7 +395,10 @@ function stripVoucherPrefix(q) {
 const SCOPE_LETTER = {
   c: 'customers', s: 'suppliers', p: 'products',
   l: 'ledgers',   r: 'reports',   a: 'actions',
+  n: 'articles',  art: 'articles', b: 'barcodes',
 };
+// Product scopes that narrow the server-side match to one column.
+const PRODUCT_FIELD_SCOPE = { articles: 'article', barcodes: 'barcode' };
 const SCOPE_LABEL = {
   customers: 'Customers',
   suppliers: 'Suppliers',
@@ -394,18 +406,39 @@ const SCOPE_LABEL = {
   ledgers:   'Ledgers',
   reports:   'Reports',
   actions:   'Actions',
+  articles:  'Article no.',
+  barcodes:  'Barcode',
 };
-function parseScope(raw) {
+// Scope placeholders — tell the operator what the chip now searches on.
+const SCOPE_PLACEHOLDER = {
+  products: 'Product name, article no. or barcode…',
+  articles: 'Type an article number…',
+  barcodes: 'Scan or type a barcode…',
+};
+// Footer order — also the order of the clickable scope tips.
+const FOOTER_SCOPES = [
+  ['c', 'customers'], ['p', 'products'], ['n', 'article no.'],
+  ['r', 'reports'],   ['a', 'actions'],
+];
+/* The prefix is consumed into a chip the moment it's recognised, so the
+ * input only ever holds the search text (never "/p" next to a Products
+ * chip). Two shapes are recognised:
+ *   - exactly "/x" for a known single letter → chip, input empties
+ *     (typing: two keystrokes and the chip is there)
+ *   - "/key rest" for any known key → chip, input keeps "rest"
+ *     (pasting "/n 1234", the spelled-out "/art 1234", the home-card seed)
+ * Anything else ("/capex", "/__dev") stays literal text. */
+function takeScopePrefix(raw) {
   const q = String(raw || '');
-  // Slash form: "/c", "/c apex". Requires end-of-string or whitespace
-  // after the letter so "/capex" stays a literal search, not a customer-
-  // scope query for "apex".
-  const m = q.match(/^\/([a-zA-Z])(?:\s+(.*))?$/);
-  if (m) {
-    const scope = SCOPE_LETTER[m[1].toLowerCase()];
-    if (scope) return { scope, query: (m[2] || '').trim() };
+  let m = q.match(/^\/([a-zA-Z])$/);
+  if (m && SCOPE_LETTER[m[1].toLowerCase()]) {
+    return { scope: SCOPE_LETTER[m[1].toLowerCase()], rest: '' };
   }
-  return { scope: null, query: q };
+  m = q.match(/^\/([a-zA-Z]+)\s+(.*)$/);
+  if (m && SCOPE_LETTER[m[1].toLowerCase()]) {
+    return { scope: SCOPE_LETTER[m[1].toLowerCase()], rest: m[2].replace(/^\s+/, '') };
+  }
+  return null;
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -686,6 +719,16 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
   const inputRef = useRef(null);
   const listRef  = useRef(null);
   const [query,   setQuery]   = useState('');
+  // Active scope chip (/c, /p, /n…). Held apart from `query` so the
+  // prefix never lingers in the input — see takeScopePrefix.
+  const [scope,   setScope]   = useState(null);
+  // Input writes go through here so a typed or pasted prefix turns into
+  // the chip. A prefix typed while a chip is already up swaps the chip.
+  const applyInput = useCallback((value) => {
+    const hit = takeScopePrefix(value);
+    if (hit) { setScope(hit.scope); setQuery(hit.rest); }
+    else setQuery(value);
+  }, []);
   const [parties, setParties] = useState([]);
   const [products, setProds]  = useState([]);
   const [ledgers, setLedgers] = useState([]);
@@ -735,9 +778,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
   // for correctness, also faster because the backend filter sees the
   // real terms. Declared up here (before any effect that references it)
   // so the telemetry effect below doesn't hit a temporal-dead-zone error.
-  const parsed = useMemo(() => parseScope(query), [query]);
-  const scope = parsed.scope;
-  const scopedQuery = parsed.query;
+  const scopedQuery = query;
 
   // Session telemetry (#13). We log a single CLICK or ABANDON per
   // palette-open cycle. lastQueryRef tracks the most recent query that
@@ -793,7 +834,8 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
     // data, no API needed. Skipping the network on those modes makes the
     // palette feel instant for power users hunting a specific page.
     const wantParties  = scope == null || scope === 'customers' || scope === 'suppliers';
-    const wantProducts = scope == null || scope === 'products';
+    const productField = PRODUCT_FIELD_SCOPE[scope] || null;
+    const wantProducts = scope == null || scope === 'products' || !!productField;
     const wantLedgers  = scope == null || scope === 'ledgers';
     // Voucher fetch only fires when:
     //   (a) the query looks voucher-shaped (heuristic above), AND
@@ -855,7 +897,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
         const voucherTerm = stripVoucherPrefix(scopedQuery);
         const calls = [
           wantParties  ? api.get('/parties',         { params: { search: scopedQuery, limit: 25 },                         signal: ctrl.signal }) : Promise.resolve(null),
-          wantProducts ? api.get('/products',        { params: { search: scopedQuery, limit: 25 },                         signal: ctrl.signal }) : Promise.resolve(null),
+          wantProducts ? api.get('/products',        { params: { search: scopedQuery, limit: 25, ...(productField ? { search_field: productField } : {}) }, signal: ctrl.signal }) : Promise.resolve(null),
           wantLedgers  ? api.get('/ledger/accounts', { params: { search: scopedQuery, exclude_party_ledgers: '1' },        signal: ctrl.signal }) : Promise.resolve(null),
           wantVouchers ? api.get('/sales',           { params: { search: voucherTerm, limit: 5 },                            signal: ctrl.signal }) : Promise.resolve(null),
           wantVouchers ? api.get('/purchases',       { params: { search: voucherTerm, limit: 5 },                            signal: ctrl.signal }) : Promise.resolve(null),
@@ -1065,7 +1107,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
 
     // Products
     for (const pr of products) {
-      if (!want('products')) break;
+      if (!want('products') && !PRODUCT_FIELD_SCOPE[scope]) break;
       const pid = pr.product_id || pr.id;
       const id = `prod-${pid}`;
       const stock = Number(pr.current_stock ?? pr.stock_qty ?? 0);
@@ -1080,14 +1122,16 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       // - Category: groups same-name items (eg. multiple "T-shirt 32").
       // - Price + stock with a low-stock chip when reorder-level breached.
       const stockLabel = lowStock ? `⚠ ${stock} (reorder ${reorder})` : `${stock} in stock`;
+      const size = [pr.size_value, pr.color_label].filter(Boolean).join(' · ');
       const sub = [
         pr.article_number ? `Art ${pr.article_number}` : null,
+        size ? `Size ${size}` : null,
         pr.sku || pr.barcode,
         pr.hsn_code ? `HSN ${pr.hsn_code}` : null,
         pr.category_name,
         price ? `₹${Math.round(price).toLocaleString('en-IN')}` : null,
         stockLabel,
-      ].filter(Boolean).slice(0, 5).join(' · ');
+      ].filter(Boolean).slice(0, 6).join(' · ');
       const row = {
         id, kind: 'product',
         icon: ProductOutlined,
@@ -1099,6 +1143,45 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       };
       row._score = 1000 + contextBoost(row, ctx) + freqBoost(freqMap, row.id);
       out.push(row);
+    }
+
+    // Article totals — when two or more products share the same name AND
+    // article number (the sizes / colours of one design), add one summary
+    // row with their combined stock. It sits in its own group at the very
+    // bottom; picking it opens the combined Stock Movement view. That view
+    // is opt-in: the individual product rows above still open one size.
+    if (want('products') || PRODUCT_FIELD_SCOPE[scope]) {
+      const byArticle = new Map();
+      for (const pr of products) {
+        const art = String(pr.article_number || '').trim();
+        if (!art) continue;
+        const key = `${String(pr.product_name || '').trim().toLowerCase()}||${art.toLowerCase()}`;
+        if (!byArticle.has(key)) byArticle.set(key, []);
+        byArticle.get(key).push(pr);
+      }
+      for (const list of byArticle.values()) {
+        if (list.length < 2) continue;
+        const first = list[0];
+        const firstId = first.product_id || first.id;
+        const total = list.reduce((sum, pr) => sum + Number(pr.current_stock ?? pr.stock_qty ?? 0), 0);
+        out.push({
+          id: `art-total-${firstId}`,
+          kind: 'article-total',
+          label: first.product_name,
+          article: String(first.article_number).trim(),
+          total,
+          unit: first.unit_of_measurement || 'pcs',
+          variants: list.map((pr) => ({
+            id: pr.product_id || pr.id,
+            label: [pr.size_value, pr.color_label].filter(Boolean).join(' · ') || pr.barcode || '—',
+            qty: Number(pr.current_stock ?? pr.stock_qty ?? 0),
+          })),
+          group: 'Total stock by article',
+          route: `/stock-movement/${firstId}?combine=1`,
+          // Lowest score → the group always renders last.
+          _score: 1,
+        });
+      }
     }
 
     // Quick actions / pages — included when no scope, or when the operator
@@ -1321,7 +1404,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       const seed = sessionStorage.getItem('gs_seed');
       if (seed) {
         sessionStorage.removeItem('gs_seed');
-        setQuery(seed);
+        applyInput(seed);
       }
     } catch { /* swallow */ }
   }, []);
@@ -1453,8 +1536,15 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       if (e.nativeEvent && e.nativeEvent.stopImmediatePropagation) {
         e.nativeEvent.stopImmediatePropagation();
       }
+      // Peel back one layer per press: text, then the scope chip, then close.
       if (query) setQuery('');
+      else if (scope) setScope(null);
       else onClose?.();
+    } else if (e.key === 'Backspace' && !query && scope && e.target === inputRef.current) {
+      // Backspace in an empty input removes the chip — same as any
+      // tag/token field.
+      e.preventDefault();
+      setScope(null);
     }
   };
 
@@ -1482,7 +1572,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
   // the chip drops back to the unfiltered view AND wipes the prefix from
   // the input, so the next keystroke starts fresh.
   const clearScope = () => {
-    setQuery('');
+    setScope(null);
     inputRef.current?.focus();
   };
 
@@ -1504,9 +1594,9 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
         <input
           ref={inputRef}
           className="gs-input"
-          placeholder={scope ? `Search in ${SCOPE_LABEL[scope].toLowerCase()}…` : 'Search anything — customers, products, bills, reports…'}
+          placeholder={scope ? (SCOPE_PLACEHOLDER[scope] || `Search in ${SCOPE_LABEL[scope].toLowerCase()}…`) : 'Search anything — customers, products, bills, reports…'}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => applyInput(e.target.value)}
           autoComplete="off"
           spellCheck={false}
         />
@@ -1646,10 +1736,22 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
           can't figure out on their own. Slash because it's two keys total
           (no shift) and matches Slack / Discord / Notion convention. */}
       <div className="gs-footer">
-        <span className="gs-footer-tip"><kbd className="gs-kbd">/c</kbd> customers</span>
-        <span className="gs-footer-tip"><kbd className="gs-kbd">/p</kbd> products</span>
-        <span className="gs-footer-tip"><kbd className="gs-kbd">/r</kbd> reports</span>
-        <span className="gs-footer-tip"><kbd className="gs-kbd">/a</kbd> actions</span>
+        {FOOTER_SCOPES.map(([key, label]) => {
+          const target = SCOPE_LETTER[key];
+          return (
+            <button
+              key={key}
+              type="button"
+              className={`gs-footer-tip${scope === target ? ' is-active' : ''}`}
+              // Clicking a tip toggles that scope, keeping whatever's typed.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { setScope(scope === target ? null : target); inputRef.current?.focus(); }}
+              title={`Search ${label} only`}
+            >
+              <kbd className="gs-kbd">/{key}</kbd> {label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -1685,6 +1787,39 @@ function GsGroup({ name, items, startIdx, selectedIdx, onPick, onHover, pins, on
               <div className="gs-row-icon gs-row-icon-more">+{item._moreCount}</div>
               <div className="gs-row-text">
                 <div className="gs-row-label gs-row-label-more">{item.label}</div>
+              </div>
+            </div>
+          );
+        }
+        if (item.kind === 'article-total') {
+          return (
+            <div
+              key={item.id}
+              data-idx={idx}
+              className={`gs-row gs-total ${selectedIdx === idx ? 'is-selected' : ''}`}
+              onMouseEnter={() => onHover(idx)}
+              onClick={() => onPick(item)}
+            >
+              <div className="gs-total-main">
+                <div className="gs-total-head">
+                  <span className="gs-total-name">{item.label}</span>
+                  <span className="gs-total-art">Art {item.article}</span>
+                  <span className="gs-total-count">{item.variants.length} sizes</span>
+                </div>
+                <div className="gs-total-chips">
+                  {item.variants.map((v) => (
+                    <span key={v.id} className={`gs-total-chip${v.qty <= 0 ? ' is-empty' : ''}`}>
+                      <span className="lbl">{v.label}</span>
+                      <span className="qty">{v.qty.toLocaleString('en-IN')}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="gs-total-side">
+                <div className="gs-total-num">
+                  {item.total.toLocaleString('en-IN')}<span className="unit">{item.unit}</span>
+                </div>
+                <div className="gs-total-cta">Combined movement <kbd className="gs-kbd">↵</kbd></div>
               </div>
             </div>
           );

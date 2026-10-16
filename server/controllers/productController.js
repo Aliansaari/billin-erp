@@ -1181,11 +1181,23 @@ exports.getLowStock = async (req, res) => {
 exports.getStockMovement = async (req, res) => {
   try {
     const { id } = req.params;
-    const { from_date, to_date, include_reversals } = req.query;
+    const { from_date, to_date, include_reversals, merge_ids } = req.query;
 
     const sequelizeDb = require('../config/database');
 
-    const where = { product_id: id };
+    // Optional combined view: `?merge_ids=12,13,14` folds other products'
+    // movement into this one (the Stock Movement page uses it for every
+    // size of one name + article number, only when the operator asks).
+    // Integers only, capped, so a tampered list can't widen the query.
+    const extraIds = String(merge_ids || '')
+      .split(',')
+      .map((x) => parseInt(x, 10))
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .slice(0, 200);
+    const productIds = [...new Set([parseInt(id, 10), ...extraIds])].filter(Number.isFinite);
+    const merged = productIds.length > 1;
+
+    const where = { product_id: merged ? { [Op.in]: productIds } : id };
     if (from_date && to_date) {
       where.transaction_date = { [Op.between]: [from_date, to_date] };
     }
@@ -1210,7 +1222,11 @@ exports.getStockMovement = async (req, res) => {
       // Include the batch row so the Stock Movement page can render
       // batch_number per movement (Commit 5 — Part E adds a Batch
       // filter dropdown that reads this field).
-      include: [{ model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date'], required: false }],
+      include: [
+        { model: ProductBatch, as: 'batch', attributes: ['batch_id', 'batch_number', 'manufacture_date', 'expiry_date'], required: false },
+        // Combined view labels each line with its size / colour.
+        ...(merged ? [{ model: Product, attributes: ['product_id', 'size_value', 'color_label'], required: false }] : []),
+      ],
       order: [['transaction_date', 'ASC'], ['created_date', 'ASC']],
     });
 

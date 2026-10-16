@@ -733,6 +733,76 @@
 .ed-prod .sm-stat .v.warn { color: var(--ed-warn); }
 .ed-prod .sm-stat .v.out  { color: var(--ed-danger); }
 
+/* Sizes of one article (same name + article no.) — opt-in combined view.
+   Segmented toggle on the left, per-size stock chips + total on the right. */
+.ed-prod .sm-combined-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ed-accent-s);
+  border: 1px solid var(--ed-accent-b);
+  color: var(--ed-accent);
+  font-size: 11px; font-weight: 600;
+  vertical-align: 2px;
+}
+.ed-prod .sm-variants {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 8px;
+}
+.ed-prod .sm-view-toggle {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--ed-rule);
+  border-radius: 8px;
+  background: var(--ed-muted);
+  flex-shrink: 0;
+}
+.ed-prod .sm-view-toggle button {
+  border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 11.5px; font-weight: 600;
+  color: var(--ed-fg-3);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+.ed-prod .sm-view-toggle button:hover { color: var(--ed-fg); }
+.ed-prod .sm-view-toggle button.on {
+  background: var(--ed-panel);
+  color: var(--ed-accent);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+.ed-prod .sm-variant-chips {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  min-width: 0;
+}
+.ed-prod .sm-variant-chip {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--ed-rule-sub);
+  border-radius: 6px;
+  background: var(--ed-panel);
+  cursor: pointer;
+  font: inherit; font-size: 11.5px;
+  color: var(--ed-fg-2);
+  font-variant-numeric: tabular-nums;
+}
+.ed-prod .sm-variant-chip:hover { border-color: var(--ed-accent-b); }
+.ed-prod .sm-variant-chip .lbl { font-weight: 600; color: var(--ed-fg); }
+.ed-prod .sm-variant-chip .qty { color: var(--ed-ok); font-weight: 700; }
+.ed-prod .sm-variant-chip.empty .qty { color: var(--ed-danger); }
+.ed-prod .sm-variant-chip.on {
+  border-color: var(--ed-accent-b);
+  background: var(--ed-accent-s);
+}
+.ed-prod .sm-variant-total {
+  margin-left: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--ed-rule);
+  font-size: 11.5px; color: var(--ed-fg-3);
+  white-space: nowrap;
+}
+.ed-prod .sm-variant-total b { color: var(--ed-fg); font-size: 13px; }
+
 .ed-prod .sm-filter {
   padding: 8px 24px;
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
