@@ -2,6 +2,15 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.19",
+      "date": "2026-10-16",
+      "title": "Name and article together",
+      "highlights": [
+        "Type a product name with its article number, like babla 1234, and search finds that exact design. Works in any order, and with /n for article-only search.",
+        "A space typed before or after the article number no longer hides the results."
+      ]
+    },
+    {
       "version": "1.1.18",
       "date": "2026-10-16",
       "title": "Find articles faster",
