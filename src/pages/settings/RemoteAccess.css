@@ -1,4 +1,4 @@
-.ra-page { max-width: 780px; }
+.ra-page { /* sits in the shared settings column */ }
 .ra-loading { display: grid; place-items: center; padding: 60px 0; }
 
 .ra-header {

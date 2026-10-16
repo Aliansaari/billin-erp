@@ -408,7 +408,7 @@ export default function ProductFormModal({ open, onCancel, onSaved, defaultName 
         <Field
           label="Costing method"
           span="full"
-          help="Determines how Cost of Goods Sold is calculated for sales of this item. 'Inherit' uses the company-wide default in Settings → Defaults. Override only for items where the per-item method should differ (e.g. high-value rate-volatile items on FIFO while everything else is weighted-average)."
+          help="Determines how Cost of Goods Sold is calculated for sales of this item. 'Inherit' uses the company-wide default in Settings → Stock & Products. Override only for items where the per-item method should differ (e.g. high-value rate-volatile items on FIFO while everything else is weighted-average)."
         >
           <div className="efm-pills" role="tablist">
             <button

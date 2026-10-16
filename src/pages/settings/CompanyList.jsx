@@ -14,7 +14,7 @@ import useDevModeStore from '../../store/devModeStore';
 import useAuthStore from '../../store/authStore';
 import './CompanyList.css';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const FY_MONTHS = [
   { value: 1,  label: 'January' },  { value: 4,  label: 'April (Indian FY)' },
@@ -265,24 +265,20 @@ export default function CompanyList() {
   const activeCount = list.filter((c) => c.is_active && !c.db_dropped_at).length;
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
-      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <BankOutlined style={{ fontSize: 26, color: '#21604C' }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <Title level={2} style={{ margin: 0, lineHeight: 1.1 }}>Companies</Title>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            Each company is its own set of books. Switch between them from the topbar.
-          </Text>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <div className="ms-page-header-row">
+          <div>
+            <h1 className="ms-page-title">Companies</h1>
+            <p className="ms-page-sub">Each company is its own set of books. Switch between them from the top bar.</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button onClick={reload} icon={<ReloadOutlined />} loading={loading}>Reload</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>New Company</Button>
+          </div>
         </div>
-        <Button onClick={reload} icon={<ReloadOutlined />} loading={loading}>Reload</Button>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setCreateOpen(true)}
-        >
-          New Company
-        </Button>
-      </div>
+      </header>
+      <div className="ms-page-body"><div className="ms-page-body-inner">
 
       {list.length === 0 && !loading && (
         <Empty description="No companies yet. Click New Company to get started." />
@@ -300,7 +296,7 @@ export default function CompanyList() {
               key={c.company_id}
               style={{
                 borderRadius: 12,
-                border: archived ? '1px dashed #cbd5e1' : '1px solid #e5e7eb',
+                border: archived ? '1px dashed var(--border-strong)' : '1px solid var(--border-subtle)',
                 opacity: archived ? 0.65 : 1,
               }}
               styles={{ body: { padding: 16 } }}
@@ -323,17 +319,17 @@ export default function CompanyList() {
                     {archived && <Tag color="default">Archived</Tag>}
                   </div>
                   {c.gstin && (
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, fontFamily: 'monospace' }}>
+                    <div style={{ fontSize: 12, color: 'var(--fg-secondary)', marginTop: 2, fontFamily: 'monospace' }}>
                       GSTIN {c.gstin}
                     </div>
                   )}
                   {c.address && (
-                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2,
+                    <div style={{ fontSize: 12, color: 'var(--fg-tertiary)', marginTop: 2,
                                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {c.address}
                     </div>
                   )}
-                  <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 6 }}>
+                  <div style={{ fontSize: 11, color: 'var(--fg-tertiary)', marginTop: 6 }}>
                     DB: <code style={{ fontSize: 11 }}>{c.db_name}</code>
                   </div>
                 </div>
@@ -414,7 +410,7 @@ export default function CompanyList() {
         })}
       </div>
 
-      <div style={{ marginTop: 18, color: '#94a3b8', fontSize: 12 }}>
+      <div style={{ marginTop: 18, color: 'var(--fg-tertiary)', fontSize: 12 }}>
         {activeCount} active {activeCount === 1 ? 'company' : 'companies'}.
         {!effectiveDev && ' Ask your developer to add more if you need them.'}
       </div>
@@ -720,6 +716,7 @@ export default function CompanyList() {
           </Form.Item>
         </Form>
       </Modal>
+      </div></div>
     </div>
   );
 }

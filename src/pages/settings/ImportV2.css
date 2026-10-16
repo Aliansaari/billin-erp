@@ -7,10 +7,6 @@
  * 4 theme modes automatically.
  */
 
-.impv2-shell .ms-page-body-inner {
-  max-width: 1040px;
-}
-
 /* Vertical stack of step cards. */
 .impv2-flow {
   display: flex;

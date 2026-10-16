@@ -166,7 +166,7 @@ export default function MembershipReport() {
 
           {!remindExpiry && !remindBirthday && (
             <p className="ms-row-desc" style={{ marginTop: 16 }}>
-              Turn on “Expiry reminders” or “Birthday reminders” under Settings → Features → Membership to see outreach lists here.
+              Turn on “Expiry reminders” or “Birthday reminders” under Settings → Membership to see outreach lists here.
             </p>
           )}
         </div>

@@ -1,42 +1,70 @@
-/* ── Module Settings ─────────────────────────────────────────────────
+/* ── Settings page system ────────────────────────────────────────────
  *
- * Three-zone shell (header / body / footer) inside the SettingsLayout
- * pane. Body content is grouped into clean sections with a uniform
- * row pattern (label + description on the left, control on the
- * right). No Antd Card chrome, no per-section bordered boxes — just
- * one card per topic with subtle dividers between rows.
+ * Every page in the Settings hub is built from these pieces, so they all
+ * sit in the same place and read the same way (System Settings style):
+ *
+ *   .ms-shell            fills the pane: header / scrolling body / strip
+ *   .ms-page-header      page title + one-line description
+ *   .ms-page-body-inner  the content column
+ *   .ms-section          a grouped, rounded card of rows
+ *   .ms-row              label + description left, control right
+ *
+ * The column is one fixed width, centred in the pane. Header and body use
+ * the same inline padding formula, so their left edges always line up.
+ * Pages that need room (editors, tables) add `.ms-wide` to the shell —
+ * same centring, wider column. No page sets its own outer width.
  */
 
 .ms-shell {
+  --set-col: 960px;
+  --set-gutter: 40px;
+  --set-pad: max(var(--set-gutter), calc((100% - var(--set-col)) / 2));
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-app);
 }
+.ms-shell.ms-wide { --set-col: 1240px; }
 
 .ms-page-header {
   flex: 0 0 auto;
-  padding: 18px clamp(16px, 3vw, 32px) 14px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 30px var(--set-pad) 18px;
   background: var(--bg-app);
-  animation: ms-header-in .35s cubic-bezier(.2, .7, .2, 1);
-}
-@keyframes ms-header-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  border-bottom: 0;
 }
 .ms-page-title {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--fg-primary);
-  letter-spacing: -0.01em;
-  margin: 0 0 4px;
+  letter-spacing: -0.022em;
+  line-height: 1.15;
+  margin: 0 0 6px;
 }
 .ms-page-sub {
-  font-size: 13px;
+  font-size: 13.5px;
+  line-height: 1.5;
   color: var(--fg-secondary);
   margin: 0;
+  max-width: 680px;
+}
+.ms-page-sub kbd {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--fg-secondary);
+}
+/* Header with buttons on the right (Users, Salesmen, Print…). */
+.ms-page-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .ms-page-body {
@@ -46,188 +74,175 @@
   overflow-x: hidden;
 }
 .ms-page-body-inner {
-  padding: 24px clamp(16px, 3vw, 32px) 32px;
-  max-width: 880px;
+  padding: 6px var(--set-pad) 40px;
 }
 
-/* ── Section card ──
- *
- * Sections fade-up in a quick stagger when the page mounts so the
- * eye lands on the page progressively instead of being hit with a
- * wall of cards. `backwards` keeps each section invisible until
- * its delay fires. */
+/* ── Section: a grouped, rounded card ── */
 .ms-section {
-  margin-bottom: 20px;
-  padding: 18px 20px;
+  margin-bottom: 22px;
+  padding: 0 18px;
   background: var(--bg-panel);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
-  animation: ms-section-in .42s cubic-bezier(.2, .7, .2, 1) backwards;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(20, 14, 8, 0.04);
+  animation: ms-section-in .32s cubic-bezier(.2, .7, .2, 1) backwards;
 }
-.ms-section:nth-of-type(1) { animation-delay: .04s; }
-.ms-section:nth-of-type(2) { animation-delay: .10s; }
-.ms-section:nth-of-type(3) { animation-delay: .16s; }
-.ms-section:nth-of-type(4) { animation-delay: .22s; }
-.ms-section:nth-of-type(5) { animation-delay: .28s; }
-.ms-section:nth-of-type(6) { animation-delay: .34s; }
+.ms-section:nth-of-type(2) { animation-delay: .03s; }
+.ms-section:nth-of-type(3) { animation-delay: .06s; }
+.ms-section:nth-of-type(4) { animation-delay: .09s; }
+.ms-section:nth-of-type(5) { animation-delay: .12s; }
+.ms-section:nth-of-type(n+6) { animation-delay: .15s; }
 @keyframes ms-section-in {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .ms-section-head {
-  margin-bottom: 8px;
-  padding-bottom: 12px;
+  margin: 0 -18px;
+  padding: 14px 18px 12px;
   border-bottom: 1px solid var(--border-subtle);
 }
 .ms-section-title {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fg-secondary);
-  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--fg-primary);
+  margin: 0;
 }
 .ms-section-desc {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--fg-tertiary);
-  margin: 0;
+  margin: 3px 0 0;
   line-height: 1.45;
 }
+/* A section whose body is free-form (tables, editors, cards) rather than
+ * rows gets the same inner breathing room. */
+.ms-section-body { padding: 16px 0 18px; }
 
-/* ── Two-column row: label/desc on left, control on right ── */
+/* ── Row: label / description left, control right ── */
 .ms-row {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 24px;
-  padding: 12px 14px;
-  margin: 0 -14px;                       /* extend hover bg to section edges */
+  gap: 28px;
+  min-height: 54px;
+  padding: 12px 0;
+  margin: 0;
   border-bottom: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  transition: background .15s ease;
 }
-.ms-row:hover {
-  background: var(--bg-hover);
-}
-.ms-row:last-child {
-  border-bottom: none;
-  padding-bottom: 14px;
-}
+.ms-row:last-child { border-bottom: none; }
+.ms-row[data-disabled] .ms-row-label { color: var(--fg-tertiary); }
 .ms-row-label {
   font-weight: 500;
   color: var(--fg-primary);
-  font-size: 13px;
-  line-height: 1.3;
+  font-size: 13.5px;
+  line-height: 1.35;
 }
 .ms-row-desc {
   margin-top: 3px;
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--fg-tertiary);
   line-height: 1.45;
+  max-width: 600px;
 }
 .ms-row-control {
   flex-shrink: 0;
-  /* AntD Switch / Select / InputNumber sit naturally here. */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
-.ms-row-control .ant-form-item {
-  margin-bottom: 0;
-}
+.ms-row-control .ant-form-item { margin-bottom: 0; }
 
-/* Stacked row — when the control needs more horizontal space (radio
- * groups with long labels, multi-line inputs, etc.). */
+/* Stacked row — when the control needs the full width (radio choices,
+ * grids of inputs). */
 .ms-row-stacked {
   display: block;
-  padding: 14px;
-  margin: 0 -14px;
+  padding: 14px 0 16px;
+  margin: 0;
   border-bottom: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  transition: background .15s ease;
 }
-.ms-row-stacked:hover {
-  background: var(--bg-hover);
-}
-.ms-row-stacked:last-child {
-  border-bottom: none;
-  padding-bottom: 18px;
-}
-.ms-row-stacked .ms-row-label,
-.ms-row-stacked .ms-row-desc {
-  margin: 0 0 8px;
-}
+.ms-row-stacked:last-child { border-bottom: none; }
+.ms-row-stacked > .ms-row-label { margin: 0; }
+.ms-row-stacked > .ms-row-desc { margin: 3px 0 0; }
+.ms-row-stacked-control { margin-top: 12px; }
 .ms-row-stacked-control .ant-radio-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
+/* Radio choices read as a tidy list of options, each with its own note. */
+.ms-row-stacked-control .ant-radio-wrapper {
+  padding: 8px 10px;
+  margin: 0;
+  border-radius: 8px;
+  align-items: flex-start;
+  transition: background .12s ease;
+}
+.ms-row-stacked-control .ant-radio-wrapper:hover { background: var(--bg-hover); }
+.ms-row-stacked-control .ant-radio-wrapper .ms-row-desc { margin-left: 0 !important; }
+.ms-row-stacked-control .ant-radio { align-self: flex-start; margin-top: 2px; }
 
-/* Nested options panel — used for batch-tracking sub-options when
- * the parent toggle is on. Sits inside an ms-row-stacked block,
- * indented and tinted so it reads as "inside" the parent. */
+/* Link row — opens a related page ("Godowns ›"). */
+.ms-link-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 50px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--fg-primary);
+  cursor: pointer;
+}
+.ms-link-row:last-child { border-bottom: none; }
+.ms-link-row:hover .ms-row-label { color: var(--accent); }
+.ms-link-row > div { flex: 1; min-width: 0; }
+.ms-link-row .ms-link-chev { color: var(--fg-tertiary); font-size: 11px; }
+
+/* Nested options panel — shown under a parent toggle when it is on. */
 .ms-nested {
-  margin-top: 10px;
-  padding: 12px 16px;
+  margin: 0 0 14px;
+  padding: 2px 16px;
   background: var(--bg-muted);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: 10px;
 }
-.ms-nested .ms-row { padding: 10px 0; }
-.ms-nested .ms-row:first-child { padding-top: 0; }
-.ms-nested .ms-row:last-child  { padding-bottom: 0; border-bottom: none; }
+.ms-nested .ms-row { min-height: 48px; padding: 10px 0; }
 
 /* ── Danger Zone — destructive actions visually flagged ── */
 .ms-section.ms-danger {
-  border-color: rgba(239, 68, 68, 0.30);
-  background: linear-gradient(0deg, rgba(239, 68, 68, 0.03), rgba(239, 68, 68, 0.03)), var(--bg-panel);
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 30%, var(--border-subtle));
 }
-.ms-section.ms-danger .ms-section-title {
-  color: #b91c1c;
-}
-.ms-section.ms-danger .ms-row {
-  border-bottom: none;
-  padding-bottom: 0;
-}
+.ms-section.ms-danger .ms-section-title { color: var(--danger, #b91c1c); }
 
-/* Compact prefix-pair row (sales + purchase invoice prefixes) — two
- * inputs side by side with shared label-region above. */
+/* Compact prefix-pair row — two inputs side by side. */
 .ms-prefix-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-top: 6px;
 }
-@media (max-width: 540px) {
-  .ms-prefix-grid { grid-template-columns: 1fr; }
-}
-.ms-prefix-grid .ant-form-item {
-  margin-bottom: 0;
-}
+.ms-prefix-grid .ant-form-item { margin-bottom: 0; }
 
 /* Aging buckets — three small number inputs in a row. */
 .ms-aging-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-top: 8px;
-}
-@media (max-width: 540px) {
-  .ms-aging-grid { grid-template-columns: 1fr; }
+  gap: 14px;
+  margin-top: 12px;
 }
 .ms-aging-grid .ant-form-item { margin-bottom: 0; }
-.ms-aging-grid .ant-input-number { width: 100%; }
+.ms-aging-grid .ant-input-number,
+.ms-aging-grid .ant-input-number-group-wrapper { width: 100%; }
 
-/* ── Reduced motion — disable transforms / keyframes for users who
- *    opt out at the OS level. Keep colour transitions; they don't
- *    move things around. */
+/* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
-  .ms-section,
-  .ms-page-header,
-  .ms-row,
-  .ms-row-stacked {
-    animation: none !important;
-    transition: background .12s ease;
-    transform: none !important;
-  }
+  .ms-section { animation: none !important; transform: none !important; }
 }
 
 /* ── Barcode Label Designer ─────────────────────────────────────────
@@ -529,4 +544,41 @@
   color: var(--fg-tertiary);
   line-height: 1.45;
   max-width: 200px;
+}
+
+/* Small ordinal chip at the start of a row (Dashboard section order). */
+.ms-row-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--bg-muted);
+  color: var(--fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── One card language across the hub ──
+ * Pages with their own card components (Financial Year, LAN, Remote
+ * Access, WhatsApp, Bot, Software Update) keep their insides but share
+ * the section card's surface, edge and corner, and their small-caps
+ * kickers read as section titles. */
+.settings-pane :is(.fyset-card, .su-card, .lan-card, .wa-card, .wab-card, .ra-card.ant-card) {
+  background-color: var(--bg-panel);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(20, 14, 8, 0.04);
+}
+.settings-pane :is(.fyset-card, .su-card, .wa-card, .wab-card, .ra-card.ant-card):not(.su-update) {
+  border-color: var(--border-subtle);
+}
+.settings-pane :is(.wa-kicker, .wa-card-t, .wab-kicker, .lan-kicker) {
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--fg-primary);
 }

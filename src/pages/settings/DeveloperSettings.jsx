@@ -3,7 +3,7 @@ import {
   Card, Switch, InputNumber, Button, Alert, Tag, Tooltip, Modal, Space, message, Typography,
 } from 'antd';
 import {
-  CodeOutlined, LockOutlined, UnlockOutlined, ReloadOutlined,
+  LockOutlined, UnlockOutlined, ReloadOutlined,
   ExclamationCircleOutlined, ToolOutlined, SafetyCertificateOutlined, MobileOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -12,7 +12,7 @@ import { refreshSystemSettings } from '../../hooks/useSystemSettings';
 import { refreshFinancialYear } from '../../hooks/useFinancialYear';
 import useDevModeStore from '../../store/devModeStore';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text, Paragraph } = Typography;
 
 /* ── DeveloperSettings ──────────────────────────────────────────────────
  *
@@ -295,24 +295,26 @@ export default function DeveloperSettings() {
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 920, margin: '0 auto' }}>
-      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <CodeOutlined style={{ fontSize: 26, color: '#9333ea' }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <Title level={2} style={{ margin: 0, lineHeight: 1.1 }}>Developer Settings</Title>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            Per-deployment power-tool gating. Changes apply to every machine on the LAN.
-          </Text>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <div className="ms-page-header-row">
+          <div>
+            <h1 className="ms-page-title">Developer Access</h1>
+            <p className="ms-page-sub">Per-deployment power-tool gating. Changes apply to every computer on the LAN.</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button onClick={load} icon={<ReloadOutlined />} loading={loading}>Reload</Button>
+            <Button onClick={handleLock} icon={<LockOutlined />} danger>Lock dev mode</Button>
+          </div>
         </div>
-        <Button onClick={load} icon={<ReloadOutlined />} loading={loading}>Reload</Button>
-        <Button onClick={handleLock} icon={<LockOutlined />} danger>Lock dev mode</Button>
-      </div>
+      </header>
+      <div className="ms-page-body"><div className="ms-page-body-inner">
 
       <Alert
         type="success"
         showIcon
         icon={<UnlockOutlined />}
-        message={<span>Developer mode is unlocked on this device{unlockedAt && <span style={{ color: '#475569' }}> · since {fmtTime(unlockedAt)}</span>}</span>}
+        message={<span>Developer mode is unlocked on this device{unlockedAt && <span style={{ color: 'var(--fg-secondary)' }}> · since {fmtTime(unlockedAt)}</span>}</span>}
         description="Power-tools and the Developer Settings page are visible to YOU. Other machines on the LAN see only the features you've toggled on below."
         style={{ marginBottom: 16 }}
       />
@@ -322,8 +324,8 @@ export default function DeveloperSettings() {
         style={{
           marginBottom: 20,
           borderRadius: 12,
-          border: previewAsUser ? '1px solid #f59e0b' : '1px solid #e5e7eb',
-          background: previewAsUser ? 'rgba(245, 158, 11, 0.06)' : '#fff',
+          border: previewAsUser ? '1px solid #f59e0b' : '1px solid var(--border-subtle)',
+          background: previewAsUser ? 'rgba(245, 158, 11, 0.06)' : 'var(--bg-panel)',
         }}
         styles={{ body: { padding: 16 } }}
       >
@@ -336,7 +338,7 @@ export default function DeveloperSettings() {
                 <Tag color="orange" style={{ marginLeft: 8 }}>Active</Tag>
               )}
             </div>
-            <div style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.5 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--fg-tertiary)', lineHeight: 1.5 }}>
               {previewAsUser
                 ? 'Your sidebar and menus currently show ONLY what a regular user sees. Toggle off to return to full developer view.'
                 : 'Developer mode normally shows you every feature regardless of the toggles below. Turn this on to verify what your staff actually see — gated features will hide for you too. A page reload always returns to full developer view.'}
@@ -355,7 +357,7 @@ export default function DeveloperSettings() {
         style={{ marginBottom: 20, borderRadius: 12 }}
         styles={{ header: { fontWeight: 600 } }}
       >
-        <Paragraph style={{ marginBottom: 18, color: '#64748b', fontSize: 13 }}>
+        <Paragraph style={{ marginBottom: 18, color: 'var(--fg-tertiary)', fontSize: 13 }}>
           Each toggle decides whether normal users see the feature in the sidebar / settings menu.
           Developer mode always sees everything regardless.
         </Paragraph>
@@ -376,13 +378,13 @@ export default function DeveloperSettings() {
         style={{ marginBottom: 20, borderRadius: 12 }}
         styles={{ header: { fontWeight: 600 } }}
       >
-        <Paragraph style={{ marginBottom: 14, color: '#64748b', fontSize: 13 }}>
+        <Paragraph style={{ marginBottom: 14, color: 'var(--fg-tertiary)', fontSize: 13 }}>
           Master switch for the audit-trail feature. When ON, every voucher save / edit /
           cancel goes through the fiscal-lock check; backdated writes need a logged override.
           This toggle lives in dev mode so a regular operator cannot silently disable
           the audit trail to cover a problem.
         </Paragraph>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '12px 0', borderTop: '1px solid #f1f5f9' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '12px 0', borderTop: '1px solid var(--border-subtle)' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
               Compliance mode
@@ -393,7 +395,7 @@ export default function DeveloperSettings() {
                 <Tag color="gold">locks configured</Tag>
               )}
             </div>
-            <div style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.55 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--fg-tertiary)', lineHeight: 1.55 }}>
               {settings?.fy_compliance_mode
                 ? <>Active. Lock dates and the override-password requirement are configured on <a onClick={() => navigate('/settings/financial-year')} style={{ cursor: 'pointer' }}>Settings → Financial Year</a>.</>
                 : <>Simple mode. No locks, no override prompts, no new audit-log entries from voucher writes. Lock-date and password settings (if any were saved earlier) are preserved.</>}
@@ -413,10 +415,10 @@ export default function DeveloperSettings() {
         style={{ marginBottom: 20, borderRadius: 12 }}
         styles={{ header: { fontWeight: 600 } }}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '10px 0', borderBottom: '1px solid var(--border-subtle)' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Accept LAN clients</div>
-            <div style={{ fontSize: 12.5, color: '#64748b' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--fg-tertiary)' }}>
               When OFF, the server still runs but rejects every non-loopback connection. Use this if you suspect a security issue or want to lock down to localhost only for a maintenance window.
             </div>
           </div>
@@ -430,7 +432,7 @@ export default function DeveloperSettings() {
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '14px 0' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Maximum concurrent clients</div>
-            <div style={{ fontSize: 12.5, color: '#64748b' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--fg-tertiary)' }}>
               Cap on how many distinct logged-in machines can hit the server at once. <code>0 = unlimited</code> (default).
               Useful for license-style enforcement: set to 5 to make the 6th machine wait until one of the first five goes idle for 10 minutes.
             </div>
@@ -459,7 +461,7 @@ export default function DeveloperSettings() {
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>
               Maximum companies per customer
             </div>
-            <div style={{ fontSize: 12.5, color: '#64748b' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--fg-tertiary)' }}>
               How many separate company books a customer can create on this server.
               <code> 0 = unlimited</code>. Default 3 covers a main business + sister concern + holding entity.
               The Manage Companies page disables the New Company button when this cap is reached.
@@ -494,7 +496,7 @@ export default function DeveloperSettings() {
                 </Tag>
               )}
             </div>
-            <div style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.55 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--fg-tertiary)', lineHeight: 1.55 }}>
               How many phones may sign in to the ZEHEN mobile app for this customer.
               Change it here when they buy more — <strong>no need to reissue the licence</strong>.
               Each paired phone holds a live credential into these books, so keep it to the
@@ -549,16 +551,17 @@ export default function DeveloperSettings() {
         style={{ marginBottom: 20, borderRadius: 12 }}
         styles={{ header: { fontWeight: 600 } }}
       >
-        <ul style={{ paddingLeft: 18, margin: 0, color: '#475569', fontSize: 13.5, lineHeight: 1.8 }}>
+        <ul style={{ paddingLeft: 18, margin: 0, color: 'var(--fg-secondary)', fontSize: 13.5, lineHeight: 1.8 }}>
           <li>This page (Developer Settings) — toggles above</li>
           <li>Server Setup screen at <code>/server-setup</code></li>
           <li>Every gated feature in the list above (regardless of toggle state)</li>
           <li>The "Lock dev mode" button in the top-right</li>
         </ul>
-        <Paragraph style={{ marginTop: 12, marginBottom: 0, color: '#64748b', fontSize: 12.5 }}>
+        <Paragraph style={{ marginTop: 12, marginBottom: 0, color: 'var(--fg-tertiary)', fontSize: 12.5 }}>
           The unlock is per-device. Locking forgets it on this PC; the password unlocks any machine.
         </Paragraph>
       </Card>
+      </div></div>
     </div>
   );
 }
@@ -567,14 +570,14 @@ export default function DeveloperSettings() {
 function FeatureToggleRow({ toggle, value, saving, onChange }) {
   const riskColor = { low: 'green', medium: 'gold', high: 'red' }[toggle.risk] || 'default';
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '12px 0', borderTop: '1px solid #f1f5f9' }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '12px 0', borderTop: '1px solid var(--border-subtle)' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
           {toggle.title}
           <Tag color={riskColor} style={{ marginLeft: 0, textTransform: 'capitalize' }}>{toggle.risk} risk</Tag>
           {toggle.defaultOn && <Tag color="default">default ON</Tag>}
         </div>
-        <div style={{ fontSize: 12.5, color: '#64748b' }}>{toggle.description}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--fg-tertiary)' }}>{toggle.description}</div>
       </div>
       <Tooltip title={value ? 'Visible to all users' : 'Hidden — only developer mode sees it'}>
         <Switch checked={value} loading={saving} onChange={onChange} />

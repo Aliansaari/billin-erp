@@ -146,10 +146,10 @@ export default function ProductColorsPanel({
         style={{ marginBottom: 12 }}
       >
         <Radio.Button value="none">No color</Radio.Button>
-        <Tooltip title={singleEnabled ? '' : 'Enable "Single color label" in Settings → Modules'}>
+        <Tooltip title={singleEnabled ? '' : 'Enable "Single color label" in Settings → Stock & Products'}>
           <Radio.Button value="single" disabled={!singleEnabled}>Single label</Radio.Button>
         </Tooltip>
-        <Tooltip title={multiEnabled ? '' : 'Enable "Multi-color stock" in Settings → Modules'}>
+        <Tooltip title={multiEnabled ? '' : 'Enable "Multi-color stock" in Settings → Stock & Products'}>
           <Radio.Button value="multi" disabled={!multiEnabled}>Multi-color tracked</Radio.Button>
         </Tooltip>
       </Radio.Group>

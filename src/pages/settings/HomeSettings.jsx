@@ -74,7 +74,7 @@ export default function HomeSettings() {
     <div className="ms-shell settings-pane-fill">
       <header className="ms-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <h1 className="ms-page-title">Home Page</h1>
+          <h1 className="ms-page-title">Home Screen</h1>
           <p className="ms-page-sub">
             Choose what shows on the Command Center landing page. Changes save instantly.
           </p>

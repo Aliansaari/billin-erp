@@ -199,12 +199,12 @@ export default function BatchesList() {
                   Batch tracking is turned off
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--fg-secondary)', lineHeight: 1.6 }}>
-                  Enable batch tracking in <b>Settings → Modules</b> to track stock per lot, capture mfg / expiry dates, and use FEFO / FIFO picking on the sales counter.
+                  Enable batch tracking in <b>Settings → Stock &amp; Products</b> to track stock per lot, capture mfg / expiry dates, and use FEFO / FIFO picking on the sales counter.
                 </div>
               </div>
             }
           >
-            <Button type="primary" onClick={() => nav('/settings/system')}>Open Settings</Button>
+            <Button type="primary" onClick={() => nav('/settings/stock')}>Open Settings</Button>
           </Empty>
         </div>
       </div>

@@ -209,14 +209,17 @@ export default function WhatsappSettings() {
     : connected ? 'Active' : connecting ? 'Waiting for scan…' : 'Not connected';
 
   return (
-    <div className="wa-page">
-      <header className="wa-head">
-        <div>
-          <h1 className="wa-title">WhatsApp</h1>
-          <p className="wa-sub">Send invoices &amp; statements to customers on WhatsApp — automatically and paced to stay safe.</p>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <div className="ms-page-header-row">
+          <div>
+            <h1 className="ms-page-title">WhatsApp</h1>
+            <p className="ms-page-sub">Send invoices and statements to customers on WhatsApp, automatically and paced to stay safe.</p>
+          </div>
+          <Button icon={<ReloadOutlined />} onClick={() => { loadSettings(); loadStatus(); loadOutbox(); }} loading={loading}>Refresh</Button>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => { loadSettings(); loadStatus(); loadOutbox(); }} loading={loading}>Refresh</Button>
       </header>
+      <div className="ms-page-body"><div className="ms-page-body-inner wa-page">
 
       <div className="wa-layout">
         {/* ════════ Left column — configuration ════════ */}
@@ -512,6 +515,7 @@ export default function WhatsappSettings() {
           </section>
         </aside>
       </div>{/* /wa-layout */}
+      </div></div>
     </div>
   );
 }

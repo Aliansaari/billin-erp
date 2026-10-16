@@ -45,8 +45,10 @@ export default function LicenseSettings() {
 
   if (loading) {
     return (
-      <div className="lic-settings-wrap">
-        <Skeleton active paragraph={{ rows: 6 }} />
+      <div className="ms-shell settings-pane-fill">
+        <div className="ms-page-body"><div className="ms-page-body-inner" style={{ paddingTop: 30 }}>
+          <Skeleton active paragraph={{ rows: 6 }} />
+        </div></div>
       </div>
     );
   }
@@ -71,21 +73,23 @@ export default function LicenseSettings() {
     : (fp || '—');
 
   return (
-    <div className="lic-settings-wrap">
+    <div className="ms-shell settings-pane-fill">
       <style>{LIC_SET_STYLES}</style>
-
-      <header className="lic-set-header">
-        <div>
-          <h1>License</h1>
-          <p>Status, expiry, and machine binding for this installation.</p>
-        </div>
-        <div className="lic-set-header-actions">
-          <Button icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
-          <Button type="primary" icon={<KeyOutlined />} onClick={() => setReplaceOpen(true)} className="lic-set-replace-btn">
-            Replace license
-          </Button>
+      <header className="ms-page-header">
+        <div className="ms-page-header-row">
+          <div>
+            <h1 className="ms-page-title">License</h1>
+            <p className="ms-page-sub">Status, expiry and the computer this licence is tied to.</p>
+          </div>
+          <div className="lic-set-header-actions">
+            <Button icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
+            <Button type="primary" icon={<KeyOutlined />} onClick={() => setReplaceOpen(true)}>
+              Replace license
+            </Button>
+          </div>
         </div>
       </header>
+      <div className="ms-page-body"><div className="ms-page-body-inner lic-settings-wrap">
 
       {/* Hero status card — visual centerpiece */}
       <section className={`lic-set-hero lic-set-hero-${tone}`}>
@@ -189,6 +193,7 @@ export default function LicenseSettings() {
           onReplaced={() => { setReplaceOpen(false); load(); }}
         />
       )}
+      </div></div>
     </div>
   );
 }
@@ -382,13 +387,7 @@ function statusHelp(s) {
 }
 
 const LIC_SET_STYLES = `
-.lic-settings-wrap {
-  max-width: 920px;
-  margin: 0 auto;
-  padding: 8px 0 32px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
+.lic-settings-wrap { /* sits in the shared settings column */ }
 
 /* Header */
 .lic-set-header {
@@ -541,7 +540,7 @@ const LIC_SET_STYLES = `
   border-radius: 8px;
   background: var(--bg-panel, #fff);
   border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.06));
-  color: #6366f1;
+  color: var(--accent);
   font-size: 14px;
 }
 .lic-set-detail-text { flex: 1; min-width: 0; }
@@ -614,8 +613,8 @@ const LIC_SET_STYLES = `
   font-family: inherit;
 }
 .lic-set-copy-btn:hover:not(:disabled) {
-  border-color: #6366f1;
-  color: #6366f1;
+  border-color: var(--accent);
+  color: var(--accent);
   background: rgba(99, 102, 241, 0.04);
 }
 .lic-set-copy-btn.is-copied {

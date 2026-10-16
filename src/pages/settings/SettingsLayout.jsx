@@ -1,137 +1,168 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BankOutlined, UserOutlined, BgColorsOutlined, TagsOutlined,
-  PrinterOutlined, ThunderboltOutlined, SwapOutlined, ApiOutlined,
-  CloudServerOutlined, HomeOutlined, ControlOutlined, DashboardOutlined,
+  PrinterOutlined, SwapOutlined, ApiOutlined,
+  CloudServerOutlined, HomeOutlined, DashboardOutlined,
   AppstoreOutlined, CodeOutlined, KeyOutlined, BellOutlined,
   CalendarOutlined, TeamOutlined, InboxOutlined, ImportOutlined,
   IdcardOutlined, WifiOutlined, WhatsAppOutlined, RobotOutlined,
   CreditCardOutlined, GlobalOutlined, FieldTimeOutlined, CloudDownloadOutlined,
+  ShoppingCartOutlined, ShoppingOutlined, DatabaseOutlined, PercentageOutlined,
+  BarcodeOutlined, CloseCircleFilled,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
 import useAuthStore from '../../store/authStore';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
+import './ModuleSettings.css';
 import './SettingsLayout.css';
 import { isRemoteShop } from '../../utils/remoteShop';
 
 /**
- * SettingsLayout — macOS-style two-pane settings hub.
+ * SettingsLayout — macOS System Settings-style two-pane hub.
  *
- *   left rail (grouped index of all settings)  │  right pane (active page)
+ *   left rail (grouped by task)  │  right pane (active page)
  *
- * Each rail item is a route under /settings. The page renders via
- * <Outlet /> in the right pane. Items are filtered by permission so
- * users only see what they can actually open.
- *
- * Keyboard: Cmd/Ctrl+F focuses the search box; ↑/↓ would be a nice
- * follow-up but isn't wired here yet.
+ * The rail is grouped by the job an operator is doing ("I'm billing a
+ * sale", "I'm entering a purchase") rather than by how the settings are
+ * stored, so a switch is found where it is used. Each item also lists
+ * the individual settings on its page (`find`): the search box matches
+ * those too, shows which one matched, and on click the page scrolls to
+ * that row and flashes it.
  */
 
-// Single registry of every settings page. Editing this list is the
-// only thing required to add or remove an item from the rail. The
-// `perm` field gates visibility — use null for "everyone".
-const SETTINGS_GROUPS = [
+// Single registry of every settings page. Editing this list is the only
+// thing required to add or remove an item from the rail. `perm` gates
+// visibility (null = everyone); `find` is the search index for the page.
+export const SETTINGS_GROUPS = [
   {
-    // Company-level setup — the natural starting point for a fresh
-    // install: who you are, the books' financial year, and where
-    // stock physically lives.
-    label: 'Organization',
+    label: 'Your Account',
     items: [
-      { path: 'company',        icon: <BankOutlined />,     label: 'Company Profile', perm: 'settings.manage_company' },
-      // Companies — list / create / archive across companies in the
-      // master DB. Same permission gate as Company Profile so anyone who
-      // can edit the current company's profile can also see the list.
-      { path: 'companies',      icon: <AppstoreOutlined />, label: 'Companies',       perm: 'settings.manage_company' },
-      // Financial Year — FY config + accounting-style compliance toggle
-      // (soft/hard locks + override workflow + audit log).
-      { path: 'financial-year', icon: <CalendarOutlined />, label: 'Financial Year',  perm: 'settings.manage_company' },
-      { path: 'godowns',        icon: <InboxOutlined />,    label: 'Godowns',         perm: 'godowns.view', flag: 'multi_warehouse_enabled' },
-      // Salesmen — master list of sales staff credited on bills. No flag
-      // gate; always available to company-settings managers.
-      { path: 'salesmen',       icon: <IdcardOutlined />,   label: 'Salesmen',        perm: 'settings.manage_company' },
-      // Staff Attendance — staff check in from their own phones; roster, PINs
-      // and the checks (Wi-Fi / fingerprint / selfie / location) live here.
-      { path: 'staff-attendance', icon: <FieldTimeOutlined />, label: 'Staff Attendance', perm: 'settings.manage_company' },
-      // Membership Plans — loyalty tiers. Flag-gated on the membership master
-      // switch (Features → Membership), so the entry only appears once the
-      // module is turned on.
-      { path: 'membership-plans', icon: <TagsOutlined />,   label: 'Membership Plans', perm: 'settings.manage_company', flag: 'membership_enabled' },
+      { path: 'account',       icon: <UserOutlined />, tint: 'slate', label: 'My Account',    perm: null,
+        find: ['Name', 'Password', 'Change password', 'Email', 'Mobile number', 'Profile', 'Sign-in'] },
+      { path: 'notifications', icon: <BellOutlined />, tint: 'red', label: 'Notifications', perm: null,
+        find: ['Bell', 'Alerts', 'Reminders'] },
     ],
   },
   {
-    // How billing and inventory behave day to day — the master feature
-    // switches and the default values pre-filled on new entries.
-    label: 'Preferences',
+    // Who the business is, and the books' calendar and tax rules.
+    label: 'Business',
     items: [
-      { path: 'modules',          icon: <ThunderboltOutlined />, label: 'Features',         perm: 'settings.manage_company' },
-      // Membership — the loyalty module's own home (master switch lives here,
-      // so it's always visible to settings managers, not flag-gated).
-      { path: 'membership',       icon: <CreditCardOutlined />,  label: 'Membership',       perm: 'settings.manage_company' },
-      { path: 'defaults',         icon: <ControlOutlined />,     label: 'Defaults',         perm: 'settings.manage_company' },
-      { path: 'customer-insight', icon: <TeamOutlined />,        label: 'Party Insight',    perm: 'settings.manage_company' },
+      { path: 'company',        icon: <BankOutlined />,     tint: 'blue', label: 'Company Profile', perm: 'settings.manage_company',
+        find: ['Company name', 'Address', 'GSTIN', 'PAN', 'Phone', 'Logo', 'Signature', 'Bank details', 'IFSC', 'UPI', 'State'] },
+      { path: 'companies',      icon: <AppstoreOutlined />, tint: 'indigo', label: 'Companies',       perm: 'settings.manage_company',
+        find: ['Switch company', 'New company', 'Archive company'] },
+      { path: 'financial-year', icon: <CalendarOutlined />, tint: 'orange', label: 'Financial Year',  perm: 'settings.manage_company',
+        find: ['Financial year dates', 'Compliance mode', 'Lock dates', 'Year end'] },
+      { path: 'accounts',       icon: <PercentageOutlined />, tint: 'green', label: 'Tax & Accounts', perm: 'settings.manage_company',
+        find: ['GST', 'Allow back-dated entries', 'Aging buckets', 'Overdue days', 'Audit trail', 'Watchful', 'Chase', 'Critical'] },
     ],
   },
   {
-    // Appearance + the document and label templates the operator prints.
-    label: 'Customization',
+    // Everything that changes how a sale is billed.
+    label: 'Sales',
     items: [
-      { path: 'print',     icon: <PrinterOutlined />,   label: 'Print Templates', perm: 'settings.print' },
-      { path: 'barcode',   icon: <TagsOutlined />,      label: 'Barcode Labels',  perm: 'settings.barcode' },
-      { path: 'theme',     icon: <BgColorsOutlined />,  label: 'Theme',           perm: null },
-      { path: 'home',      icon: <HomeOutlined />,      label: 'Home Screen',     perm: null },
-      { path: 'dashboard', icon: <DashboardOutlined />, label: 'Dashboard',       perm: null },
+      { path: 'sales-bill',       icon: <ShoppingCartOutlined />, tint: 'accent', label: 'Sales Bill', perm: 'settings.manage_company',
+        find: ['Sales form', 'Sale window', 'Amount-only billing', 'Merge repeat scans', 'Allow negative stock', 'Sell when stock runs out',
+               'Sales bill prefix', 'Invoice number', 'Bill numbering', 'GST calculation mode', 'Bill-wise GST', 'Product-wise GST', 'Due days on receipts'] },
+      { path: 'salesmen',         icon: <IdcardOutlined />,   tint: 'teal', label: 'Salesmen',         perm: 'settings.manage_company',
+        find: ['Salesman', 'Commission', 'Sales staff'] },
+      { path: 'customer-insight', icon: <TeamOutlined />,     tint: 'purple', label: 'Party Insight',    perm: 'settings.manage_company',
+        find: ['Party insight panel', 'F8', 'Customer history on sale'] },
+      { path: 'membership',       icon: <CreditCardOutlined />, tint: 'pink', label: 'Membership',     perm: 'settings.manage_company',
+        find: ['Loyalty', 'Points', 'Membership on sale bill'] },
+      // Flag-gated on the membership master switch (Membership page).
+      { path: 'membership-plans', icon: <TagsOutlined />,     tint: 'pink', label: 'Membership Plans', perm: 'settings.manage_company', flag: 'membership_enabled',
+        find: ['Loyalty plans', 'Tiers', 'Plan price'] },
     ],
   },
   {
-    // People — personal preferences first (every signed-in user has
-    // these), then the admin-only user roster.
-    label: 'Users & Access',
+    label: 'Purchase',
     items: [
-      // My Account / Notifications — every logged-in user can reach
-      // these (perm:null). Each operator manages their own.
-      { path: 'account',       icon: <UserOutlined />, label: 'My Account',    perm: null },
-      { path: 'notifications', icon: <BellOutlined />, label: 'Notifications', perm: null },
-      { path: 'users',         icon: <TeamOutlined />, label: 'Users',         perm: 'settings.manage_users' },
+      { path: 'purchase-bill', icon: <ShoppingOutlined />, tint: 'brown', label: 'Purchase Bill', perm: 'settings.manage_company',
+        find: ['Purchase form', 'Purchase window', 'Purchase bill prefix', 'Fixed margin', 'MG%', 'Margin', 'Due days on payments'] },
     ],
   },
   {
-    // Moving data in/out, external sync, and the safety net. Import /
-    // Export + Tally mirror the developer-tier flags used by the main
-    // sidebar so the rail honours the same hide/show toggles. Backup
-    // stays visible regardless.
-    label: 'Data & Integrations',
+    label: 'Inventory',
     items: [
-      // LAN access — share this PC's ZEHEN with other PCs / phones
-      // on the same Wi-Fi. Admin-level (super admin / company manager).
-      { path: 'network',       icon: <WifiOutlined />,        label: 'LAN & Network',     perm: 'settings.manage_company', localOnly: true },
-      { path: 'remote-access', icon: <GlobalOutlined />,      label: 'Remote Access',     perm: 'settings.manage_company', localOnly: true },
-      // Send invoices / statements to customers on WhatsApp (Web link or official Cloud-API).
-      { path: 'whatsapp',      icon: <WhatsAppOutlined />,    label: 'WhatsApp',          perm: 'settings.manage_company' },
-      // Customer self-service bot — auto-replies to customers who message the number.
-      { path: 'whatsapp-bot',  icon: <RobotOutlined />,       label: 'WhatsApp Bot',      perm: 'settings.manage_company' },
-      { path: 'import-export', icon: <SwapOutlined />,        label: 'Import & Export',   perm: 'settings.import_export', flag: 'dev_show_import_export', localOnly: true },
-      { path: 'import',        icon: <ImportOutlined />,      label: 'Import (queued)',   perm: 'settings.import_export', flag: 'dev_show_import_export', localOnly: true },
-      { path: 'tally',         icon: <ApiOutlined />,         label: 'TallyPrime Sync',   perm: 'settings.tally',         flag: 'dev_show_tally_sync' },
-      { path: 'backup',        icon: <CloudServerOutlined />, label: 'Backup & Recovery', perm: 'settings.backup', localOnly: true },
-      // Software Update — auto-update switch + status (electron/updater.js).
-      { path: 'software-update', icon: <CloudDownloadOutlined />, label: 'Software Update', perm: 'settings.manage_company', localOnly: true },
+      { path: 'stock',   icon: <DatabaseOutlined />, tint: 'amber', label: 'Stock & Products', perm: 'settings.manage_company',
+        find: ['Default product mode', 'Variant', 'Single product', 'Cost of goods sold', 'COGS', 'FIFO', 'Weighted average',
+               'Stock alerts', 'Low stock', 'Multi-warehouse', 'Batch tracking', 'Expiry', 'Block expired batches', 'Zero-stock batches',
+               'Color', 'Single color label', 'Multi-color stock'] },
+      { path: 'godowns', icon: <InboxOutlined />,    tint: 'amber', label: 'Godowns', perm: 'godowns.view', flag: 'multi_warehouse_enabled',
+        find: ['Warehouse', 'Godown'] },
     ],
   },
   {
-    // Visible only when developer mode is unlocked on this device
-    // (the `__devOnly` marker — honoured by visibleGroups below).
-    label: 'Developer',
+    label: 'Printing & Labels',
     items: [
-      { path: 'developer', icon: <CodeOutlined />, label: 'Developer Access', __devOnly: true },
-      // License — visible to anyone (so the customer can see expiry /
-      // customer ID); the sensitive Replace flow is dev-gated inside
-      // the panel itself.
-      { path: 'license',   icon: <KeyOutlined />,  label: 'License',          perm: null, localOnly: true },
+      { path: 'print',   icon: <PrinterOutlined />, tint: 'slate', label: 'Print Templates', perm: 'settings.print',
+        find: ['Invoice template', 'Bill print', 'Paper size', 'Thermal', 'A4', 'A5', 'Printer'] },
+      { path: 'barcode', icon: <BarcodeOutlined />, tint: 'slate', label: 'Barcode Labels',  perm: 'settings.barcode',
+        find: ['Barcode', 'Label size', 'Sticker', 'Label designer'] },
+    ],
+  },
+  {
+    label: 'Staff & Access',
+    items: [
+      { path: 'users',            icon: <TeamOutlined />,      tint: 'blue', label: 'Users & Roles',    perm: 'settings.manage_users',
+        find: ['Users', 'Roles', 'Permissions', 'Back-dated entries for a role', 'Add user', 'Deactivate user'] },
+      { path: 'staff-attendance', icon: <FieldTimeOutlined />, tint: 'teal', label: 'Staff Attendance', perm: 'settings.manage_company',
+        find: ['Check-in', 'Staff phone', 'PIN', 'Selfie', 'Location', 'Wi-Fi check', 'Roster'] },
+    ],
+  },
+  {
+    // Moving data in and out, other computers and phones, and the safety net.
+    label: 'Data & Sync',
+    items: [
+      { path: 'backup',        icon: <CloudServerOutlined />, tint: 'blue', label: 'Backup & Recovery', perm: 'settings.backup', localOnly: true,
+        find: ['Backup', 'Restore', 'Auto backup', 'Cleanup', 'Wipe data'] },
+      { path: 'network',       icon: <WifiOutlined />,        tint: 'blue', label: 'LAN & Network',     perm: 'settings.manage_company', localOnly: true,
+        find: ['LAN access', 'Other computers', 'Wi-Fi', 'Devices'] },
+      { path: 'remote-access', icon: <GlobalOutlined />,      tint: 'indigo', label: 'Remote Access',   perm: 'settings.manage_company', localOnly: true,
+        find: ['Web link', 'Open from anywhere', 'Phone access'] },
+      { path: 'whatsapp',      icon: <WhatsAppOutlined />,    tint: 'green', label: 'WhatsApp',         perm: 'settings.manage_company',
+        find: ['Send invoice on WhatsApp', 'Statement on WhatsApp', 'QR', 'Cloud API'] },
+      { path: 'whatsapp-bot',  icon: <RobotOutlined />,       tint: 'green', label: 'WhatsApp Bot',     perm: 'settings.manage_company',
+        find: ['Auto reply', 'Customer bot'] },
+      { path: 'import-export', icon: <SwapOutlined />,        tint: 'slate', label: 'Import & Export',  perm: 'settings.import_export', flag: 'dev_show_import_export', localOnly: true,
+        find: ['Excel', 'CSV', 'Import products', 'Export'] },
+      { path: 'import',        icon: <ImportOutlined />,      tint: 'slate', label: 'Import (queued)',  perm: 'settings.import_export', flag: 'dev_show_import_export', localOnly: true },
+      { path: 'tally',         icon: <ApiOutlined />,         tint: 'slate', label: 'TallyPrime Sync',  perm: 'settings.tally',         flag: 'dev_show_tally_sync',
+        find: ['Tally'] },
+    ],
+  },
+  {
+    // How ZEHEN itself looks and stays current on this computer.
+    label: 'App',
+    items: [
+      { path: 'theme',           icon: <BgColorsOutlined />,      tint: 'purple', label: 'Theme',           perm: null,
+        find: ['Dark mode', 'Light mode', 'Colours', 'Appearance', 'Accent colour', 'Menu layout'] },
+      { path: 'home',            icon: <HomeOutlined />,          tint: 'orange', label: 'Home Screen',     perm: null,
+        find: ['Home page', 'Shortcuts', 'Tiles'] },
+      { path: 'dashboard',       icon: <DashboardOutlined />,     tint: 'orange', label: 'Dashboard',       perm: null,
+        find: ['Dashboard tiles', 'Charts'] },
+      { path: 'software-update', icon: <CloudDownloadOutlined />, tint: 'accent', label: 'Software Update', perm: 'settings.manage_company', localOnly: true,
+        find: ['Update', 'Version', 'Automatic updates', 'Release notes'] },
+      { path: 'license',         icon: <KeyOutlined />,           tint: 'amber', label: 'License',         perm: null, localOnly: true,
+        find: ['Licence', 'Expiry', 'Customer ID', 'Activation'] },
+      // Only when developer mode is unlocked on this device.
+      { path: 'developer',       icon: <CodeOutlined />,          tint: 'slate', label: 'Developer Access', __devOnly: true },
     ],
   },
 ];
+
+/* Old addresses → where those settings live now. Bookmarks, links in
+ * other screens and the global search keep working. */
+export const SETTINGS_REDIRECTS = {
+  modules:  'stock',
+  defaults: 'sales-bill',
+  system:   'stock',
+};
+
+const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9%]+/g, ' ').trim();
 
 export default function SettingsLayout() {
   const location = useLocation();
@@ -139,6 +170,7 @@ export default function SettingsLayout() {
   const user = useAuthStore((s) => s.user);
   const settings = useSystemSettings();
   const [query, setQuery] = useState('');
+  const searchRef = useRef(null);
   // Developer mode + preview-as-user — same logic as the main sidebar's
   // useMenuItems filter. When dev is unlocked AND not previewing, every
   // `flag`-gated entry is visible regardless of the system_settings
@@ -149,38 +181,42 @@ export default function SettingsLayout() {
   // Working in another shop over its tunnel — see the localOnly filter below.
   const remote = isRemoteShop();
 
-  // Filter groups to ones the current user can reach. Drop groups that
-  // end up with no visible items so the rail doesn't show empty
-  // headers. Items with a `flag` field are also gated on the matching
-  // system-settings boolean — null while the cache loads (treated as
-  // off, so flagged entries hide until we know they should appear).
-  // Developer mode override: when active, all flag-gated items show
-  // and __devOnly items become visible.
+  // Pages this user can reach. Items with a `flag` are also gated on the
+  // matching system-settings boolean (null while the cache loads = hidden).
+  const reachable = useMemo(() => SETTINGS_GROUPS
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((it) => {
+        if (it.__devOnly && !effectiveDev) return false;
+        /* localOnly — administers the INSTALLATION rather than the books
+         * (backups, licence, this PC's network). The tunnel refuses them,
+         * so hide them while working in another shop. */
+        if (it.localOnly && remote) return false;
+        if (it.perm !== null && it.perm !== undefined && !hasPermission(user, it.perm)) return false;
+        if (it.flag && !effectiveDev && !settings?.[it.flag]) return false;
+        return true;
+      }),
+    }))
+    .filter((g) => g.items.length > 0), [user, settings, effectiveDev, remote]);
+
+  // Search: page name first, then any setting on that page. A setting
+  // match carries the setting's own name so the row can say what matched.
   const visibleGroups = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return SETTINGS_GROUPS
+    const q = norm(query);
+    if (!q) return reachable;
+    const words = q.split(' ');
+    const hit = (text) => { const t = norm(text); return words.every((w) => t.includes(w)); };
+    return reachable
       .map((g) => ({
         ...g,
-        items: g.items.filter((it) => {
-          // __devOnly entries — only when dev mode is unlocked AND not previewing.
-          if (it.__devOnly && !effectiveDev) return false;
-          /* localOnly — administers the INSTALLATION rather than the books:
-           * backups, licence, import/export, this PC's own network settings.
-           * The tunnel refuses all of them (mobileGate's forbidden prefixes),
-           * so while we are working in another shop they are dead ends. Hide
-           * them rather than let someone click through to a 403. */
-          if (it.localOnly && remote) return false;
-          // Permission check.
-          if (it.perm !== null && it.perm !== undefined && !hasPermission(user, it.perm)) return false;
-          // Flag check — bypass when dev mode is active.
-          if (it.flag && !effectiveDev && !settings?.[it.flag]) return false;
-          // Search filter.
-          if (q && !it.label.toLowerCase().includes(q)) return false;
-          return true;
+        items: g.items.flatMap((it) => {
+          if (hit(it.label) || hit(`${g.label} ${it.label}`)) return [{ ...it, key: it.path }];
+          return (it.find || []).filter(hit).slice(0, 3)
+            .map((f) => ({ ...it, key: `${it.path}:${f}`, match: f }));
         }),
       }))
       .filter((g) => g.items.length > 0);
-  }, [user, settings, query, effectiveDev, remote]);
+  }, [reachable, query]);
 
   const totalVisible = visibleGroups.reduce((n, g) => n + g.items.length, 0);
 
@@ -188,25 +224,85 @@ export default function SettingsLayout() {
     location.pathname === `/settings/${path}` ||
     location.pathname.startsWith(`/settings/${path}/`);
 
+  const open = (it) => {
+    navigate(`/settings/${it.path}`, it.match ? { state: { settingsFind: it.match } } : undefined);
+  };
+
+  // Ctrl/Cmd+F focuses the settings search while the hub is open.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Arrived from a search hit: find the row whose label matches and bring
+  // it into view with a brief highlight. Pages load their data async, so
+  // look for a little while before giving up.
+  const findTarget = location.state?.settingsFind;
+  useEffect(() => {
+    if (!findTarget) return undefined;
+    const want = norm(findTarget);
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      const pane = document.querySelector('.settings-pane');
+      const nodes = pane ? pane.querySelectorAll(
+        '.ms-row-label, .ms-section-title, .ms-row-desc, .ant-form-item-label label, .ant-tabs-tab, h2, h3, b, label') : [];
+      let el = null;
+      for (const n of nodes) { if (norm(n.textContent).includes(want)) { el = n; break; } }
+      if (el || tries > 25) {
+        clearInterval(timer);
+        if (!el) return;
+        const row = el.closest('.ms-row, .ms-row-stacked, .ms-section, .ant-form-item') || el;
+        row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        row.classList.remove('settings-find-flash');
+        void row.offsetWidth; // restart the animation
+        row.classList.add('settings-find-flash');
+        setTimeout(() => row.classList.remove('settings-find-flash'), 2400);
+      }
+    }, 120);
+    return () => clearInterval(timer);
+  }, [findTarget, location.key]);
+
   return (
     <div className="settings-layout">
       <aside className="settings-rail" role="navigation" aria-label="Settings">
         <div className="settings-rail-search">
           <div className="settings-rail-search-wrap">
             <input
+              ref={searchRef}
               type="text"
               className="settings-rail-search-input"
               placeholder="Search settings"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); }
+                if (e.key === 'Enter') {
+                  const first = visibleGroups[0]?.items[0];
+                  if (first) open(first);
+                }
+              }}
               aria-label="Search settings"
             />
+            {query && (
+              <button type="button" className="settings-rail-search-clear" aria-label="Clear search"
+                      onClick={() => { setQuery(''); searchRef.current?.focus(); }}>
+                <CloseCircleFilled />
+              </button>
+            )}
           </div>
         </div>
 
         {totalVisible === 0 && (
           <div className="settings-rail-empty">
-            {query ? 'No settings match.' : 'No settings available.'}
+            {query ? `No settings match “${query}”.` : 'No settings available.'}
           </div>
         )}
 
@@ -215,14 +311,17 @@ export default function SettingsLayout() {
             <div className="settings-rail-group-label">{group.label}</div>
             <ul className="settings-rail-list">
               {group.items.map((it) => (
-                <li key={it.path}>
+                <li key={it.key || it.path}>
                   <button
                     type="button"
-                    className={`settings-rail-item${isActive(it.path) ? ' active' : ''}`}
-                    onClick={() => navigate(`/settings/${it.path}`)}
+                    className={`settings-rail-item${isActive(it.path) && !it.match ? ' active' : ''}${it.match ? ' is-match' : ''}`}
+                    onClick={() => open(it)}
                   >
-                    <span className="settings-rail-item-icon">{it.icon}</span>
-                    <span className="settings-rail-item-label">{it.label}</span>
+                    <span className={`settings-rail-item-icon tint-${it.tint || 'accent'}`}>{it.icon}</span>
+                    <span className="settings-rail-item-text">
+                      <span className="settings-rail-item-label">{it.match || it.label}</span>
+                      {it.match && <span className="settings-rail-item-sub">{it.label}</span>}
+                    </span>
                   </button>
                 </li>
               ))}

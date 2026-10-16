@@ -395,7 +395,7 @@ export default function UserManagement() {
     {
       title: 'User',
       key: 'user',
-      width: 260,
+      width: 220,
       render: (_, record) => {
         const roleName = getRoleName(record.role_id);
         const bg = ROLE_HEX[roleName] || '#4F46E5';
@@ -439,7 +439,7 @@ export default function UserManagement() {
       title: 'Role',
       dataIndex: 'role_id',
       key: 'role',
-      width: 170,
+      width: 140,
       render: (roleId, record) => {
         const name = getRoleName(roleId);
         return (
@@ -622,7 +622,7 @@ export default function UserManagement() {
     <div className="ms-shell settings-pane-fill">
       <header className="ms-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
         <div>
-          <h1 className="ms-page-title">Users</h1>
+          <h1 className="ms-page-title">Users &amp; Roles</h1>
           <p className="ms-page-sub">Accounts, roles, and permissions for everyone using this software.</p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Add User</Button>
@@ -721,7 +721,7 @@ export default function UserManagement() {
                   color: 'var(--fg-tertiary)',
                 }}>
                   <div>Role</div>
-                  <Tooltip title="When OFF, members of this role cannot save bills / payments / vouchers / EMIs with a date earlier than today. Subject to the company-wide toggle in Settings → Defaults — if that's OFF, every role is blocked regardless.">
+                  <Tooltip title="When OFF, members of this role cannot save bills / payments / vouchers / EMIs with a date earlier than today. Subject to the company-wide toggle in Settings → Tax & Accounts — if that's OFF, every role is blocked regardless.">
                     <div style={{ cursor: 'help' }}>
                       Allow back-dated entries
                     </div>

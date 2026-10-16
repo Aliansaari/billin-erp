@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Card, Typography, Button, Tooltip, Switch, Tag } from 'antd';
+import { Button, Tooltip, Switch } from 'antd';
 import {
-  DashboardOutlined, ReloadOutlined, AppstoreOutlined, EyeOutlined,
+  ReloadOutlined, EyeOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 
@@ -10,7 +10,6 @@ import {
 } from '../../config/dashboardSections';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 
-const { Title, Text } = Typography;
 
 /**
  * Dashboard Settings — show/hide the sections of the main dashboard
@@ -45,114 +44,57 @@ export default function DashboardSettings() {
   };
 
   return (
-    <div style={{
-      height: '100%', width: '100%',
-      display: 'flex', flexDirection: 'column',
-      background: 'var(--bg-app)', overflow: 'hidden',
-    }}>
-      {/* ── Fixed header ─────────────────────────────────────────────── */}
-      <header style={{
-        flex: '0 0 auto',
-        background: 'var(--bg-panel)',
-        borderBottom: '1px solid var(--border)',
-        padding: '18px clamp(12px, 2vw, 32px)',
-      }}>
-        <div style={{
-          maxWidth: 900, margin: '0 auto',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 16, flexWrap: 'wrap',
-        }}>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <div className="ms-page-header-row">
           <div>
-            <Title level={3} style={{ margin: 0, color: 'var(--fg-primary)', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <DashboardOutlined style={{ color: 'var(--accent)' }} />
-              Dashboard
-            </Title>
-            <Text style={{ color: 'var(--fg-secondary)', fontSize: 13 }}>
-              Choose which sections appear on your dashboard. {visibleCount} of {ED_SECTIONS.length} visible · changes apply instantly.
-            </Text>
+            <h1 className="ms-page-title">Dashboard</h1>
+            <p className="ms-page-sub">
+              Choose which sections appear on your dashboard. {visibleCount} of {ED_SECTIONS.length} showing; changes apply at once.
+            </p>
           </div>
           <Tooltip title="Show every section again.">
-            <Button icon={<ReloadOutlined />} onClick={resetAll}>
-              Show all
-            </Button>
+            <Button icon={<ReloadOutlined />} onClick={resetAll}>Show all</Button>
           </Tooltip>
         </div>
       </header>
 
-      {/* ── Body ─────────────────────────────────────────────────────── */}
-      <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
-        <div style={{ padding: '20px clamp(12px, 2vw, 32px) 32px', maxWidth: 900, margin: '0 auto' }}>
-
-          <Card
-            bodyStyle={{ padding: 24 }}
-            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 16 }}
-          >
-            <Title level={5} style={{ margin: '0 0 6px 0', color: 'var(--fg-primary)' }}>
-              Dashboard sections
-            </Title>
-            <Text style={{ color: 'var(--fg-secondary)', fontSize: 13, display: 'block', marginBottom: 16 }}>
-              Sections render top-to-bottom in this order. Hide the ones you don't use —
-              the rest stretch to fill the page.
-            </Text>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {ED_SECTIONS.map((s, i) => {
-                const on = isSectionVisible(prefs, s.id);
-                return (
-                  <div
-                    key={s.id}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 14,
-                      padding: '12px 14px',
-                      background: 'var(--bg-elevated)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      opacity: on ? 1 : 0.55,
-                      transition: 'opacity .15s ease',
-                    }}
-                  >
-                    <Tag style={{ minWidth: 30, textAlign: 'center', margin: 0 }}>{i + 1}</Tag>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-primary)' }}>
-                        {s.label}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--fg-secondary)', marginTop: 2, lineHeight: 1.4 }}>
-                        {s.desc}
-                      </div>
-                    </div>
-                    <Switch
-                      checked={on}
-                      onChange={(v) => toggle(s.id, v)}
-                      aria-label={`${on ? 'Hide' : 'Show'} ${s.label}`}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-
-          {/* Classic tile dashboard — still available, keeps its own layout. */}
-          <Card
-            bodyStyle={{ padding: '16px 24px' }}
-            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 24 }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-              <AppstoreOutlined style={{ fontSize: 20, color: 'var(--fg-tertiary)' }} />
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--fg-primary)' }}>
-                  Classic tile dashboard
+      <div className="ms-page-body"><div className="ms-page-body-inner">
+        <section className="ms-section">
+          <div className="ms-section-head">
+            <h2 className="ms-section-title">Sections</h2>
+            <p className="ms-section-desc">Shown top to bottom in this order. Hide the ones you don't use; the rest stretch to fill the page.</p>
+          </div>
+          {ED_SECTIONS.map((s, i) => {
+            const on = isSectionVisible(prefs, s.id);
+            return (
+              <div key={s.id} className="ms-row" style={{ gridTemplateColumns: 'auto 1fr auto', gap: 16 }}>
+                <span className="ms-row-index">{i + 1}</span>
+                <div style={{ opacity: on ? 1 : 0.55, transition: 'opacity .15s ease' }}>
+                  <div className="ms-row-label">{s.label}</div>
+                  <div className="ms-row-desc">{s.desc}</div>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--fg-secondary)', marginTop: 2 }}>
-                  The previous customizable tile grid is still available and keeps its saved layout.
+                <div className="ms-row-control">
+                  <Switch checked={on} onChange={(v) => toggle(s.id, v)} aria-label={`${on ? 'Hide' : 'Show'} ${s.label}`} />
                 </div>
               </div>
-              <Button icon={<EyeOutlined />} onClick={() => navigate('/dashboard/classic')}>
-                Open classic view
-              </Button>
+            );
+          })}
+        </section>
+
+        {/* Classic tile dashboard — still available, keeps its own layout. */}
+        <section className="ms-section">
+          <div className="ms-row">
+            <div>
+              <div className="ms-row-label">Classic tile dashboard</div>
+              <div className="ms-row-desc">The older tile grid is still available and keeps its saved layout.</div>
             </div>
-          </Card>
-        </div>
-      </div>
+            <div className="ms-row-control">
+              <Button icon={<EyeOutlined />} onClick={() => navigate('/dashboard/classic')}>Open classic view</Button>
+            </div>
+          </div>
+        </section>
+      </div></div>
 
       <ActionStrip
         actions={[

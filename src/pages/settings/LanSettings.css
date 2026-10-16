@@ -2,7 +2,7 @@
  * Theme-aware (reads the shared --bg/--fg/--accent tokens), so it follows
  * Classic / Editorial and light / dark automatically.
  */
-.lan-page { max-width: 920px; margin: 0 auto; padding: 4px 4px 48px; }
+.lan-page { /* sits in the shared settings column */ }
 
 .lan-head {
   display: flex; align-items: flex-start; justify-content: space-between;

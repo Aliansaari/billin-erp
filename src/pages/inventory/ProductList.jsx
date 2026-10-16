@@ -971,12 +971,12 @@ export default function ProductList() {
             )}
 
             {/* Audit H6 — per-product costing override. 'Inherit' uses the
-                company default set in Settings → Defaults. Override only
+                company default set in Settings → Stock & Products. Override only
                 when this specific item should diverge from the policy. */}
             <EntityFormModal.Field
               label="Costing Method"
               span="full"
-              help="How COGS is calculated when this item is sold. 'Inherit' (default) follows the company-wide setting in Settings → Defaults. Override to force a specific method for this SKU."
+              help="How COGS is calculated when this item is sold. 'Inherit' (default) follows the company-wide setting in Settings → Stock & Products. Override to force a specific method for this SKU."
             >
               <Form.Item name="costing_method" noStyle initialValue="inherit">
                 <Select

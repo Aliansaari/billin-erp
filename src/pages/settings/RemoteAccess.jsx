@@ -197,16 +197,17 @@ export default function RemoteAccess() {
   const enabled = !!status?.enabled;
 
   return (
-    <div className="ra-page">
-      <div className="ra-header">
-        <div>
-          <Title level={4} style={{ margin: 0 }}>Remote Access</Title>
-          <Text type="secondary">
-            Let your own phones reach this computer from outside the shop Wi‑Fi.
-          </Text>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <div className="ms-page-header-row">
+          <div>
+            <h1 className="ms-page-title">Remote Access</h1>
+            <p className="ms-page-sub">Let your own phones reach this computer from outside the shop Wi-Fi.</p>
+          </div>
+          <Button icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={load} />
-      </div>
+      </header>
+      <div className="ms-page-body"><div className="ms-page-body-inner ra-page">
 
       <Card className="ra-card">
         <div className="ra-toggle-row">
@@ -449,6 +450,7 @@ export default function RemoteAccess() {
           </Text>
         </div>
       </Modal>
+      </div></div>
     </div>
   );
 }

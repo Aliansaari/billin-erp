@@ -643,9 +643,9 @@ export default function BarcodeSettings() {
   const { w, h } = LABEL_SIZES[labelSize];
 
   return (
-    <div className="ms-shell settings-pane-fill">
+    <div className="ms-shell ms-wide settings-pane-fill">
       <header className="ms-page-header">
-        <h1 className="ms-page-title">Barcode</h1>
+        <h1 className="ms-page-title">Barcode Labels</h1>
         <p className="ms-page-sub">
           Design barcode labels for shelf printing and configure label-numbering rules.
         </p>

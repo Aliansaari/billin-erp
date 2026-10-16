@@ -1,5 +1,5 @@
 /* Settings → Software Update. Theme tokens only; one column, calm cards. */
-.su { max-width: 760px; display: flex; flex-direction: column; gap: 16px; }
+.su { display: flex; flex-direction: column; gap: 16px; }
 .su-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 16px; padding: 20px 22px; }
 .su-card-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .su-card-h b { font-size: 15px; font-weight: 700; } .su-card-h span { font-size: 12px; color: var(--fg-tertiary); }

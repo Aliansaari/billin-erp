@@ -354,11 +354,11 @@ export default function PrintSettings() {
   const isThermal = draft.format === 'thermal';
 
   return (
-    <div className="ms-shell settings-pane-fill print-settings-page">
+    <div className="ms-shell ms-wide settings-pane-fill print-settings-page">
       <style>{PRINT_STYLES}</style>
       <header className="ms-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <h1 className="ms-page-title">Print</h1>
+          <h1 className="ms-page-title">Print Templates</h1>
           <p className="ms-page-sub">
             Design invoice, receipt and voucher templates. Changes preview live on the right.
           </p>
@@ -940,14 +940,14 @@ const PRINT_STYLES = `
   padding: 24px clamp(16px, 2vw, 28px) 32px !important;
 }
 .print-new-profile-btn.ant-btn-primary {
-  background: linear-gradient(135deg, #0F172A 0%, #1e293b 100%) !important;
-  border-color: #0F172A !important;
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
   border-radius: 8px !important;
   font-weight: 600 !important;
-  box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.4) !important;
+  box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--accent) 40%, transparent) !important;
 }
 .print-new-profile-btn.ant-btn-primary:hover {
-  background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
+  background: var(--accent-hover) !important;
 }
 
 /* ── Profile sidebar list ─────────────────────────────── */
@@ -966,7 +966,7 @@ const PRINT_STYLES = `
 .print-profile-item.is-active {
   background: rgba(15, 23, 42, 0.04);
   border-color: rgba(15, 23, 42, 0.15);
-  box-shadow: inset 3px 0 0 #0F172A;
+  box-shadow: inset 3px 0 0 var(--accent);
   padding-left: 14px;
 }
 .print-profile-item-row {
@@ -1042,12 +1042,12 @@ const PRINT_STYLES = `
   box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.08);
 }
 .print-theme-card.is-active {
-  border-color: #0F172A;
+  border-color: var(--accent);
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.025) 0%, var(--bg-panel, #fff) 100%);
   box-shadow: 0 4px 14px -6px rgba(15, 23, 42, 0.18);
 }
 .print-theme-card.is-active::before {
-  background: linear-gradient(90deg, #0F172A, #475569);
+  background: var(--accent);
 }
 .print-theme-card-head {
   display: flex; align-items: center; gap: 8px;
@@ -1081,7 +1081,7 @@ const PRINT_STYLES = `
   display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px;
   border-radius: 50%;
-  background: #0F172A;
+  background: var(--accent);
   color: #fff;
   font-size: 11px;
   font-weight: 700;

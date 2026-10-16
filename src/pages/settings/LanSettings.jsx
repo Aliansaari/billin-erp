@@ -131,16 +131,17 @@ export default function LanSettings() {
   };
 
   return (
-    <div className="lan-page">
-      <header className="lan-head">
-        <div>
-          <h1 className="lan-title">LAN &amp; Network</h1>
-          <p className="lan-sub">Let other PCs and phones on the same Wi-Fi use this ZEHEN — no extra server needed.</p>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <div className="ms-page-header-row">
+          <div>
+            <h1 className="ms-page-title">LAN &amp; Network</h1>
+            <p className="ms-page-sub">Let other computers and phones on the same Wi-Fi use this ZEHEN. No extra server needed.</p>
+          </div>
+          <Button icon={<ReloadOutlined />} onClick={() => { loadSettings(); loadInfo(); }} loading={loading}>Refresh</Button>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => { loadSettings(); loadInfo(); }} loading={loading}>
-          Refresh
-        </Button>
       </header>
+      <div className="ms-page-body"><div className="ms-page-body-inner lan-page">
 
       {loading && !settings ? (
         <div className="lan-card"><Skeleton active paragraph={{ rows: 4 }} /></div>
@@ -339,6 +340,7 @@ export default function LanSettings() {
           </div>
         </>
       )}
+      </div></div>
     </div>
   );
 }

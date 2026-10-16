@@ -81,14 +81,12 @@ export default function ThemeSettings() {
   const resolvedDisplay = resolved.replace(/^modern/, 'editorial');
 
   return (
-    <div className="theme-page-shell settings-pane-fill">
-      <header className="theme-page-header">
-        <div className="theme-page-header-inner">
+    <div className="ms-shell settings-pane-fill theme-page-shell">
+      <header className="ms-page-header">
+        <div className="ms-page-header-row">
           <div>
-            <h1 className="theme-page-title">Theme</h1>
-            <p className="theme-page-sub">
-              Customize how ZEHEN looks. Changes apply instantly — no restart needed.
-            </p>
+            <h1 className="ms-page-title">Theme</h1>
+            <p className="ms-page-sub">How ZEHEN looks for you. Changes apply at once, no restart needed.</p>
           </div>
           <span className="theme-page-current" title="Active theme mode">
             {resolvedDisplay}
@@ -96,8 +94,8 @@ export default function ThemeSettings() {
         </div>
       </header>
 
-      <div className="theme-page-body">
-        <div className="theme-page-body-inner">
+      <div className="ms-page-body">
+        <div className="ms-page-body-inner">
 
       {/* ── Theme Style ── */}
       <section className="theme-section">

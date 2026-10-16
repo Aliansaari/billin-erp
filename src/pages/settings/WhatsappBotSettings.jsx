@@ -302,17 +302,20 @@ export default function WhatsappBotSettings() {
   );
 
   return (
-    <div className="wab-page">
-      <header className="wab-head">
-        <div>
-          <h1 className="wab-title">WhatsApp Bot</h1>
-          <p className="wab-sub">A WhatsApp command-centre for your shop — owners get live business reports, customers &amp; suppliers self-serve. Everything below is under your control.</p>
-        </div>
-        <div className="wab-head-right">
-          <span className={`wab-conn ${connected ? 'is-on' : ''}`}><WhatsAppOutlined />{connected ? `Connected${status.linked_number ? ' · ' + status.linked_number : ''}` : 'Not connected'}</span>
-          <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>Refresh</Button>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+        <div className="ms-page-header-row">
+          <div>
+            <h1 className="ms-page-title">WhatsApp Bot</h1>
+            <p className="ms-page-sub">Owners get live business reports on WhatsApp; customers and suppliers help themselves. You choose what it answers.</p>
+          </div>
+          <div className="wab-head-right">
+            <span className={`wab-conn ${connected ? 'is-on' : ''}`}><WhatsAppOutlined />{connected ? `Connected${status.linked_number ? ' · ' + status.linked_number : ''}` : 'Not connected'}</span>
+            <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>Refresh</Button>
+          </div>
         </div>
       </header>
+      <div className="ms-page-body"><div className="ms-page-body-inner wab-page">
 
       {!connected && (
         <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="Connect WhatsApp Web first"
@@ -335,6 +338,7 @@ export default function WhatsappBotSettings() {
         { key: 'access', label: <span><SafetyOutlined /> Access</span>, children: AccessTab },
         { key: 'preview', label: <span><EyeOutlined /> Preview</span>, children: PreviewTab },
       ]} />
+      </div></div>
     </div>
   );
 }

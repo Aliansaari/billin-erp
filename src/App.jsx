@@ -120,7 +120,6 @@ import RemoteAccess from './pages/settings/RemoteAccess';
 import WhatsappSettings from './pages/settings/WhatsappSettings';
 import WhatsappBotSettings from './pages/settings/WhatsappBotSettings';
 import BarcodeSettingsPage from './pages/settings/BarcodeSettings';
-import ModuleSettings from './pages/settings/ModuleSettings';
 import BackupRestore from './pages/settings/BackupRestore';
 import ThemeSettings from './pages/settings/ThemeSettings';
 import ImportExport from './pages/settings/ImportExport';
@@ -128,9 +127,12 @@ import TallySync from './pages/settings/TallySync';
 import PrintSettings from './pages/settings/PrintSettings';
 import HomeSettings from './pages/settings/HomeSettings';
 import DashboardSettings from './pages/settings/DashboardSettings';
-import DefaultsSettings from './pages/settings/DefaultsSettings';
+import SalesBillSettings from './pages/settings/SalesBillSettings';
+import PurchaseBillSettings from './pages/settings/PurchaseBillSettings';
+import StockSettings from './pages/settings/StockSettings';
+import AccountsSettings from './pages/settings/AccountsSettings';
 import CustomerInsightSettings from './pages/settings/CustomerInsightSettings';
-import SettingsLayout from './pages/settings/SettingsLayout';
+import SettingsLayout, { SETTINGS_REDIRECTS } from './pages/settings/SettingsLayout';
 import EntityFormModalDemo from './pages/dev/EntityFormModalDemo';
 import DeveloperSettings from './pages/settings/DeveloperSettings';
 import LicenseSettings from './pages/settings/LicenseSettings';
@@ -898,8 +900,16 @@ export default function App() {
             <Route path="notifications"       element={<PrivateRoute><NotificationsSettings /></PrivateRoute>} />
             <Route path="users"               element={<RoleRoute perm="settings.manage_users"><UserManagement /></RoleRoute>} />
             <Route path="barcode"             element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
-            <Route path="modules"             element={<RoleRoute perm="settings.manage_company"><ModuleSettings /></RoleRoute>} />
-            <Route path="defaults"            element={<RoleRoute perm="settings.manage_company"><DefaultsSettings /></RoleRoute>} />
+            {/* Task pages — the switches an operator looks for while doing
+                that job (these replaced the old Features + Defaults pages). */}
+            <Route path="sales-bill"          element={<RoleRoute perm="settings.manage_company"><SalesBillSettings /></RoleRoute>} />
+            <Route path="purchase-bill"       element={<RoleRoute perm="settings.manage_company"><PurchaseBillSettings /></RoleRoute>} />
+            <Route path="stock"               element={<RoleRoute perm="settings.manage_company"><StockSettings /></RoleRoute>} />
+            <Route path="accounts"            element={<RoleRoute perm="settings.manage_company"><AccountsSettings /></RoleRoute>} />
+            {/* Old addresses keep working (bookmarks, links from other screens). */}
+            {Object.entries(SETTINGS_REDIRECTS).map(([from, to]) => (
+              <Route key={from} path={from} element={<Navigate to={`/settings/${to}`} replace />} />
+            ))}
             <Route path="customer-insight"    element={<RoleRoute perm="settings.manage_company"><CustomerInsightSettings /></RoleRoute>} />
             <Route path="salesmen"            element={<RoleRoute perm="settings.manage_company"><SalesmanList /></RoleRoute>} />
             <Route path="membership"          element={<RoleRoute perm="settings.manage_company"><MembershipSettings /></RoleRoute>} />

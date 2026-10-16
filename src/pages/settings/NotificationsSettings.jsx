@@ -101,68 +101,73 @@ export default function NotificationsSettings() {
     return out;
   }, [types]);
 
+  const header = (
+    <header className="ms-page-header">
+      <h1 className="ms-page-title">Notifications</h1>
+      <p className="ms-page-sub">Choose which alerts show under the bell for you. Other users keep their own choices.</p>
+    </header>
+  );
+
   if (loading) {
-    return <div className="notif-settings"><div className="notif-status">Loading…</div></div>;
+    return (
+      <div className="ms-shell settings-pane-fill">{header}
+        <div className="ms-page-body"><div className="ms-page-body-inner"><div className="notif-status">Loading…</div></div></div>
+      </div>
+    );
   }
 
   return (
-    <div className="notif-settings">
-      {/* Master toggle — accent-tinted so it reads as a distinct
-          category from the per-type toggles. */}
-      <div className="notif-settings-section notif-settings-master">
-        <div className="notif-settings-row">
-          <div className="notif-settings-text">
-            <div className="notif-settings-label">Show notifications</div>
-            <div className="notif-settings-desc">
-              When off, the bell icon disappears entirely and no notifications
-              are computed for you. Your existing per-type preferences are kept.
+    <div className="ms-shell settings-pane-fill">
+      {header}
+      <div className="ms-page-body"><div className="ms-page-body-inner">
+        <section className="ms-section">
+          <div className="ms-row">
+            <div>
+              <div className="ms-row-label">Show notifications</div>
+              <div className="ms-row-desc">
+                Off: the bell disappears and nothing is worked out for you. Your choices below are kept.
+              </div>
+            </div>
+            <div className="ms-row-control">
+              <Switch checked={master} disabled={saving} onChange={onMasterChange} />
             </div>
           </div>
-          <Switch
-            checked={master}
-            disabled={saving}
-            onChange={onMasterChange}
-            checkedChildren="On"
-            unCheckedChildren="Off"
-          />
-        </div>
-      </div>
+        </section>
 
-      {/* Per-detector toggles, grouped by section. The whole block is
-          dimmed when master is off so the operator sees their per-type
-          state preserved but understands nothing is firing. */}
-      <div className={`notif-types ${master ? '' : 'notif-settings-disabled'}`}>
-        {['today', 'risk', 'system'].map((sec) => {
-          const list = grouped[sec] || [];
-          if (!list.length) return null;
-          const M = SECTION_META[sec];
-          const SecIcon = M.icon;
-          return (
-            <div key={sec} className="notif-settings-section">
-              <div className="notif-settings-section-title">
-                <SecIcon style={{ marginRight: 6 }} />
-                {M.label}
-                <span style={{ marginLeft: 8, fontWeight: 400, letterSpacing: 0, textTransform: 'none', color: 'var(--fg-tertiary)' }}>
-                  {M.hint}
-                </span>
-              </div>
-              {list.map((t) => (
-                <div key={t.type} className="notif-settings-row">
-                  <div className="notif-settings-text">
-                    <div className="notif-settings-label">{t.label}</div>
-                    <div className="notif-settings-desc">{t.description}</div>
-                  </div>
-                  <Switch
-                    checked={toggles[t.type] !== false}
-                    disabled={saving || !master}
-                    onChange={(next) => onTypeChange(t.type, next)}
-                  />
+        {/* Per-detector toggles, grouped by section. Dimmed when the master
+            switch is off so the saved choices stay visible. */}
+        <div className={master ? '' : 'notif-settings-disabled'}>
+          {['today', 'risk', 'system'].map((sec) => {
+            const list = grouped[sec] || [];
+            if (!list.length) return null;
+            const M = SECTION_META[sec];
+            const SecIcon = M.icon;
+            return (
+              <section key={sec} className="ms-section">
+                <div className="ms-section-head">
+                  <h2 className="ms-section-title"><SecIcon style={{ marginRight: 7, color: 'var(--fg-tertiary)' }} />{M.label}</h2>
+                  {M.hint && <p className="ms-section-desc">{M.hint}</p>}
                 </div>
-              ))}
-            </div>
-          );
-        })}
-      </div>
+                {list.map((t) => (
+                  <div key={t.type} className="ms-row" data-disabled={!master || undefined}>
+                    <div>
+                      <div className="ms-row-label">{t.label}</div>
+                      <div className="ms-row-desc">{t.description}</div>
+                    </div>
+                    <div className="ms-row-control">
+                      <Switch
+                        checked={toggles[t.type] !== false}
+                        disabled={saving || !master}
+                        onChange={(next) => onTypeChange(t.type, next)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </section>
+            );
+          })}
+        </div>
+      </div></div>
     </div>
   );
 }

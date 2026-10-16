@@ -3,7 +3,7 @@
  * & activity sidebar (right). Theme-aware via the shared --bg/--fg/--accent
  * tokens, so it follows Classic / Editorial and light / dark automatically.
  */
-.wa-page { max-width: 1160px; margin: 0 auto; padding: 4px 4px 48px; }
+.wa-page { /* sits in the shared settings column */ }
 
 .wa-head {
   display: flex; align-items: flex-start; justify-content: space-between;

@@ -226,17 +226,12 @@ export default function FinancialYearSettings() {
   const pctElapsed = (dayOfFY && totalDays) ? Math.min(100, Math.max(0, (dayOfFY / totalDays) * 100)) : 0;
 
   return (
-    <div className="fyset-page">
-      <header className="fyset-header">
-        <div>
-          <div className="fyset-eyebrow">Settings · Financial Year</div>
-          <h1 className="fyset-title">Financial year &amp; compliance</h1>
-          <p className="fyset-sub">
-            Manage the current FY's boundaries, and (optionally) enable the
-            compliance features that lock past periods after audit.
-          </p>
-        </div>
+    <div className="ms-shell settings-pane-fill">
+      <header className="ms-page-header">
+          <h1 className="ms-page-title">Financial Year</h1>
+          <p className="ms-page-sub">The current year's dates, and the compliance locks that close past periods after audit.</p>
       </header>
+      <div className="ms-page-body"><div className="ms-page-body-inner fyset-page">
 
       {/* ── Overview ──────────────────────────────────────────────────── */}
       <section className="fyset-card">
@@ -504,6 +499,7 @@ export default function FinancialYearSettings() {
         )}
       </Modal>
 
+    </div></div>
     </div>
   );
 }

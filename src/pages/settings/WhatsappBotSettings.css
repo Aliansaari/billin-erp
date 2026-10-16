@@ -2,7 +2,7 @@
  * Theme-aware via shared tokens. Cards use the elevated background + a soft
  * warm shadow so they lift off the cream page (matches the WhatsApp page).
  */
-.wab-page { max-width: 880px; margin: 0 auto; padding: 4px 4px 48px; }
+.wab-page { /* sits in the shared settings column */ }
 
 .wab-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .wab-title { font-size: 19px; font-weight: 700; color: var(--fg-primary); margin: 0 0 2px; letter-spacing: -0.02em; }

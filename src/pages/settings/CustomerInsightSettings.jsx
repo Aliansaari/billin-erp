@@ -84,7 +84,7 @@ export default function CustomerInsightSettings() {
   return (
     <div className="ms-shell settings-pane-fill">
       <header className="ms-page-header">
-        <h1 className="ms-page-title">Party Insight Panel</h1>
+        <h1 className="ms-page-title">Party Insight</h1>
         <p className="ms-page-sub">
           Control which sections appear when you press <kbd>F8</kbd> on a customer
           (Sales) or a supplier (Purchase). Save via <kbd>F1</kbd>.

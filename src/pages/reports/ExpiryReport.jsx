@@ -184,12 +184,12 @@ export default function ExpiryReport() {
               <div style={{ maxWidth: 420, textAlign: 'center' }}>
                 <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--fg-primary)', marginBottom: 8 }}>Batch tracking is turned off</div>
                 <div style={{ fontSize: 13, color: 'var(--fg-secondary)', lineHeight: 1.6 }}>
-                  Enable batch tracking in <b>Settings → Modules</b>, then re-open this report.
+                  Enable batch tracking in <b>Settings → Stock &amp; Products</b>, then re-open this report.
                 </div>
               </div>
             }
           >
-            <Button type="primary" onClick={() => nav('/settings/system')}>Open Settings</Button>
+            <Button type="primary" onClick={() => nav('/settings/stock')}>Open Settings</Button>
           </Empty>
         </div>
       </div>

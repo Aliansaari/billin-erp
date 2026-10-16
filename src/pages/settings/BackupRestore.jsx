@@ -781,18 +781,18 @@ const BKP_STYLES = `
   gap: 16px; flex-wrap: wrap;
 }
 .bkp-primary-btn.ant-btn-primary {
-  background: linear-gradient(135deg, #0F172A 0%, #1e293b 100%) !important;
-  border-color: #0F172A !important;
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
   border-radius: 10px !important;
   height: 42px !important;
   font-weight: 600 !important;
-  box-shadow: 0 6px 16px -6px rgba(15, 23, 42, 0.4) !important;
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--accent) 40%, transparent) !important;
   transition: all 0.18s ease !important;
 }
 .bkp-primary-btn.ant-btn-primary:hover {
-  background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
+  background: var(--accent-hover) !important;
   transform: translateY(-1px);
-  box-shadow: 0 10px 22px -8px rgba(15, 23, 42, 0.5) !important;
+  box-shadow: 0 10px 22px -8px color-mix(in srgb, var(--accent) 50%, transparent) !important;
 }
 
 /* ── Stat tiles ───────────────────────────────────────── */
@@ -858,9 +858,9 @@ const BKP_STYLES = `
 }
 .bkp-tabs-card .ant-tabs-tab-active .ant-tabs-tab-btn {
   font-weight: 600 !important;
-  color: #0F172A !important;
+  color: var(--accent) !important;
 }
-.bkp-tabs-card .ant-tabs-ink-bar { background: #0F172A !important; height: 2px !important; }
+.bkp-tabs-card .ant-tabs-ink-bar { background: var(--accent) !important; height: 2px !important; }
 
 /* ── Danger zone — premium treatment ─────────────────── */
 .bkp-danger {

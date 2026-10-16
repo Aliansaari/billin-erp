@@ -7,11 +7,7 @@
  * subtle borders, gentle gradients.
  * ========================================================================== */
 
-.fyset-page {
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 28px 32px 60px;
-}
+.fyset-page { /* sits in the shared settings column */ }
 
 .fyset-header { margin-bottom: 24px; }
 .fyset-eyebrow {
