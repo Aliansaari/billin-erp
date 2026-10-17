@@ -40,29 +40,54 @@ function fromPhone(co) {
   return [co?.company_phone, co?.company_phone_2].map((x) => (x || '').trim()).filter(Boolean).join(' · ');
 }
 
+// Name size steps down with length so long shop names still fit two lines.
+function nameSize(name) {
+  const n = String(name || '').length;
+  if (n <= 14) return 9.5;
+  if (n <= 22) return 8;
+  if (n <= 32) return 6.6;
+  return 5.4;
+}
+
+// 9876543210 → 98765 43210, easier to read out and dial.
+const fmtMobile = (m) => {
+  const d = String(m || '').replace(/\D/g, '');
+  return d.length === 10 ? `${d.slice(0, 5)} ${d.slice(5)}` : String(m || '');
+};
+
 // Build one label's inner HTML. Design goals: the transporter reads the TO
-// name + mobile from across the room, the parcel counter is unmistakable, and
-// the whole thing looks like a designed shipping label, not a printout.
-function labelHTML({ from, to, addrLines, mobile, billNumber, note, index, total, dateStr }) {
+// name, city and mobile from across the room, the parcel counter is
+// unmistakable, and it prints cleanly on a black-only label printer.
+function labelHTML({ from, to, streetLines, city, pin, mobile, billNumber, note, index, total, dateStr }) {
+  const fromBits = [esc(from.addr), from.phone ? `<span class="nb">Ph ${esc(from.phone)}</span>` : ''].filter(Boolean).join(' · ');
   return `
     <div class="label">
-      <div class="head">
-        <div class="shop">${esc(from.name)}</div>
-        <div class="pc"><span class="pc-n">${index}</span><span class="pc-d">/${total}</span></div>
+      <div class="top">
+        <div class="from">
+          <div class="cap">From</div>
+          <div class="shop">${esc(from.name)}</div>
+          ${fromBits ? `<div class="fromline">${fromBits}</div>` : ''}
+        </div>
+        <div class="pc">
+          <div class="pc-cap">Parcel</div>
+          <div class="pc-n">${index}<span>/${total}</span></div>
+        </div>
       </div>
-      <div class="fromline">${[from.addr, from.phone ? '☎ ' + from.phone : ''].filter(Boolean).map(esc).join(' · ')}</div>
 
-      <div class="tolabel">Deliver&nbsp;to</div>
-      <div class="to-name">${esc(to)}</div>
-      <div class="to-addr">${addrLines.map(esc).join('<br/>') || '—'}</div>
+      <div class="to">
+        <div class="cap">Deliver to</div>
+        <div class="to-name" style="font-size:${nameSize(to)}mm">${esc(to) || '&nbsp;'}</div>
+        ${streetLines.length ? `<div class="to-addr">${streetLines.map(esc).join('<br/>')}</div>` : ''}
+      </div>
 
-      ${mobile ? `<div class="mob"><span class="mic">☎</span><span class="mnum">${esc(mobile)}</span></div>` : ''}
+      ${(city || pin) ? `<div class="city"><span class="city-n">${esc(city)}</span>${pin ? `<span class="pin">${esc(pin)}</span>` : ''}</div>` : ''}
+
+      ${mobile ? `<div class="mob"><span class="mob-cap">Call</span><span class="mnum">${esc(fmtMobile(mobile))}</span></div>` : ''}
 
       <div class="foot">
-        <div class="foot-row">
-          <div class="bill">${billNumber ? `Bill <b>${esc(billNumber)}</b>` : '&nbsp;'}</div>
-          <div class="date">${esc(dateStr)}${note ? ` · ${esc(note)}` : ''}</div>
-        </div>
+        <span>${billNumber ? `Bill <b>${esc(billNumber)}</b>` : ''}</span>
+        <span>${esc(dateStr)}</span>
+        ${note ? `<span class="note">${esc(note)}</span>` : ''}
       </div>
     </div>`;
 }
@@ -70,47 +95,53 @@ function labelHTML({ from, to, addrLines, mobile, billNumber, note, index, total
 const DOC_CSS = `
   @page { size: 100mm 100mm; margin: 0; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  html, body { margin: 0; padding: 0; background: #fff; color: #111;
-    font-family: 'Helvetica Neue', Arial, 'Segoe UI', sans-serif; }
-  .label { width: 100mm; height: 100mm; padding: 4mm; overflow: hidden;
+  html, body { margin: 0; padding: 0; background: #fff; color: #000;
+    font-family: 'Source Sans 3', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; }
+  .label { width: 100mm; height: 100mm; padding: 5mm 5mm 4.2mm; overflow: hidden;
     display: flex; flex-direction: column; page-break-after: always; }
   .label:last-child { page-break-after: auto; }
+  .nb { white-space: nowrap; }
+  .cap { font-size: 2.5mm; font-weight: 700; letter-spacing: 0.6mm; text-transform: uppercase; }
 
-  /* Header band: shop name + parcel counter badge */
-  .head { display: flex; align-items: stretch; justify-content: space-between;
-    background: #111; color: #fff; border-radius: 2mm; overflow: hidden; }
-  .head .shop { font-size: 5mm; font-weight: 800; letter-spacing: 0.2px;
-    padding: 2.2mm 3mm; align-self: center; line-height: 1.05;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .head .pc { background: #fff; color: #111; display: flex; align-items: baseline;
-    padding: 0 3.2mm; justify-content: center; align-items: center; }
-  .head .pc-n { font-size: 8mm; font-weight: 800; line-height: 1; }
-  .head .pc-d { font-size: 4.2mm; font-weight: 700; opacity: 0.75; }
+  /* From + parcel counter */
+  .top { display: flex; align-items: stretch; gap: 3mm; padding-bottom: 2.6mm; border-bottom: 0.6mm solid #000; }
+  .from { flex: 1; min-width: 0; }
+  .shop { font-size: 4.6mm; font-weight: 800; line-height: 1.1; margin-top: 0.6mm;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fromline { font-size: 2.6mm; line-height: 1.3; margin-top: 0.8mm;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .pc { flex: 0 0 auto; min-width: 19mm; border: 0.6mm solid #000; border-radius: 2mm;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1mm 2mm; }
+  .pc-cap { font-size: 2.2mm; font-weight: 700; letter-spacing: 0.4mm; text-transform: uppercase; }
+  .pc-n { font-size: 8.5mm; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .pc-n span { font-size: 4.4mm; font-weight: 700; }
 
-  .fromline { font-size: 2.9mm; color: #444; margin: 1.5mm 0.5mm 0;
-    line-height: 1.25; padding-bottom: 2.2mm; border-bottom: 0.4mm solid #ddd; }
+  /* Deliver to */
+  .to { margin-top: 3mm; min-height: 0; }
+  .to-name { font-weight: 800; line-height: 1.02; margin-top: 0.8mm; letter-spacing: -0.1mm;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+  .to-addr { font-size: 3.5mm; line-height: 1.3; margin-top: 1.4mm;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
-  /* Deliver-to hero block */
-  .tolabel { font-size: 3mm; letter-spacing: 3px; font-weight: 800; color: #888;
-    text-transform: uppercase; margin: 2.6mm 0.5mm 0; }
-  .to-name { font-size: 8mm; font-weight: 800; line-height: 1.02; color: #000;
-    margin: 0.6mm 0.5mm 1.4mm; word-break: break-word; }
-  .to-addr { font-size: 4mm; line-height: 1.32; color: #222; margin: 0 0.5mm; }
+  /* City band: what the transporter sorts by */
+  .city { margin-top: 2.8mm; background: #000; color: #fff; border-radius: 1.6mm;
+    display: flex; align-items: center; justify-content: space-between; gap: 3mm; padding: 1.8mm 3mm; }
+  .city-n { font-size: 5.6mm; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2mm;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pin { font-size: 5.6mm; font-weight: 800; letter-spacing: 0.5mm; font-variant-numeric: tabular-nums; }
 
-  /* Big boxed mobile — the number the transporter actually calls */
-  .mob { display: flex; align-items: center; gap: 2.5mm; margin-top: 2.8mm;
-    border: 0.5mm solid #111; border-radius: 2mm; padding: 1.8mm 3mm; }
-  .mob .mic { font-size: 5.2mm; }
-  .mob .mnum { font-size: 7.2mm; font-weight: 800; letter-spacing: 0.6px;
-    font-variant-numeric: tabular-nums; }
+  /* Mobile */
+  .mob { margin-top: 2.4mm; border: 0.6mm solid #000; border-radius: 1.6mm;
+    display: flex; align-items: center; gap: 3mm; padding: 1.4mm 3mm; }
+  .mob-cap { font-size: 2.6mm; font-weight: 700; letter-spacing: 0.5mm; text-transform: uppercase; }
+  .mnum { font-size: 7mm; font-weight: 800; letter-spacing: 0.3mm; font-variant-numeric: tabular-nums; }
 
   /* Footer */
-  .foot { margin-top: auto; }
-  .foot-row { display: flex; align-items: baseline; justify-content: space-between;
-    gap: 3mm; font-size: 3.8mm; color: #111; border-top: 0.5mm solid #111;
-    padding-top: 1.8mm; }
-  .foot-row .bill b { font-weight: 800; }
-  .foot-row .date { font-size: 3.2mm; color: #555; text-align: right; }
+  .foot { margin-top: auto; padding-top: 1.8mm; border-top: 0.3mm solid #000;
+    display: flex; align-items: baseline; gap: 3mm; font-size: 3.2mm; }
+  .foot b { font-weight: 800; }
+  .foot .note { margin-left: auto; font-weight: 700; text-align: right;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38mm; }
 `;
 
 /**
@@ -126,13 +157,17 @@ export async function buildParcelTagHTML({ company, party, billNumber, totalParc
     gstin: (company?.company_gstin || '').trim(),
   };
   const to = party?.party_name || '';
-  const addrLines = partyAddressLines(party);
+  // Street lines in the address block; city + PIN get their own band.
+  const streetLines = [party?.address_line_1, party?.address_line_2].map((x) => (x || '').trim()).filter(Boolean);
+  // No city on file: fall back to the state, so the band still says where it goes.
+  const city = (party?.city || '').trim() || (party?.state || '').trim();
+  const pin = (party?.pincode || '').trim();
   const mobile = (party?.mobile_1 || '').trim();
   const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
   const labels = [];
   for (let i = 1; i <= total; i++) {
-    labels.push(labelHTML({ from, to, addrLines, mobile, billNumber, note, index: i, total, dateStr }));
+    labels.push(labelHTML({ from, to, streetLines, city, pin, mobile, billNumber, note, index: i, total, dateStr }));
   }
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>Parcel Tag</title><style>${DOC_CSS}</style></head><body>${labels.join('')}</body></html>`;
