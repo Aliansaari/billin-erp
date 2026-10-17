@@ -365,12 +365,15 @@
 .sbf-top-row {
   display: grid;
   /* Tracks sized for what they actually carry, not the page width.
-   * Col 1 — Customer Select (shows just the picked party's name).
+   * Col 1 — Customer Select (shows just the picked party's name), with
+   *         the add-customer and parcel-label buttons in front of it.
+   *         Wide enough that a full shop name like "ASHIYA DRESSES
+   *         (BHIWANDI)" reads without being cut after both buttons.
    * Col 2 — Walk-in name (only visible when Cash is the selection;
    *         empty for credit sales).
    * Col 3 — reserved for future fields; stays empty today. */
   grid-template-columns:
-    minmax(200px, 260px)
+    minmax(300px, 400px)
     minmax(200px, 260px)
     minmax(120px, 160px);
   gap: 14px;
