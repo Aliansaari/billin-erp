@@ -155,6 +155,13 @@ module.exports = (sequelize) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
     },
+    // With merging ON: merge only when the same item is scanned again
+    // straight away (it is still the last line). A repeat after other
+    // items gets its own line. OFF = merge into any earlier line.
+    merge_repeat_scans_consecutive: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
     // Default design of the 10 × 10 cm parcel label (src/utils/parcelTag.js):
     // courier | band | boxed | minimal | hub | side. The dialog can switch per print.
     parcel_tag_design: {

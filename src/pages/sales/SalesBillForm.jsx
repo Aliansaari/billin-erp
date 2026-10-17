@@ -10,7 +10,7 @@ import { whatsappAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import useBillAutosave from '../../hooks/useBillAutosave';
 import useBack from '../../hooks/useBack';
-import { useMultiWarehouseEnabled, useMergeRepeatScansEnabled, useMultiColorEnabled, useSystemSettings } from '../../hooks/useSystemSettings';
+import { useMultiWarehouseEnabled, useMergeRepeatScansMode, useMultiColorEnabled, useSystemSettings } from '../../hooks/useSystemSettings';
 import CustomerInsightPanel from '../../components/CustomerInsightPanel';
 import { UserAddOutlined } from '@ant-design/icons';
 import PartyForm from '../parties/PartyForm';
@@ -205,13 +205,13 @@ export default function SalesBillForm() {
   // when multi-color stock is on (the hook handles that). Read inside
   // a ref so the scan handler always sees the latest value without
   // recomputing the whole closure each render.
-  const mergeScansOn = useMergeRepeatScansEnabled();
+  const mergeScansMode = useMergeRepeatScansMode();
   // When ON globally, the Color column appears in the items table for
   // multi-color tracked products. For non-multi lines or non-multi
   // installs, the column is hidden entirely (filtered out of `cols`).
   const multiColorOn = useMultiColorEnabled();
-  const mergeScansRef = useRef(false);
-  useEffect(() => { mergeScansRef.current = !!mergeScansOn; }, [mergeScansOn]);
+  const mergeScansRef = useRef('off');   // 'off' | 'consecutive' | 'always'
+  useEffect(() => { mergeScansRef.current = mergeScansMode || 'off'; }, [mergeScansMode]);
   // Active godowns the operator can issue from. Filtered to user's
   // allowed_godowns when the JWT carries that allowlist (the server
   // also enforces — this is just to keep the dropdown honest).
@@ -946,16 +946,22 @@ export default function SalesBillForm() {
     const rate = defaultRateFromProduct(p);
     const qty  = parseFloat(p.quantity_per_box) || 1;
     const newLine = buildScanLine(p);
-    const canMerge = mergeScansRef.current && !p.is_batch_tracked && p.color_mode !== 'multi';
+    const mode = mergeScansRef.current;
+    const canMerge = mode !== 'off' && !p.is_batch_tracked && p.color_mode !== 'multi';
     setItems(prev => {
       if (canMerge) {
-        const idx = prev.findIndex(it =>
+        const same = (it) =>
           it.product_id === p.product_id &&
           !it.is_batch_tracked &&
           // Same rate required — a manually-overridden first line
           // shouldn't silently absorb a fresh scan at catalog rate.
-          +(it.rate || 0) === +(rate || 0),
-        );
+          +(it.rate || 0) === +(rate || 0);
+        // Back-to-back only: merge just into the last line (scans append
+        // at the end, so that is the item scanned a moment ago). A repeat
+        // after other items gets its own line, keeping the scan order.
+        const idx = mode === 'consecutive'
+          ? (prev.length && same(prev[prev.length - 1]) ? prev.length - 1 : -1)
+          : prev.findIndex(same);
         if (idx >= 0) {
           const next = prev.slice();
           const cur = next[idx];
@@ -2899,44 +2905,41 @@ export default function SalesBillForm() {
                 const mob = String(selectedParty.mobile_1 || '').replace(/\D/g, '');
                 const mobShown = mob.length === 10 ? `${mob.slice(0, 5)} ${mob.slice(5)}` : selectedParty.mobile_1;
                 const inr = (v) => `₹${Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+                // Standing for this sale: red when credit is blocked or they
+                // are over their limit, green otherwise.
+                const bad = !selectedParty.credit_allowed || overLimit;
+                const standing = overLimit ? `${inr(bal - limit)} over limit`
+                  : !selectedParty.credit_allowed ? 'Credit blocked'
+                  : limit > 0 ? `${inr(available)} credit left` : 'Credit allowed';
                 return (
-                  // One bar, as tall as the customer box: a small caption over
-                  // each value, like the entry row underneath; tags on the right.
-                  <div className="sbf-party-bar" style={{ gridColumn: '2 / span 2' }}>
-                    {selectedParty.city && (
-                      <div className="seg"><span className="k">City</span><span className="v">{selectedParty.city}</span></div>
-                    )}
-                    {selectedParty.mobile_1 && (
-                      <a className="seg" href={`tel:+91${mob}`} title="Call">
-                        <span className="k">Mobile</span>
-                        <span className="v num">
-                          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>
-                          {mobShown}
-                        </span>
-                      </a>
-                    )}
-                    <div className="seg">
-                      <span className="k">Balance</span>
-                      <span className={`v num ${bal > 0.005 ? 'dr' : bal < -0.005 ? 'cr' : ''}`}>
-                        {inr(bal)} <small>{bal >= 0 ? 'Dr' : 'Cr'}</small>
+                  // One tinted capsule with what matters for this sale (what
+                  // they owe, whether credit is fine), then quiet contact text.
+                  <div className="sbf-party-line" style={{ gridColumn: '2 / span 2' }}>
+                    <span className={`cap ${bad ? 'no' : 'ok'}`}>
+                      <i className="dot" />
+                      {Math.abs(bal) < 0.5
+                        ? <span>No balance</span>
+                        : <span><b className="num">{inr(bal)}</b> {bal > 0 ? 'due' : 'advance'}</span>}
+                      <i className="sep" />
+                      <span>{standing}</span>
+                    </span>
+                    {(selectedParty.city || selectedParty.mobile_1) && (
+                      <span className="quiet">
+                        {selectedParty.city}
+                        {selectedParty.city && selectedParty.mobile_1 && <i className="mid" />}
+                        {selectedParty.mobile_1 && (
+                          <a href={`tel:+91${mob}`} title="Call">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>
+                            <b className="num">{mobShown}</b>
+                          </a>
+                        )}
                       </span>
-                    </div>
-                    {limit > 0 && (
-                      <div className="seg">
-                        <span className="k">Limit {inr(limit)}</span>
-                        <span className={`v num ${overLimit ? 'over' : available === 0 ? 'warn' : 'ok'}`}>
-                          {overLimit ? `${inr(bal - limit)} over` : `${inr(available)} left`}
-                        </span>
-                      </div>
                     )}
-                    <div className="tags">
-                      <span className={`tag ${selectedParty.credit_allowed ? 'ok' : 'no'}`}>
-                        <i />{selectedParty.credit_allowed ? 'Credit allowed' : 'Credit blocked'}
+                    {status !== 'Regular' && (
+                      <span className={`stat ${isBlacklist ? 'no' : status === 'VIP' ? 'vip' : 'warn'}`}>
+                        {status === 'VIP' ? '★ ' : ''}{status}
                       </span>
-                      {status !== 'Regular' && (
-                        <span className={`tag ${isBlacklist ? 'no' : status === 'VIP' ? 'vip' : 'warn'}`}><i />{status}</span>
-                      )}
-                    </div>
+                    )}
                     {/* Membership is now shown as a full panel beside the
                         totals (see the member panel in the bottom bar), not as
                         a top badge — keeps the header clean. */}

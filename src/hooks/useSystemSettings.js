@@ -100,6 +100,19 @@ export function useMergeRepeatScansEnabled() {
   return !!s.merge_repeat_scans_enabled;
 }
 
+/* How a repeat scan of the same item is handled on the sale bill:
+ *   'off'         — every scan is its own line
+ *   'consecutive' — merge only when it is still the last line (scanned
+ *                   back-to-back); a repeat after other items is a new line
+ *   'always'      — merge into the earlier line wherever it is
+ * Off whenever multi-color stock is on (see above). */
+export function useMergeRepeatScansMode() {
+  const s = useSystemSettings();
+  if (s == null) return null;
+  if (s.multi_color_enabled || !s.merge_repeat_scans_enabled) return 'off';
+  return s.merge_repeat_scans_consecutive ? 'consecutive' : 'always';
+}
+
 /* ── Developer-tier feature gates ─────────────────────────────────────
  *
  * Returns true when the named feature should be VISIBLE for the current

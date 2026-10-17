@@ -491,7 +491,7 @@ async function startServer() {
     //
     // Bump MIGRATION_VERSION whenever you add/change any migration below.
     // A simple integer counter works: just increment it.
-    const MIGRATION_VERSION = '13';
+    const MIGRATION_VERSION = '14';
     const migVersionFile = path.join(os.homedir(), '.zehen', 'migration-version.txt');
     let skipMigrations = false;
     try {
@@ -2561,6 +2561,13 @@ async function startServer() {
       ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_on_sale_form BOOLEAN DEFAULT true;
     `).catch((err) => {
       console.error('[Parcel label design migration] Error:', err.message);
+    });
+
+    // Merge repeat scans: back-to-back only (Settings → Sales Bill). MIGRATION_VERSION 14.
+    await sequelize.query(`
+      ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS merge_repeat_scans_consecutive BOOLEAN DEFAULT false;
+    `).catch((err) => {
+      console.error('[Merge scans mode migration] Error:', err.message);
     });
 
     // ── FY compliance fields ─────────────────────────────────────────

@@ -843,6 +843,11 @@ async function runCompanySchemaMigrations(sequelize) {
     ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_show_from BOOLEAN DEFAULT true;
     ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_on_sale_form BOOLEAN DEFAULT true;
   `);
+
+  // Merge repeat scans: back-to-back only; mirrors server/index.js.
+  await sequelize.query(`
+    ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS merge_repeat_scans_consecutive BOOLEAN DEFAULT false;
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };

@@ -64,7 +64,7 @@ export const SETTINGS_GROUPS = [
     label: 'Sales',
     items: [
       { path: 'sales-bill',       icon: <ShoppingCartOutlined />, tint: 'accent', label: 'Sales Bill', perm: 'settings.manage_company',
-        find: ['Sales form', 'Sale window', 'Amount-only billing', 'Merge repeat scans', 'Allow negative stock', 'Sell when stock runs out',
+        find: ['Sales form', 'Sale window', 'Amount-only billing', 'Merge repeat scans', 'Repeat scans', 'Back-to-back scans', 'Allow negative stock', 'Sell when stock runs out',
                'Sales bill prefix', 'Invoice number', 'Parcel label button', 'Bill numbering', 'GST calculation mode', 'Bill-wise GST', 'Product-wise GST', 'Due days on receipts'] },
       { path: 'salesmen',         icon: <IdcardOutlined />,   tint: 'teal', label: 'Salesmen',         perm: 'settings.manage_company',
         find: ['Salesman', 'Commission', 'Sales staff'] },

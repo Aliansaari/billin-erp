@@ -362,52 +362,40 @@
   border-radius: 4px; font-size: 11px; font-weight: 700;
 }
 
-/* Selected customer's details — one bar as tall as the customer box,
- * a small caption over each value (the entry row's language), separated
- * by hairlines; credit / status tags sit at the right end. */
-.sbf-party-bar {
-  display: flex; align-items: stretch; min-width: 0; max-width: 100%;
-  justify-self: start;
-  border: 1px solid var(--border-subtle); border-radius: 8px;
-  background: var(--bg-panel);
-  overflow: hidden;
+/* Selected customer — one tinted capsule with what they owe and their
+ * credit standing (green fine, red blocked or over limit), then city and
+ * mobile as quiet text, then a VIP / Blacklist tag. No boxes. */
+.sbf-party-line {
+  display: flex; align-items: center; gap: 14px; min-width: 0;
+  justify-self: start; white-space: nowrap;
 }
-.sbf-party-bar .seg {
-  display: flex; flex-direction: column; justify-content: center; gap: 1px;
-  padding: 0 14px; min-width: 0;
-  border-right: 1px solid var(--border-subtle);
-  color: inherit; text-decoration: none;
+.sbf-party-line .cap {
+  display: inline-flex; align-items: center; gap: 9px;
+  height: 36px; padding: 0 15px 0 13px; border-radius: 99px;
+  font-size: 13px; font-weight: 600;
 }
-.sbf-party-bar a.seg:hover { background: var(--bg-hover); }
-.sbf-party-bar a.seg:hover .v { color: var(--accent); }
-.sbf-party-bar .k {
-  font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
-  color: var(--fg-tertiary); white-space: nowrap;
+.sbf-party-line .cap b { font-size: 15.5px; font-weight: 800; letter-spacing: -0.01em; }
+.sbf-party-line .cap.ok { background: var(--success-bg); color: color-mix(in srgb, var(--success) 72%, var(--fg-primary)); }
+.sbf-party-line .cap.no { background: var(--danger-bg);  color: color-mix(in srgb, var(--danger) 85%, var(--fg-primary)); }
+[data-theme$="-dark"] .sbf-party-line .cap.ok { color: var(--success); }
+[data-theme$="-dark"] .sbf-party-line .cap.no { color: var(--danger); }
+.sbf-party-line .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+.sbf-party-line .sep { width: 1px; height: 16px; background: currentColor; opacity: .25; }
+.sbf-party-line .num { font-variant-numeric: tabular-nums; }
+.sbf-party-line .quiet {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  font-size: 13px; color: var(--fg-secondary); overflow: hidden; text-overflow: ellipsis;
 }
-.sbf-party-bar .v {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 13.5px; font-weight: 700; color: var(--fg-primary); white-space: nowrap;
-  line-height: 1.2;
-}
-.sbf-party-bar .v.num { font-variant-numeric: tabular-nums; }
-.sbf-party-bar .v svg { width: 12px; height: 12px; color: var(--fg-tertiary); }
-.sbf-party-bar .v small { font-size: 10.5px; font-weight: 700; opacity: .75; }
-.sbf-party-bar .v.dr   { color: var(--success); }
-.sbf-party-bar .v.cr   { color: var(--danger); }
-.sbf-party-bar .v.ok   { color: var(--success); }
-.sbf-party-bar .v.warn { color: var(--warning); }
-.sbf-party-bar .v.over { color: var(--danger); }
-.sbf-party-bar .tags { display: flex; align-items: center; gap: 6px; padding: 0 12px; margin-left: auto; }
-.sbf-party-bar .tag {
-  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
-  padding: 3px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 700;
-}
-.sbf-party-bar .tag i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.sbf-party-bar .tag.ok   { background: var(--success-bg); color: var(--success); }
-.sbf-party-bar .tag.no   { background: var(--danger-bg);  color: var(--danger); }
-.sbf-party-bar .tag.warn { background: var(--warning-bg); color: var(--warning); }
-.sbf-party-bar .tag.vip  { background: rgba(127, 90, 163, 0.14); color: #7F5AA3; }
-[data-theme$="-dark"] .sbf-party-bar .tag.vip { color: #c3a2e6; }
+.sbf-party-line .quiet .mid { width: 3px; height: 3px; border-radius: 50%; background: var(--fg-tertiary); }
+.sbf-party-line .quiet a { display: inline-flex; align-items: center; gap: 5px; color: inherit; text-decoration: none; }
+.sbf-party-line .quiet a b { color: var(--fg-primary); font-weight: 600; }
+.sbf-party-line .quiet a:hover b { color: var(--accent); }
+.sbf-party-line .quiet svg { width: 13px; height: 13px; color: var(--fg-tertiary); }
+.sbf-party-line .stat { padding: 3px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 800; }
+.sbf-party-line .stat.vip  { background: rgba(127, 90, 163, 0.14); color: #7F5AA3; }
+.sbf-party-line .stat.no   { background: var(--danger-bg);  color: var(--danger); }
+.sbf-party-line .stat.warn { background: var(--warning-bg); color: var(--warning); }
+[data-theme$="-dark"] .sbf-party-line .stat.vip { color: #c3a2e6; }
 
 .sbf-top-row {
   display: grid;

@@ -18,7 +18,7 @@ import {
  */
 const read = (s) => ({
   enable_amount_only_billing: s.enable_amount_only_billing ?? true,
-  merge_repeat_scans_enabled: !!s.merge_repeat_scans_enabled,
+  merge_scans_mode: !s.merge_repeat_scans_enabled ? 'off' : s.merge_repeat_scans_consecutive ? 'consecutive' : 'always',
   allow_negative_stock:       !!s.allow_negative_stock,
   sales_bill_prefix:          s.sales_bill_prefix || '',
   gst_mode:                   localStorage.getItem('gst_mode') || 'product',
@@ -31,7 +31,8 @@ const write = (v) => {
   localStorage.setItem('sale_due_days_mode', v.sale_due_days_mode || 'bill_date');
   return {
     enable_amount_only_billing: !!v.enable_amount_only_billing,
-    merge_repeat_scans_enabled: !!v.merge_repeat_scans_enabled,
+    merge_repeat_scans_enabled: v.merge_scans_mode !== 'off',
+    merge_repeat_scans_consecutive: v.merge_scans_mode === 'consecutive',
     allow_negative_stock:       !!v.allow_negative_stock,
     sales_bill_prefix:          (v.sales_bill_prefix || '').trim().toUpperCase(),
     parcel_tag_on_sale_form:    v.parcel_tag_on_sale_form !== false,
@@ -52,11 +53,21 @@ export default function SalesBillSettings() {
     >
       <Form form={form} onFinish={save} disabled={loading}>
         <Section title="While billing">
-          <ToggleRow name="merge_repeat_scans_enabled" label="Merge repeat scans"
-                     disabled={multiColorOn}
+          <ChoiceRow label="Repeat scans"
                      desc={multiColorOn
-                       ? 'Locked off while Multi-color stock is on (Stock & Products), because merging different colours would break per-colour stock.'
-                       : 'Scanning the same barcode again adds to the quantity of the line already on the bill. Off: every scan is its own line.'} />
+                       ? 'Every scan is its own line while Multi-color stock is on (Stock & Products), because merging different colours would break per-colour stock.'
+                       : 'What happens when the same barcode is scanned again.'}>
+            <Form.Item name="merge_scans_mode" noStyle>
+              <Radio.Group disabled={multiColorOn}>
+                <Radio value="consecutive"><Choice title="Merge back-to-back scans"
+                  note="Scanning the same item again straight away adds to its quantity (10 scans of one kurti = one line × 10). If it comes up again after other items, it gets a new line, so the bill keeps the order you scanned in." /></Radio>
+                <Radio value="always"><Choice title="Always merge"
+                  note="Every repeat adds to the first line of that item, wherever it is on the bill." /></Radio>
+                <Radio value="off"><Choice title="Separate lines"
+                  note="Every scan is its own line." /></Radio>
+              </Radio.Group>
+            </Form.Item>
+          </ChoiceRow>
           <ToggleRow name="enable_amount_only_billing" label="Amount-only billing"
                      desc="Adds an Itemised / Amount-only switch on the sale window, for service or on-account bills with no items." />
           <ToggleRow name="parcel_tag_on_sale_form" label="Parcel label button"
