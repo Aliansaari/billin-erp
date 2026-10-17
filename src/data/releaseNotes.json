@@ -2,6 +2,18 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.20",
+      "date": "2026-10-17",
+      "title": "Settings made simple, and parcel labels",
+      "highlights": [
+        "Settings is arranged by the job you are doing: Sales Bill, Purchase Bill, Stock, Printing, Staff and Data. Every page has the same clean layout.",
+        "Search in Settings finds the exact setting, like negative stock or bill prefix, and takes you straight to it.",
+        "Print Templates is redesigned. Pick a style from live previews of your own bill and see the page exactly as it will print.",
+        "Print 10 x 10 cm parcel labels from the sale bill, for the customer on the bill or anyone you type in. Choose from six designs in Settings, Parcel Labels.",
+        "Choose whether your shop's name and address print on parcel labels, and hide the parcel button if you do not use it."
+      ]
+    },
+    {
       "version": "1.1.19",
       "date": "2026-10-16",
       "title": "Name and article together",
