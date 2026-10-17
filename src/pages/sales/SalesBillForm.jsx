@@ -2896,42 +2896,47 @@ export default function SalesBillForm() {
                 // customer can owe before the server hard-blocks the save.
                 const available = limit > 0 ? Math.max(0, +(limit - bal).toFixed(2)) : null;
                 const overLimit = limit > 0 && bal > limit + 0.01;
+                const mob = String(selectedParty.mobile_1 || '').replace(/\D/g, '');
+                const mobShown = mob.length === 10 ? `${mob.slice(0, 5)} ${mob.slice(5)}` : selectedParty.mobile_1;
+                const inr = (v) => `₹${Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
                 return (
-                  <div className="sbf-party-info"
-                    style={{
-                      gridColumn: '2 / span 2',
-                      margin: 0,
-                      padding: '0 8px',
-                      background: 'transparent',
-                      border: 'none',
-                      boxShadow: 'none',
-                      alignSelf: 'center',
-                    }}>
-                    {selectedParty.city && <span>{selectedParty.city}</span>}
-                    {selectedParty.mobile_1 && <span>📞 <b>{selectedParty.mobile_1}</b></span>}
-                    <span>Balance <b className={bal >= 0 ? 'pos' : 'neg'}>
-                      ₹{Math.abs(bal).toLocaleString('en-IN', { maximumFractionDigits: 0 })} {bal >= 0 ? 'Dr' : 'Cr'}
-                    </b></span>
-                    {limit > 0 && (
-                      <span>
-                        Limit <b>₹{limit.toFixed(2)}</b>{' '}
-                        <span style={{ color: overLimit ? 'var(--danger)' : available === 0 ? 'var(--warning)' : 'var(--success)', fontWeight: 700 }}>
-                          {overLimit ? `(₹${(bal - limit).toFixed(2)} over)` : `· ₹${available.toFixed(2)} available`}
+                  // One bar, as tall as the customer box: a small caption over
+                  // each value, like the entry row underneath; tags on the right.
+                  <div className="sbf-party-bar" style={{ gridColumn: '2 / span 2' }}>
+                    {selectedParty.city && (
+                      <div className="seg"><span className="k">City</span><span className="v">{selectedParty.city}</span></div>
+                    )}
+                    {selectedParty.mobile_1 && (
+                      <a className="seg" href={`tel:+91${mob}`} title="Call">
+                        <span className="k">Mobile</span>
+                        <span className="v num">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>
+                          {mobShown}
                         </span>
-                      </span>
+                      </a>
                     )}
-                    <span className={selectedParty.credit_allowed ? 'credit-ok' : 'credit-no'}>
-                      {selectedParty.credit_allowed ? 'Credit allowed' : 'Credit blocked'}
-                    </span>
-                    {status !== 'Regular' && (
-                      <span style={{
-                        padding: '1px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700,
-                        background: isBlacklist ? 'var(--danger-bg)' : status === 'VIP' ? 'rgba(127,90,163,0.14)' : 'rgba(177,71,47,0.10)',
-                        color:      isBlacklist ? 'var(--danger)'    : status === 'VIP' ? '#7F5AA3'                : 'var(--warning)',
-                      }}>
-                        {status}
+                    <div className="seg">
+                      <span className="k">Balance</span>
+                      <span className={`v num ${bal > 0.005 ? 'dr' : bal < -0.005 ? 'cr' : ''}`}>
+                        {inr(bal)} <small>{bal >= 0 ? 'Dr' : 'Cr'}</small>
                       </span>
+                    </div>
+                    {limit > 0 && (
+                      <div className="seg">
+                        <span className="k">Limit {inr(limit)}</span>
+                        <span className={`v num ${overLimit ? 'over' : available === 0 ? 'warn' : 'ok'}`}>
+                          {overLimit ? `${inr(bal - limit)} over` : `${inr(available)} left`}
+                        </span>
+                      </div>
                     )}
+                    <div className="tags">
+                      <span className={`tag ${selectedParty.credit_allowed ? 'ok' : 'no'}`}>
+                        <i />{selectedParty.credit_allowed ? 'Credit allowed' : 'Credit blocked'}
+                      </span>
+                      {status !== 'Regular' && (
+                        <span className={`tag ${isBlacklist ? 'no' : status === 'VIP' ? 'vip' : 'warn'}`}><i />{status}</span>
+                      )}
+                    </div>
                     {/* Membership is now shown as a full panel beside the
                         totals (see the member panel in the bottom bar), not as
                         a top badge — keeps the header clean. */}

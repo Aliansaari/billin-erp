@@ -362,6 +362,53 @@
   border-radius: 4px; font-size: 11px; font-weight: 700;
 }
 
+/* Selected customer's details — one bar as tall as the customer box,
+ * a small caption over each value (the entry row's language), separated
+ * by hairlines; credit / status tags sit at the right end. */
+.sbf-party-bar {
+  display: flex; align-items: stretch; min-width: 0; max-width: 100%;
+  justify-self: start;
+  border: 1px solid var(--border-subtle); border-radius: 8px;
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+.sbf-party-bar .seg {
+  display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  padding: 0 14px; min-width: 0;
+  border-right: 1px solid var(--border-subtle);
+  color: inherit; text-decoration: none;
+}
+.sbf-party-bar a.seg:hover { background: var(--bg-hover); }
+.sbf-party-bar a.seg:hover .v { color: var(--accent); }
+.sbf-party-bar .k {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--fg-tertiary); white-space: nowrap;
+}
+.sbf-party-bar .v {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 13.5px; font-weight: 700; color: var(--fg-primary); white-space: nowrap;
+  line-height: 1.2;
+}
+.sbf-party-bar .v.num { font-variant-numeric: tabular-nums; }
+.sbf-party-bar .v svg { width: 12px; height: 12px; color: var(--fg-tertiary); }
+.sbf-party-bar .v small { font-size: 10.5px; font-weight: 700; opacity: .75; }
+.sbf-party-bar .v.dr   { color: var(--success); }
+.sbf-party-bar .v.cr   { color: var(--danger); }
+.sbf-party-bar .v.ok   { color: var(--success); }
+.sbf-party-bar .v.warn { color: var(--warning); }
+.sbf-party-bar .v.over { color: var(--danger); }
+.sbf-party-bar .tags { display: flex; align-items: center; gap: 6px; padding: 0 12px; margin-left: auto; }
+.sbf-party-bar .tag {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  padding: 3px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 700;
+}
+.sbf-party-bar .tag i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.sbf-party-bar .tag.ok   { background: var(--success-bg); color: var(--success); }
+.sbf-party-bar .tag.no   { background: var(--danger-bg);  color: var(--danger); }
+.sbf-party-bar .tag.warn { background: var(--warning-bg); color: var(--warning); }
+.sbf-party-bar .tag.vip  { background: rgba(127, 90, 163, 0.14); color: #7F5AA3; }
+[data-theme$="-dark"] .sbf-party-bar .tag.vip { color: #c3a2e6; }
+
 .sbf-top-row {
   display: grid;
   /* Tracks sized for what they actually carry, not the page width.
@@ -371,11 +418,12 @@
    *         (BHIWANDI)" reads without being cut after both buttons.
    * Col 2 — Walk-in name (only visible when Cash is the selection;
    *         empty for credit sales).
-   * Col 3 — reserved for future fields; stays empty today. */
+   * Col 3 — free space; the customer details bar (cols 2–3) may use it,
+   *         and hugs its own content (justify-self: start). */
   grid-template-columns:
     minmax(300px, 400px)
     minmax(200px, 260px)
-    minmax(120px, 160px);
+    minmax(120px, 1fr);
   gap: 14px;
   margin-bottom: 12px;
   justify-content: start;
