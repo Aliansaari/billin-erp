@@ -125,43 +125,21 @@
 /* Icon tile — a small rounded square tinted per page, like System
  * Settings. Soft tints so the rail stays calm on the warm themes. */
 .settings-rail-item-icon {
-  --tint: var(--accent);
+  /* --tint comes from the item's .tint-* class (styles/global.css). */
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--tint) 14%, var(--bg-panel));
-  color: var(--tint);
+  background: color-mix(in srgb, var(--tint, var(--accent)) 14%, var(--bg-panel));
+  color: var(--tint, var(--accent));
   font-size: 13px;
   flex-shrink: 0;
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--tint) 22%, transparent);
   transition: background .12s ease, color .12s ease;
 }
-.tint-accent { --tint: var(--accent); }
-.tint-blue   { --tint: #2f6fd6; }
-.tint-indigo { --tint: #5b5bd6; }
-.tint-purple { --tint: #8e4ec6; }
-.tint-pink   { --tint: #c2417a; }
-.tint-red    { --tint: #d4483b; }
-.tint-orange { --tint: #d9731a; }
-.tint-amber  { --tint: #b7860b; }
-.tint-green  { --tint: #2f9e5b; }
-.tint-teal   { --tint: #128a8a; }
-.tint-brown  { --tint: #96643a; }
-.tint-slate  { --tint: #637083; }
-[data-theme$="-dark"] .tint-blue   { --tint: #6ea2ff; }
-[data-theme$="-dark"] .tint-indigo { --tint: #9d9dff; }
-[data-theme$="-dark"] .tint-purple { --tint: #c38df0; }
-[data-theme$="-dark"] .tint-pink   { --tint: #f07fb0; }
-[data-theme$="-dark"] .tint-red    { --tint: #ff8a7d; }
-[data-theme$="-dark"] .tint-orange { --tint: #f5a35a; }
-[data-theme$="-dark"] .tint-amber  { --tint: #e6bd4a; }
-[data-theme$="-dark"] .tint-green  { --tint: #63cf8e; }
-[data-theme$="-dark"] .tint-teal   { --tint: #4fd0cf; }
-[data-theme$="-dark"] .tint-brown  { --tint: #d3a175; }
-[data-theme$="-dark"] .tint-slate  { --tint: #a3afc0; }
+/* Tint palette (.tint-*) lives in styles/global.css, shared with the main sidebar. */
 
 .settings-rail-item-text {
   display: flex;

@@ -291,6 +291,51 @@ body {
   letter-spacing: -0.5px;
 }
 
+/* ── Area colours (src/config/navTints.js) ─────────────────────────────
+ * One colour per area, shared by the sidebar and the Settings list.
+ * Soft on light pages, brighter on dark pages and on the sidebar, which
+ * is dark in every theme. Use as: class="tint-teal", then var(--tint). */
+.tint-accent { --tint: var(--accent); }
+.tint-blue   { --tint: #2f6fd6; }
+.tint-indigo { --tint: #5b5bd6; }
+.tint-purple { --tint: #8e4ec6; }
+.tint-pink   { --tint: #c2417a; }
+.tint-red    { --tint: #d4483b; }
+.tint-orange { --tint: #d9731a; }
+.tint-amber  { --tint: #b7860b; }
+.tint-green  { --tint: #2f9e5b; }
+.tint-teal   { --tint: #128a8a; }
+.tint-brown  { --tint: #96643a; }
+.tint-slate  { --tint: #637083; }
+[data-theme$="-dark"] .tint-blue,   .erp-sidebar .tint-blue   { --tint: #6ea2ff; }
+[data-theme$="-dark"] .tint-indigo, .erp-sidebar .tint-indigo { --tint: #9d9dff; }
+[data-theme$="-dark"] .tint-purple, .erp-sidebar .tint-purple { --tint: #c38df0; }
+[data-theme$="-dark"] .tint-pink,   .erp-sidebar .tint-pink   { --tint: #f07fb0; }
+[data-theme$="-dark"] .tint-red,    .erp-sidebar .tint-red    { --tint: #ff8a7d; }
+[data-theme$="-dark"] .tint-orange, .erp-sidebar .tint-orange { --tint: #f5a35a; }
+[data-theme$="-dark"] .tint-amber,  .erp-sidebar .tint-amber  { --tint: #e6bd4a; }
+[data-theme$="-dark"] .tint-green,  .erp-sidebar .tint-green  { --tint: #63cf8e; }
+[data-theme$="-dark"] .tint-teal,   .erp-sidebar .tint-teal   { --tint: #4fd0cf; }
+[data-theme$="-dark"] .tint-brown,  .erp-sidebar .tint-brown  { --tint: #d3a175; }
+[data-theme$="-dark"] .tint-slate,  .erp-sidebar .tint-slate  { --tint: #a3afc0; }
+.erp-sidebar .tint-accent { --tint: color-mix(in srgb, var(--sidebar-active) 72%, #fff); }
+
+/* Sidebar icon tile — the same rounded, tinted square as the Settings
+ * list. Active: filled with its own colour, icon white. */
+.nav-tile {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 9px; flex: 0 0 auto;
+  color: var(--tint);
+  background: color-mix(in srgb, var(--tint) 17%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--tint) 30%, transparent);
+  font-size: 16px;
+  transition: background .15s, color .15s, box-shadow .15s, transform .15s;
+}
+.erp-ci .nav-tile { width: 36px; height: 36px; border-radius: 10px; font-size: 17px; }
+.nav-tile .anticon { color: inherit !important; font-size: inherit; margin: 0 !important; }
+.erp-sidebar .ant-menu-item .nav-tile, .erp-sidebar .ant-menu-submenu-title .nav-tile { margin-right: 4px; }
+.erp-sidebar .ant-menu .nav-tile, .erp-sidebar .ant-menu .nav-tile.ant-menu-item-icon { color: var(--tint) !important; opacity: 1 !important; }
+
 /* ── Collapsed sidebar custom items ── */
 .erp-ci {
   position: relative;
@@ -311,11 +356,22 @@ body {
   opacity: 1;
 }
 .erp-ci-active {
-  background: var(--sidebar-active) !important;
-  color: #fff !important;
   opacity: 1 !important;
-  box-shadow: 0 2px 8px var(--accent-bg);
 }
+/* Rows show their coloured tile; hover lifts it, the current area fills it. */
+.erp-ci.has-tile { opacity: 1; }
+.erp-ci.has-tile:hover { background: transparent; }
+.erp-ci.has-tile:hover .nav-tile { background: color-mix(in srgb, var(--tint) 28%, transparent); transform: scale(1.04); }
+.erp-ci-active .nav-tile,
+.erp-ci-active.has-tile:hover .nav-tile {
+  background: var(--tint); color: #fff;
+  box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--tint) 70%, transparent);
+}
+/* Light tints (amber, teal…) need dark ink when filled. */
+.erp-ci-active.tint-amber .nav-tile,
+.erp-ci-active.tint-orange .nav-tile,
+.erp-ci-active.tint-teal .nav-tile,
+.erp-ci-active.tint-green .nav-tile { color: #1d1814; }
 .erp-ci-icon {
   display: flex;
   align-items: center;

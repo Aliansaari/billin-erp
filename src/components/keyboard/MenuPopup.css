@@ -153,6 +153,9 @@
   font-weight: 700;
 }
 
+/* Sidebar flyouts carry their area's colour (tint-*) onto the icons. */
+.mp-popup[class*="tint-"] .mp-icon { color: var(--tint); }
+
 .mp-icon {
   display: inline-flex;
   align-items: center;

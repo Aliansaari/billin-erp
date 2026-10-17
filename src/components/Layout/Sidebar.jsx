@@ -1,3 +1,4 @@
+import { tintFor } from '../../config/navTints';
 import React, { useState, useRef, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { Layout, Menu, Dropdown, Avatar } from 'antd';
@@ -74,7 +75,8 @@ function CollapsedItem({ item, currentPath, navigate }) {
 
   const isActive = item.children
     ? item.children.some(c => currentPath === c.key || currentPath.startsWith(c.key))
-    : currentPath === item.key;
+    // Settings opens at /settings/company but every /settings/* page is "in" it.
+    : item.key.startsWith('/settings') ? currentPath.startsWith('/settings') : currentPath === item.key;
 
   const showPopup = (e) => {
     clearTimeout(hideTimer.current);
@@ -88,14 +90,14 @@ function CollapsedItem({ item, currentPath, navigate }) {
 
   return (
     <div
-      className={`erp-ci${isActive ? ' erp-ci-active' : ''}`}
+      className={`erp-ci has-tile tint-${tintFor(item.key)}${isActive ? ' erp-ci-active' : ''}`}
       onMouseEnter={showPopup}
       onMouseLeave={hidePopup}
       onClick={() => { if (!item.children) { navigate(item.key); } }}
       title={item.children ? '' : item.label}
       data-shortcut-key={item.key}
     >
-      <span className="erp-ci-icon">{item.icon}</span>
+      <span className="erp-ci-icon"><span className="nav-tile">{item.icon}</span></span>
 
       {item.children && popupPos && ReactDOM.createPortal(
         <>
@@ -110,7 +112,7 @@ function CollapsedItem({ item, currentPath, navigate }) {
             onMouseLeave={hidePopup}
           />
           <div
-            className="mp-popup"
+            className={`mp-popup tint-${tintFor(item.key)}`}
             data-arrow="left"
             style={{
               // popup.left = 66 puts the arrow tip (7px left of popup)
@@ -193,6 +195,8 @@ function hintLabel(label, key) {
 function applyHintLabels(items) {
   return items.map(item => ({
     ...item,
+    // Same coloured tile as the collapsed rail and the Settings list.
+    icon: item.icon ? <span className={`nav-tile tint-${tintFor(item.key)}`}>{item.icon}</span> : item.icon,
     label: hintLabel(item.label, item.key),
   }));
 }

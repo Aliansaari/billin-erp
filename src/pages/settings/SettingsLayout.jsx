@@ -1,15 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BankOutlined, UserOutlined, BgColorsOutlined, TagsOutlined,
+  UserOutlined, BgColorsOutlined, TagsOutlined,
   PrinterOutlined, SwapOutlined, ApiOutlined,
-  CloudServerOutlined, HomeOutlined, DashboardOutlined,
+  CloudServerOutlined, HomeOutlined,
   AppstoreOutlined, CodeOutlined, KeyOutlined, BellOutlined,
   CalendarOutlined, TeamOutlined, InboxOutlined, ImportOutlined,
   IdcardOutlined, WifiOutlined, WhatsAppOutlined, RobotOutlined,
-  CreditCardOutlined, GlobalOutlined, FieldTimeOutlined, CloudDownloadOutlined,
-  ShoppingCartOutlined, ShoppingOutlined, DatabaseOutlined, PercentageOutlined,
-  BarcodeOutlined, CloseCircleFilled, GiftOutlined,
+  GlobalOutlined, FieldTimeOutlined, CloudDownloadOutlined,
+  ShoppingCartOutlined, ShoppingOutlined,
+  BarcodeOutlined, CloseCircleFilled, GiftOutlined, ShopOutlined, ApartmentOutlined,
+  UserSwitchOutlined, CrownOutlined, LineChartOutlined, BookOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -49,13 +50,13 @@ export const SETTINGS_GROUPS = [
     // Who the business is, and the books' calendar and tax rules.
     label: 'Business',
     items: [
-      { path: 'company',        icon: <BankOutlined />,     tint: 'blue', label: 'Company Profile', perm: 'settings.manage_company',
+      { path: 'company',        icon: <ShopOutlined />,     tint: 'blue', label: 'Company Profile', perm: 'settings.manage_company',
         find: ['Company name', 'Address', 'GSTIN', 'PAN', 'Phone', 'Logo', 'Signature', 'Bank details', 'IFSC', 'UPI', 'State'] },
       { path: 'companies',      icon: <AppstoreOutlined />, tint: 'indigo', label: 'Companies',       perm: 'settings.manage_company',
         find: ['Switch company', 'New company', 'Archive company'] },
       { path: 'financial-year', icon: <CalendarOutlined />, tint: 'orange', label: 'Financial Year',  perm: 'settings.manage_company',
         find: ['Financial year dates', 'Compliance mode', 'Lock dates', 'Year end'] },
-      { path: 'accounts',       icon: <PercentageOutlined />, tint: 'green', label: 'Tax & Accounts', perm: 'settings.manage_company',
+      { path: 'accounts',       icon: <BookOutlined />,     tint: 'green', label: 'Tax & Accounts', perm: 'settings.manage_company',
         find: ['GST', 'Allow back-dated entries', 'Aging buckets', 'Overdue days', 'Audit trail', 'Watchful', 'Chase', 'Critical'] },
     ],
   },
@@ -63,14 +64,14 @@ export const SETTINGS_GROUPS = [
     // Everything that changes how a sale is billed.
     label: 'Sales',
     items: [
-      { path: 'sales-bill',       icon: <ShoppingCartOutlined />, tint: 'accent', label: 'Sales Bill', perm: 'settings.manage_company',
+      { path: 'sales-bill',       icon: <ShoppingOutlined />, tint: 'accent', label: 'Sales Bill', perm: 'settings.manage_company',
         find: ['Sales form', 'Sale window', 'Amount-only billing', 'Merge repeat scans', 'Repeat scans', 'Back-to-back scans', 'Allow negative stock', 'Sell when stock runs out',
                'Sales bill prefix', 'Invoice number', 'Parcel label button', 'Bill numbering', 'GST calculation mode', 'Bill-wise GST', 'Product-wise GST', 'Due days on receipts'] },
       { path: 'salesmen',         icon: <IdcardOutlined />,   tint: 'teal', label: 'Salesmen',         perm: 'settings.manage_company',
         find: ['Salesman', 'Commission', 'Sales staff'] },
       { path: 'customer-insight', icon: <TeamOutlined />,     tint: 'purple', label: 'Party Insight',    perm: 'settings.manage_company',
         find: ['Party insight panel', 'F8', 'Customer history on sale'] },
-      { path: 'membership',       icon: <CreditCardOutlined />, tint: 'pink', label: 'Membership',     perm: 'settings.manage_company',
+      { path: 'membership',       icon: <CrownOutlined />,    tint: 'pink', label: 'Membership',     perm: 'settings.manage_company',
         find: ['Loyalty', 'Points', 'Membership on sale bill'] },
       // Flag-gated on the membership master switch (Membership page).
       { path: 'membership-plans', icon: <TagsOutlined />,     tint: 'pink', label: 'Membership Plans', perm: 'settings.manage_company', flag: 'membership_enabled',
@@ -80,18 +81,18 @@ export const SETTINGS_GROUPS = [
   {
     label: 'Purchase',
     items: [
-      { path: 'purchase-bill', icon: <ShoppingOutlined />, tint: 'brown', label: 'Purchase Bill', perm: 'settings.manage_company',
+      { path: 'purchase-bill', icon: <ShoppingCartOutlined />, tint: 'brown', label: 'Purchase Bill', perm: 'settings.manage_company',
         find: ['Purchase form', 'Purchase window', 'Purchase bill prefix', 'Fixed margin', 'MG%', 'Margin', 'Due days on payments'] },
     ],
   },
   {
     label: 'Inventory',
     items: [
-      { path: 'stock',   icon: <DatabaseOutlined />, tint: 'amber', label: 'Stock & Products', perm: 'settings.manage_company',
+      { path: 'stock',   icon: <InboxOutlined />,    tint: 'amber', label: 'Stock & Products', perm: 'settings.manage_company',
         find: ['Default product mode', 'Variant', 'Single product', 'Cost of goods sold', 'COGS', 'FIFO', 'Weighted average',
                'Stock alerts', 'Low stock', 'Multi-warehouse', 'Batch tracking', 'Expiry', 'Block expired batches', 'Zero-stock batches',
                'Color', 'Single color label', 'Multi-color stock'] },
-      { path: 'godowns', icon: <InboxOutlined />,    tint: 'amber', label: 'Godowns', perm: 'godowns.view', flag: 'multi_warehouse_enabled',
+      { path: 'godowns', icon: <ApartmentOutlined />, tint: 'amber', label: 'Godowns', perm: 'godowns.view', flag: 'multi_warehouse_enabled',
         find: ['Warehouse', 'Godown'] },
     ],
   },
@@ -109,7 +110,7 @@ export const SETTINGS_GROUPS = [
   {
     label: 'Staff & Access',
     items: [
-      { path: 'users',            icon: <TeamOutlined />,      tint: 'blue', label: 'Users & Roles',    perm: 'settings.manage_users',
+      { path: 'users',            icon: <UserSwitchOutlined />, tint: 'blue', label: 'Users & Roles',    perm: 'settings.manage_users',
         find: ['Users', 'Roles', 'Permissions', 'Back-dated entries for a role', 'Add user', 'Deactivate user'] },
       { path: 'staff-attendance', icon: <FieldTimeOutlined />, tint: 'teal', label: 'Staff Attendance', perm: 'settings.manage_company',
         find: ['Check-in', 'Staff phone', 'PIN', 'Selfie', 'Location', 'Wi-Fi check', 'Roster'] },
@@ -144,7 +145,7 @@ export const SETTINGS_GROUPS = [
         find: ['Dark mode', 'Light mode', 'Colours', 'Appearance', 'Accent colour', 'Menu layout'] },
       { path: 'home',            icon: <HomeOutlined />,          tint: 'orange', label: 'Home Screen',     perm: null,
         find: ['Home page', 'Shortcuts', 'Tiles'] },
-      { path: 'dashboard',       icon: <DashboardOutlined />,     tint: 'orange', label: 'Dashboard',       perm: null,
+      { path: 'dashboard',       icon: <LineChartOutlined />,     tint: 'blue', label: 'Dashboard',       perm: null,
         find: ['Dashboard tiles', 'Charts'] },
       { path: 'software-update', icon: <CloudDownloadOutlined />, tint: 'accent', label: 'Software Update', perm: 'settings.manage_company', localOnly: true,
         find: ['Update', 'Version', 'Automatic updates', 'Release notes'] },
