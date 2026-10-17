@@ -23,6 +23,7 @@ const read = (s) => ({
   sales_bill_prefix:          s.sales_bill_prefix || '',
   gst_mode:                   localStorage.getItem('gst_mode') || 'product',
   sale_due_days_mode:         localStorage.getItem('sale_due_days_mode') || 'bill_date',
+  parcel_tag_on_sale_form:    s.parcel_tag_on_sale_form !== false,
 });
 
 const write = (v) => {
@@ -33,6 +34,7 @@ const write = (v) => {
     merge_repeat_scans_enabled: !!v.merge_repeat_scans_enabled,
     allow_negative_stock:       !!v.allow_negative_stock,
     sales_bill_prefix:          (v.sales_bill_prefix || '').trim().toUpperCase(),
+    parcel_tag_on_sale_form:    v.parcel_tag_on_sale_form !== false,
   };
 };
 
@@ -57,6 +59,8 @@ export default function SalesBillSettings() {
                        : 'Scanning the same barcode again adds to the quantity of the line already on the bill. Off: every scan is its own line.'} />
           <ToggleRow name="enable_amount_only_billing" label="Amount-only billing"
                      desc="Adds an Itemised / Amount-only switch on the sale window, for service or on-account bills with no items." />
+          <ToggleRow name="parcel_tag_on_sale_form" label="Parcel label button"
+                     desc="The box button beside Add customer that prints 10 × 10 cm carton labels. Design and options: Parcel Labels." />
           <ToggleRow name="allow_negative_stock" label="Sell when stock runs out"
                      desc="On: a sale still saves when it takes stock below zero (shown in red). Off: the sale is blocked. Also known as allow negative stock." />
         </Section>

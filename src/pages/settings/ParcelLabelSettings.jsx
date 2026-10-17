@@ -3,7 +3,7 @@ import { Button, Form, Input } from 'antd';
 import { PrinterOutlined, CheckCircleFilled } from '@ant-design/icons';
 import { buildParcelTagHTML, PARCEL_DESIGNS, normaliseParcelDesign } from '../../utils/parcelTag';
 import ParcelTagDialog from '../../components/ParcelTagDialog';
-import { SettingsPage, Section, useSystemSlice, SaveStrip } from './settingsKit';
+import { SettingsPage, Section, ToggleRow, useSystemSlice, SaveStrip } from './settingsKit';
 
 /**
  * Parcel Labels — choose the shop's 10 × 10 cm parcel label design.
@@ -19,13 +19,22 @@ const SAMPLE = {
   billNumber: 'SI-1043', totalParcels: 3, note: 'VRL Logistics',
 };
 
-const read = (s) => ({ parcel_tag_design: normaliseParcelDesign(s.parcel_tag_design) });
-const write = (v) => ({ parcel_tag_design: normaliseParcelDesign(v.parcel_tag_design) });
+const read = (s) => ({
+  parcel_tag_design: normaliseParcelDesign(s.parcel_tag_design),
+  parcel_tag_show_from: s.parcel_tag_show_from !== false,
+  parcel_tag_on_sale_form: s.parcel_tag_on_sale_form !== false,
+});
+const write = (v) => ({
+  parcel_tag_design: normaliseParcelDesign(v.parcel_tag_design),
+  parcel_tag_show_from: v.parcel_tag_show_from !== false,
+  parcel_tag_on_sale_form: v.parcel_tag_on_sale_form !== false,
+});
 
 export default function ParcelLabelSettings() {
   const [form] = Form.useForm();
   const { loading, saving, save, raw } = useSystemSlice(form, { read, write, savedText: 'Parcel label design saved' });
   const chosen = Form.useWatch('parcel_tag_design', form) || 'courier';
+  const showFrom = Form.useWatch('parcel_tag_show_from', form) !== false;
   const [docs, setDocs] = useState({});
   const [testOpen, setTestOpen] = useState(false);
 
@@ -33,10 +42,10 @@ export default function ParcelLabelSettings() {
   useEffect(() => {
     if (!raw) return;
     let alive = true;
-    Promise.all(PARCEL_DESIGNS.map((d) => buildParcelTagHTML({ company: raw, ...SAMPLE, design: d.v }).then((h) => [d.v, h])))
+    Promise.all(PARCEL_DESIGNS.map((d) => buildParcelTagHTML({ company: raw, ...SAMPLE, design: d.v, showFrom }).then((h) => [d.v, h])))
       .then((pairs) => { if (alive) setDocs(Object.fromEntries(pairs)); });
     return () => { alive = false; };
-  }, [raw]);
+  }, [raw, showFrom]);
 
   return (
     <SettingsPage
@@ -70,13 +79,14 @@ export default function ParcelLabelSettings() {
           </div>
         </Section>
 
+        <Section title="On the label">
+          <ToggleRow name="parcel_tag_show_from" label={'Show "From"'}
+                     desc="Your shop's name, address and phone on every label. Turn off for plain labels, or when the transporter fills the sender in. You can still change it for one print." />
+        </Section>
+
         <Section title="Where you print it">
-          <div className="ms-row">
-            <div>
-              <div className="ms-row-label">Sale bill</div>
-              <div className="ms-row-desc">The box button beside Add customer. Prints for the customer on the bill, or type anyone in.</div>
-            </div>
-          </div>
+          <ToggleRow name="parcel_tag_on_sale_form" label="Button on the sale bill"
+                     desc="A box button beside Add customer. Prints for the customer on the bill, or type anyone in. Off: the button is hidden." />
           <div className="ms-row">
             <div>
               <div className="ms-row-label">Customer details</div>
@@ -86,7 +96,7 @@ export default function ParcelLabelSettings() {
         </Section>
       </Form>
 
-      <ParcelTagDialog open={testOpen} onClose={() => setTestOpen(false)} company={raw ? { ...raw, parcel_tag_design: chosen } : undefined} />
+      <ParcelTagDialog open={testOpen} onClose={() => setTestOpen(false)} company={raw ? { ...raw, parcel_tag_design: chosen, parcel_tag_show_from: showFrom } : undefined} />
 
       <style>{`
         .pl-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 14px; padding: 16px 0 18px; }

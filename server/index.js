@@ -2557,6 +2557,8 @@ async function startServer() {
     // Parcel label design (Settings → Parcel Labels). MIGRATION_VERSION 13.
     await sequelize.query(`
       ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_design VARCHAR(20) DEFAULT 'courier';
+      ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_show_from BOOLEAN DEFAULT true;
+      ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_on_sale_form BOOLEAN DEFAULT true;
     `).catch((err) => {
       console.error('[Parcel label design migration] Error:', err.message);
     });

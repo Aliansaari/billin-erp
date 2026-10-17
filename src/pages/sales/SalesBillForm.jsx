@@ -2785,7 +2785,10 @@ export default function SalesBillForm() {
                   <UserAddOutlined />
                 </button>
                 {/* Parcel label: prints for the selected customer, or opens
-                    empty to type someone in (or pick a saved customer). */}
+                    empty to type someone in (or pick a saved customer).
+                    Hidden when the shop turns it off (Settings → Parcel
+                    Labels / Sales Bill). */}
+                {systemSettings?.parcel_tag_on_sale_form !== false && (
                 <button type="button" className="sbf-parcelbtn"
                   title={selectedParty && !selectedParty.is_system_cash
                     ? `Print a parcel label for ${selectedParty.party_name}`
@@ -2796,6 +2799,7 @@ export default function SalesBillForm() {
                     <polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
                   </svg>
                 </button>
+                )}
                 <div style={{flex:1, minWidth:0}}>
                 <Form.Item name="customer_id" noStyle
                   rules={[{ required: true, message: 'Select a customer (use Cash for walk-ins)' }]}>

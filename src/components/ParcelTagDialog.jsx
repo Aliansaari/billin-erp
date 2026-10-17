@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AutoComplete, Button, Input, InputNumber, Modal, Select, message } from 'antd';
+import { AutoComplete, Button, Input, InputNumber, Modal, Select, Switch, message } from 'antd';
 import { PrinterOutlined, MinusOutlined, PlusOutlined, CloseCircleFilled } from '@ant-design/icons';
 import { useSystemSettings } from '../hooks/useSystemSettings';
 import { getPref, setPref } from '../store/prefSync';
@@ -20,7 +20,7 @@ import './parcel-tag-dialog.css';
  *   • Design defaults to the shop's choice (Settings → Parcel Labels) and
  *     can be switched for this print. The preview is the exact label.
  *
- * Keys while open: F1 or Ctrl+P prints, Esc closes. They are claimed here
+ * Keys while open (shown on the buttons): F1 or Ctrl+P prints, Esc closes. They are claimed here
  * so they never reach the bill form behind (F1 there saves the bill).
  */
 
@@ -45,9 +45,10 @@ export default function ParcelTagDialog({
 }) {
   const sys = useSystemSettings();
   const company = companyProp || sys || {};
-  // The shared settings cache is refreshed when Settings saves, so it is the
-  // freshest source for the shop's default design.
-  const shopDesign = normaliseParcelDesign(sys?.parcel_tag_design || company?.parcel_tag_design);
+  // Shop defaults: a caller can pass its own (Settings previews an unsaved
+  // choice); otherwise the shared settings cache, refreshed on every save.
+  const shopDesign = normaliseParcelDesign(companyProp?.parcel_tag_design ?? sys?.parcel_tag_design);
+  const shopShowFrom = (companyProp?.parcel_tag_show_from ?? sys?.parcel_tag_show_from) !== false;
 
   const [to, setTo]           = useState(blank);
   const [sourceId, setSourceId] = useState(null);   // saved customer the details came from
@@ -55,6 +56,7 @@ export default function ParcelTagDialog({
   const [cartons, setCartons] = useState(1);
   const [via, setVia]         = useState('');
   const [design, setDesign]   = useState(shopDesign);
+  const [showFrom, setShowFrom] = useState(shopShowFrom);
   const [html, setHtml]       = useState('');
   const [printing, setPrinting] = useState(false);
   const nameRef = useRef(null);
@@ -74,6 +76,7 @@ export default function ParcelTagDialog({
     setCartons(1);
     setVia('');
     setDesign(shopDesign);
+    setShowFrom(shopShowFrom);
     if (!fromP) setTimeout(() => nameRef.current?.focus(), 120);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -82,10 +85,10 @@ export default function ParcelTagDialog({
     if (!open) return undefined;
     let alive = true;
     // All cartons are built; the preview frame shows the first page only.
-    buildParcelTagHTML({ company, party: to, billNumber: bill, totalParcels: cartons, note: via, design })
+    buildParcelTagHTML({ company, party: to, billNumber: bill, totalParcels: cartons, note: via, design, showFrom })
       .then((h) => { if (alive) setHtml(h); });
     return () => { alive = false; };
-  }, [open, to, bill, via, design, cartons, company]);
+  }, [open, to, bill, via, design, cartons, company, showFrom]);
 
   const set = (k) => (e) => setTo((t) => ({ ...t, [k]: e?.target ? e.target.value : e }));
   const canPrint = !!to.party_name.trim();
@@ -94,7 +97,7 @@ export default function ParcelTagDialog({
     if (!canPrint) { message.warning('Type who it goes to'); nameRef.current?.focus(); return; }
     setPrinting(true);
     try {
-      await printParcelTags({ company, party: to, billNumber: bill, totalParcels: cartons, note: via, design });
+      await printParcelTags({ company, party: to, billNumber: bill, totalParcels: cartons, note: via, design, showFrom });
       const v = via.trim();
       if (v) setPref(RECENT_VIA_KEY, [v, ...recentVia.filter((x) => x.toLowerCase() !== v.toLowerCase())].slice(0, 6));
       message.success(`Sent ${cartons} label${cartons > 1 ? 's' : ''} to the printer`);
@@ -247,6 +250,13 @@ export default function ParcelTagDialog({
                 ))}
               </div>
             )}
+            <label className="ptd-from">
+              <span>
+                <b>Show "From"</b>
+                <em>{company?.company_name ? `${company.company_name}'s name, address and phone` : "Your shop's name, address and phone"}</em>
+              </span>
+              <Switch checked={showFrom} onChange={setShowFrom} />
+            </label>
           </div>
         </div>
 
@@ -268,12 +278,11 @@ export default function ParcelTagDialog({
             ))}
           </div>
           <div className="ptd-actions">
-            <Button onClick={onClose}>Cancel</Button>
+            <Button onClick={onClose}>Cancel <kbd className="ptd-kbd">Esc</kbd></Button>
             <Button type="primary" icon={<PrinterOutlined />} loading={printing} disabled={!canPrint} onClick={print}>
-              Print {cartons > 1 ? `${cartons} labels` : 'label'}
+              Print {cartons > 1 ? `${cartons} labels` : 'label'} <kbd className="ptd-kbd">F1</kbd>
             </Button>
           </div>
-          <div className="ptd-keys"><kbd>F1</kbd> print · <kbd>Esc</kbd> close</div>
         </div>
       </div>
     </Modal>

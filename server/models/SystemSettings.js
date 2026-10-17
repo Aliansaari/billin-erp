@@ -161,6 +161,16 @@ module.exports = (sequelize) => {
       type: DataTypes.STRING(20),
       defaultValue: 'courier',
     },
+    // Print the shop's own name/address ("From") on parcel labels.
+    parcel_tag_show_from: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+    // Show the parcel-label button beside Add customer on the sale bill.
+    parcel_tag_on_sale_form: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
     // Default mode for NEW products. Existing products keep their mode
     // permanently — flipping this only affects the next product created
     // (via any path: manual form, auto-from-purchase, Excel import,

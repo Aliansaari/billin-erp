@@ -840,6 +840,8 @@ async function runCompanySchemaMigrations(sequelize) {
   // Parcel label design (Settings → Parcel Labels); mirrors server/index.js.
   await sequelize.query(`
     ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_design VARCHAR(20) DEFAULT 'courier';
+    ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_show_from BOOLEAN DEFAULT true;
+    ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_on_sale_form BOOLEAN DEFAULT true;
   `);
 }
 

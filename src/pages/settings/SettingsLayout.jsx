@@ -65,7 +65,7 @@ export const SETTINGS_GROUPS = [
     items: [
       { path: 'sales-bill',       icon: <ShoppingCartOutlined />, tint: 'accent', label: 'Sales Bill', perm: 'settings.manage_company',
         find: ['Sales form', 'Sale window', 'Amount-only billing', 'Merge repeat scans', 'Allow negative stock', 'Sell when stock runs out',
-               'Sales bill prefix', 'Invoice number', 'Bill numbering', 'GST calculation mode', 'Bill-wise GST', 'Product-wise GST', 'Due days on receipts'] },
+               'Sales bill prefix', 'Invoice number', 'Parcel label button', 'Bill numbering', 'GST calculation mode', 'Bill-wise GST', 'Product-wise GST', 'Due days on receipts'] },
       { path: 'salesmen',         icon: <IdcardOutlined />,   tint: 'teal', label: 'Salesmen',         perm: 'settings.manage_company',
         find: ['Salesman', 'Commission', 'Sales staff'] },
       { path: 'customer-insight', icon: <TeamOutlined />,     tint: 'purple', label: 'Party Insight',    perm: 'settings.manage_company',
@@ -101,7 +101,7 @@ export const SETTINGS_GROUPS = [
       { path: 'print',   icon: <PrinterOutlined />, tint: 'slate', label: 'Print Templates', perm: 'settings.print',
         find: ['Invoice template', 'Bill print', 'Paper size', 'Thermal', 'A4', 'A5', 'Printer'] },
       { path: 'parcel-labels', icon: <GiftOutlined />, tint: 'brown', label: 'Parcel Labels', perm: 'settings.manage_company',
-        find: ['Parcel tag', 'Parcel slip', 'Shipping label', 'Carton label', '10 x 10', 'Courier', 'Transport label', 'Label design'] },
+        find: ['Parcel tag', 'Parcel slip', 'Shipping label', 'Carton label', '10 x 10', 'Courier', 'Transport label', 'Label design', 'Show From', 'Sender', 'Button on the sale bill'] },
       { path: 'barcode', icon: <BarcodeOutlined />, tint: 'slate', label: 'Barcode Labels',  perm: 'settings.barcode',
         find: ['Barcode', 'Label size', 'Sticker', 'Label designer'] },
     ],
