@@ -12,6 +12,7 @@
 // page per parcel; @page pins the sheet to 100mm × 100mm so it prints
 // true-to-size on a label printer or gets centred on A4.
 
+import JsBarcode from 'jsbarcode';
 import { printRawHTML } from '../services/printer';
 
 const esc = (s) => String(s == null ? '' : s)
@@ -49,16 +50,45 @@ function nameSize(name) {
   return 5.4;
 }
 
+// City steps down too, so a long city never gets cut off beside the QR.
+function citySize(city) {
+  const n = String(city || '').length;
+  if (n <= 7) return 5.6;
+  if (n <= 10) return 4.8;
+  if (n <= 14) return 4;
+  return 3.4;
+}
+
 // 9876543210 → 98765 43210, easier to read out and dial.
 const fmtMobile = (m) => {
   const d = String(m || '').replace(/\D/g, '');
   return d.length === 10 ? `${d.slice(0, 5)} ${d.slice(5)}` : String(m || '');
 };
 
+// Code 128 of "<bill>/<parcel>" as inline SVG, for the shop's USB scanner.
+function barcodeSVG(value) {
+  try {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    JsBarcode(svg, value, { format: 'CODE128', displayValue: false, margin: 0, height: 60, width: 2 });
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    return svg.outerHTML;
+  } catch { return ''; }
+}
+
+// A Google Maps link for the delivery address: any phone camera opens
+// it straight into navigation. Null when there is no address to find.
+function mapsUrl(party, streetLines, city, pin) {
+  if (!streetLines.length && !(party?.city || '').trim()) return null;
+  const q = [...streetLines, city, (party?.state || '').trim(), pin].filter(Boolean).join(', ');
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+}
+
 // Build one label's inner HTML. Design goals: the transporter reads the TO
 // name, city and mobile from across the room, the parcel counter is
 // unmistakable, and it prints cleanly on a black-only label printer.
-function labelHTML({ from, to, streetLines, city, pin, mobile, billNumber, note, index, total, dateStr }) {
+function labelHTML({ from, to, streetLines, city, pin, mobile, billNumber, note, index, total, dateStr, qr }) {
   const fromBits = [esc(from.addr), from.phone ? `<span class="nb">Ph ${esc(from.phone)}</span>` : ''].filter(Boolean).join(' · ');
   return `
     <div class="label">
@@ -80,15 +110,23 @@ function labelHTML({ from, to, streetLines, city, pin, mobile, billNumber, note,
         ${streetLines.length ? `<div class="to-addr">${streetLines.map(esc).join('<br/>')}</div>` : ''}
       </div>
 
-      ${(city || pin) ? `<div class="city"><span class="city-n">${esc(city)}</span>${pin ? `<span class="pin">${esc(pin)}</span>` : ''}</div>` : ''}
+      <div class="mid${qr ? ' has-qr' : ''}">
+        <div class="mid-main">
+          ${(city || pin) ? `<div class="city"><span class="city-n" style="font-size:${citySize(city)}mm">${esc(city)}</span>${pin ? `<span class="pin">${esc(pin)}</span>` : ''}</div>` : ''}
+          ${mobile ? `<div class="mob"><span class="mob-cap">Call</span><span class="mnum">${esc(fmtMobile(mobile))}</span></div>` : ''}
+        </div>
+        ${qr ? `<div class="qr"><img src="${qr}" alt=""/><span>Scan for map</span></div>` : ''}
+      </div>
 
-      ${mobile ? `<div class="mob"><span class="mob-cap">Call</span><span class="mnum">${esc(fmtMobile(mobile))}</span></div>` : ''}
-
+      ${billNumber ? `
+      <div class="foot has-bc">
+        <div class="bc">${barcodeSVG(`${billNumber}/${index}`)}<span>${esc(billNumber)} / ${index}</span></div>
+        <div class="foot-r"><span>${esc(dateStr)}</span>${note ? `<b>${esc(note)}</b>` : ''}</div>
+      </div>` : `
       <div class="foot">
-        <span>${billNumber ? `Bill <b>${esc(billNumber)}</b>` : ''}</span>
         <span>${esc(dateStr)}</span>
         ${note ? `<span class="note">${esc(note)}</span>` : ''}
-      </div>
+      </div>`}
     </div>`;
 }
 
@@ -124,22 +162,34 @@ const DOC_CSS = `
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
   /* City band: what the transporter sorts by */
-  .city { margin-top: 2.8mm; background: #000; color: #fff; border-radius: 1.6mm;
-    display: flex; align-items: center; justify-content: space-between; gap: 3mm; padding: 1.8mm 3mm; }
-  .city-n { font-size: 5.6mm; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2mm;
+  .mid { margin-top: 2.4mm; display: flex; gap: 3mm; align-items: stretch; }
+  .mid-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2.2mm; }
+  .qr { flex: 0 0 20mm; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.8mm;
+    border: 0.6mm solid #000; border-radius: 1.6mm; padding: 1.2mm; }
+  .qr img { width: 16mm; height: 16mm; image-rendering: pixelated; display: block; }
+  .qr span { font-size: 2.1mm; font-weight: 700; letter-spacing: 0.2mm; text-transform: uppercase; white-space: nowrap; }
+  .city { background: #000; color: #fff; border-radius: 1.6mm;
+    display: flex; align-items: center; justify-content: space-between; gap: 3mm; padding: 1.5mm 3mm; min-height: 9mm; }
+  .city-n { font-weight: 800; text-transform: uppercase; letter-spacing: 0.2mm;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pin { font-size: 5.6mm; font-weight: 800; letter-spacing: 0.5mm; font-variant-numeric: tabular-nums; }
+  .pin { font-size: 5mm; flex-shrink: 0; font-weight: 800; letter-spacing: 0.5mm; font-variant-numeric: tabular-nums; }
 
   /* Mobile */
-  .mob { margin-top: 2.4mm; border: 0.6mm solid #000; border-radius: 1.6mm;
-    display: flex; align-items: center; gap: 3mm; padding: 1.4mm 3mm; }
+  .mob { border: 0.6mm solid #000; border-radius: 1.6mm;
+    display: flex; align-items: center; gap: 3mm; padding: 1.1mm 3mm; }
   .mob-cap { font-size: 2.6mm; font-weight: 700; letter-spacing: 0.5mm; text-transform: uppercase; }
-  .mnum { font-size: 7mm; font-weight: 800; letter-spacing: 0.3mm; font-variant-numeric: tabular-nums; }
+  .mnum { font-size: 6.6mm; font-weight: 800; letter-spacing: 0.3mm; font-variant-numeric: tabular-nums; }
 
   /* Footer */
-  .foot { margin-top: auto; padding-top: 1.8mm; border-top: 0.3mm solid #000;
+  .foot { margin-top: auto; padding-top: 1.6mm; border-top: 0.3mm solid #000;
     display: flex; align-items: baseline; gap: 3mm; font-size: 3.2mm; }
   .foot b { font-weight: 800; }
+  .foot.has-bc { align-items: flex-end; justify-content: space-between; }
+  .bc { width: 50mm; display: flex; flex-direction: column; gap: 0.6mm; }
+  .bc svg { display: block; width: 100%; height: 6.5mm; }
+  .bc span { font-size: 2.6mm; font-weight: 700; letter-spacing: 0.3mm; font-variant-numeric: tabular-nums; }
+  .foot-r { display: flex; flex-direction: column; align-items: flex-end; gap: 0.4mm; text-align: right; min-width: 0; }
+  .foot-r b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 34mm; }
   .foot .note { margin-left: auto; font-weight: 700; text-align: right;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38mm; }
 `;
@@ -165,9 +215,19 @@ export async function buildParcelTagHTML({ company, party, billNumber, totalParc
   const mobile = (party?.mobile_1 || '').trim();
   const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
+  // One map QR per job: every parcel goes to the same address.
+  let qr = null;
+  const url = mapsUrl(party, streetLines, (party?.city || '').trim(), pin);
+  if (url) {
+    try {
+      const QRCode = await import('qrcode');
+      qr = await QRCode.toDataURL(url, { margin: 0, width: 360, errorCorrectionLevel: 'M' });
+    } catch { qr = null; }
+  }
+
   const labels = [];
   for (let i = 1; i <= total; i++) {
-    labels.push(labelHTML({ from, to, streetLines, city, pin, mobile, billNumber, note, index: i, total, dateStr }));
+    labels.push(labelHTML({ from, to, streetLines, city, pin, mobile, billNumber, note, index: i, total, dateStr, qr }));
   }
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>Parcel Tag</title><style>${DOC_CSS}</style></head><body>${labels.join('')}</body></html>`;
