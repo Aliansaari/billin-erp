@@ -306,7 +306,111 @@ const minimal = {
   `,
 };
 
-const RENDERERS = { courier, band, boxed, minimal };
+/* ── Design 5: City first — a black banner across the top with the city,
+ * PIN and carton count, for transporters who sort by destination. ── */
+const hub = {
+  html: (c) => `
+    <div class="label${c.showFrom ? '' : ' no-from'}">
+      <div class="banner">
+        <div class="where">
+          <div class="city-n" style="font-size:${stepSize(c.city, [[6, 10], [8, 8.4], [10, 7], [13, 5.8], [17, 4.8], [999, 4]])}mm">${esc(c.city) || '&nbsp;'}</div>
+          ${c.pin ? `<div class="pin">PIN ${esc(c.pin)}</div>` : ''}
+        </div>
+        <div class="pc"><div class="pc-n">${c.index}</div><div class="pc-of">of ${c.total}</div></div>
+      </div>
+      <div class="body">
+        <div class="cap">Deliver to</div>
+        <div class="to-name clamp3" style="font-size:${stepSize(c.to, [[10, 10], [16, 8.2], [24, 6.8], [34, 5.6], [999, 4.8]])}mm">${esc(c.to) || '&nbsp;'}</div>
+        ${c.streetLines.length ? `<div class="to-addr clamp2">${c.streetLines.map(esc).join(', ')}</div>` : ''}
+        ${c.mobile ? `<div class="mob">${PHONE_SVG}<span class="mnum">${esc(fmtMobile(c.mobile))}</span></div>` : ''}
+      </div>
+      <div class="foot">
+        ${c.showFrom ? `<div class="from"><span class="cap">From</span> <b>${esc(c.from.name)}</b>${c.from.phone ? ` · <span class="nb">${esc(c.from.phone)}</span>` : ''}</div>` : ''}
+        <div class="meta">${[c.billNumber ? `Bill <b>${esc(c.billNumber)}</b>` : '', esc(c.dateStr), c.note ? `<b>${esc(c.note)}</b>` : ''].filter(Boolean).join(' · ')}</div>
+      </div>
+    </div>`,
+  css: `
+  .label { padding: 0; }
+  .banner { background: #000; color: #fff; display: flex; align-items: stretch; min-height: 27mm; }
+  .where { flex: 1; min-width: 0; padding: 4mm 5mm 3.4mm; display: flex; flex-direction: column; justify-content: center; }
+  .city-n { font-weight: 800; text-transform: uppercase; letter-spacing: 0.3mm; line-height: 1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pin { margin-top: 1.6mm; font-size: 5mm; font-weight: 700; letter-spacing: 0.8mm; font-variant-numeric: tabular-nums; }
+  .pc { flex: 0 0 24mm; background: #fff; color: #000; margin: 3mm 3mm 3mm 0; border-radius: 2mm;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .pc-n { font-size: 12mm; font-weight: 800; line-height: 0.95; font-variant-numeric: tabular-nums; }
+  .pc-of { font-size: 2.8mm; font-weight: 700; letter-spacing: 0.3mm; text-transform: uppercase; margin-top: 0.6mm; }
+  .body { flex: 1; min-height: 0; padding: 4.4mm 5mm 0; display: flex; flex-direction: column; }
+  .to-name { font-weight: 800; line-height: 1.03; margin-top: 1mm; letter-spacing: -0.1mm; }
+  .to-addr { font-size: 3.7mm; line-height: 1.3; margin-top: 1.6mm; }
+  .mob { margin-top: auto; padding-bottom: 3mm; display: flex; align-items: center; gap: 2.6mm; }
+  .mob svg { width: 6.4mm; height: 6.4mm; flex-shrink: 0; }
+  .mnum { font-size: 8.8mm; font-weight: 800; letter-spacing: 0.3mm; line-height: 1; font-variant-numeric: tabular-nums; }
+  .foot { margin: 0 5mm; padding: 2.2mm 0 4mm; border-top: 0.4mm solid #000; font-size: 2.9mm; line-height: 1.4; }
+  .foot .cap { font-size: 2.2mm; }
+  .foot b { font-weight: 800; }
+  .from { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .no-from .meta { font-size: 3.3mm; }
+  `,
+};
+
+/* ── Design 6: Sidebar — a black column down the left carries the carton
+ * count; the delivery details read across the rest. ── */
+const side = {
+  html: (c) => `
+    <div class="label${c.showFrom ? '' : ' no-from'}">
+      <div class="rail">
+        <div class="cap">Parcel</div>
+        <div class="pc-n">${c.index}</div>
+        <div class="pc-of">of ${c.total}</div>
+        <div class="rail-foot">${c.billNumber ? `<b>${esc(c.billNumber)}</b>` : ''}<span>${esc(c.dateStr)}</span></div>
+      </div>
+      <div class="main">
+        <div class="cap">Deliver to</div>
+        <div class="to-name clamp3" style="font-size:${stepSize(c.to, [[9, 10], [14, 8], [22, 6.6], [32, 5.4], [999, 4.6]])}mm">${esc(c.to) || '&nbsp;'}</div>
+        ${c.streetLines.length ? `<div class="to-addr clamp2">${c.streetLines.map(esc).join(', ')}</div>` : ''}
+        ${(c.city || c.pin) ? `<div class="city"><span class="city-n" style="font-size:${stepSize(c.city, [[7, 6.2], [9, 5.2], [11, 4.4], [15, 3.8], [999, 3.2]])}mm">${esc(c.city)}</span>${c.pin ? `<span class="pin">${esc(c.pin)}</span>` : ''}</div>` : ''}
+        ${c.mobile ? `<div class="mob"><span class="cap">Mobile</span><span class="mnum">${esc(fmtMobile(c.mobile))}</span></div>` : ''}
+        ${c.note ? `<div class="via"><span class="cap">Via</span> <b>${esc(c.note)}</b></div>` : ''}
+        ${c.showFrom ? `<div class="from">
+          <div class="cap">From</div>
+          <div class="shop">${esc(c.from.name)}</div>
+          ${fromBitsOf(c.from) ? `<div class="fromline clamp2">${fromBitsOf(c.from)}</div>` : ''}
+        </div>` : ''}
+      </div>
+    </div>`,
+  css: `
+  .label { flex-direction: row; padding: 0; }
+  .rail { flex: 0 0 23mm; background: #000; color: #fff; padding: 5mm 2mm 4.4mm;
+    display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .rail .cap { font-size: 2.3mm; letter-spacing: 0.6mm; }
+  .pc-n { font-size: 17mm; font-weight: 800; line-height: 0.95; margin-top: 2mm; font-variant-numeric: tabular-nums; }
+  .pc-of { font-size: 3.2mm; font-weight: 700; letter-spacing: 0.4mm; text-transform: uppercase; margin-top: 1mm; }
+  .rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 0.6mm; font-size: 2.6mm; line-height: 1.25; }
+  .rail-foot b { font-size: 2.9mm; font-weight: 800; word-break: break-all; }
+  .main { flex: 1; min-width: 0; padding: 5mm 5mm 4.4mm; display: flex; flex-direction: column; }
+  .to-name { font-weight: 800; line-height: 1.03; margin-top: 1mm; letter-spacing: -0.1mm; }
+  .to-addr { font-size: 3.4mm; line-height: 1.3; margin-top: 1.4mm; }
+  .city { margin-top: 3mm; padding: 1.6mm 0; border-top: 0.6mm solid #000; border-bottom: 0.6mm solid #000;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 2.4mm; }
+  .city-n { font-weight: 800; text-transform: uppercase; letter-spacing: 0.2mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pin { font-size: 5.4mm; font-weight: 800; letter-spacing: 0.4mm; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .mob { margin-top: 2.6mm; display: flex; align-items: baseline; gap: 2.4mm; }
+  .mob .cap { font-size: 2.2mm; }
+  .mnum { font-size: 7.6mm; font-weight: 800; letter-spacing: 0.2mm; line-height: 1; font-variant-numeric: tabular-nums; }
+  .via { margin-top: 2mm; font-size: 3.2mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .via .cap { font-size: 2.2mm; }
+  .via b { font-weight: 800; }
+  .from { margin-top: auto; padding-top: 2mm; border-top: 0.3mm dashed #000; }
+  .from .cap { font-size: 2.1mm; }
+  .shop { font-size: 3.4mm; font-weight: 800; line-height: 1.15; margin-top: 0.4mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fromline { font-size: 2.3mm; line-height: 1.3; margin-top: 0.3mm; }
+  .no-from .mob { margin-top: auto; }
+  `,
+};
+
+const RENDERERS = { courier, band, boxed, minimal, hub, side };
 
 /** The designs offered in Settings and in the print dialog. */
 export const PARCEL_DESIGNS = [
@@ -314,6 +418,8 @@ export const PARCEL_DESIGNS = [
   { v: 'band',    l: 'Bold band', d: 'Your shop on top, a solid black city band and a boxed mobile. Highest contrast.' },
   { v: 'boxed',   l: 'Boxed',     d: 'A ruled docket: every detail in its own cell, like a transport form.' },
   { v: 'minimal', l: 'Minimal',   d: 'Thin lines and clean type only. Uses the least ink.' },
+  { v: 'hub',     l: 'City first', d: 'A black banner with the city, PIN and carton count up top, for sorting at the transport office.' },
+  { v: 'side',    l: 'Sidebar',   d: 'A black column down the left with the carton number; the delivery details read beside it.' },
 ];
 export const DEFAULT_PARCEL_DESIGN = 'courier';
 export const normaliseParcelDesign = (v) => (RENDERERS[v] ? v : DEFAULT_PARCEL_DESIGN);

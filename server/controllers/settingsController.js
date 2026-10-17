@@ -87,8 +87,8 @@ exports.updateSystemSettings = async (req, res) => {
     if (req.body.membership_no_source && !['mobile', 'manual', 'auto'].includes(req.body.membership_no_source)) {
       return res.status(400).json({ error: "membership_no_source must be 'mobile', 'manual', or 'auto'" });
     }
-    if (req.body.parcel_tag_design && !['courier', 'band', 'boxed', 'minimal'].includes(req.body.parcel_tag_design)) {
-      return res.status(400).json({ error: "parcel_tag_design must be 'courier', 'band', 'boxed' or 'minimal'" });
+    if (req.body.parcel_tag_design && !['courier', 'band', 'boxed', 'minimal', 'hub', 'side'].includes(req.body.parcel_tag_design)) {
+      return res.status(400).json({ error: "parcel_tag_design must be one of courier, band, boxed, minimal, hub, side" });
     }
     // Loyalty redemption knobs must be sane non-negative numbers.
     if (req.body.membership_redeem_value_per_point !== undefined && req.body.membership_redeem_value_per_point !== '') {

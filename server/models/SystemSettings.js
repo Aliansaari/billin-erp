@@ -156,7 +156,7 @@ module.exports = (sequelize) => {
       defaultValue: false,
     },
     // Default design of the 10 × 10 cm parcel label (src/utils/parcelTag.js):
-    // courier | band | boxed | minimal. The print dialog can switch per print.
+    // courier | band | boxed | minimal | hub | side. The dialog can switch per print.
     parcel_tag_design: {
       type: DataTypes.STRING(20),
       defaultValue: 'courier',
