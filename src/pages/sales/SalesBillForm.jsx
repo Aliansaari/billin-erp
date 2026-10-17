@@ -19,6 +19,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import confirmPrint, { confirmPrintWithSend } from '../../utils/confirmPrint';
+import ParcelTagDialog from '../../components/ParcelTagDialog';
 import './sales-bill-form.css';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 import { getPref, setPref, clearPref } from '../../store/prefSync';
@@ -192,6 +193,8 @@ export default function SalesBillForm() {
   const [parties, setParties]   = useState([]);
   // Quick-add a new customer from the sales form (no navigation away).
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  // 10 × 10 cm parcel label for this bill's customer (or anyone typed in).
+  const [parcelOpen, setParcelOpen] = useState(false);
   const [cats, setCats]         = useState([]);
   // Multi-warehouse master toggle. When OFF the picker hides and every
   // bill posts against the seeded default godown — loadGodowns below
@@ -2781,6 +2784,18 @@ export default function SalesBillForm() {
                   onClick={() => setQuickAddOpen(true)} aria-label="Add new customer">
                   <UserAddOutlined />
                 </button>
+                {/* Parcel label: prints for the selected customer, or opens
+                    empty to type someone in (or pick a saved customer). */}
+                <button type="button" className="sbf-parcelbtn"
+                  title={selectedParty && !selectedParty.is_system_cash
+                    ? `Print a parcel label for ${selectedParty.party_name}`
+                    : 'Print a parcel label'}
+                  onClick={() => setParcelOpen(true)} aria-label="Print parcel label">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+                  </svg>
+                </button>
                 <div style={{flex:1, minWidth:0}}>
                 <Form.Item name="customer_id" noStyle
                   rules={[{ required: true, message: 'Select a customer (use Cash for walk-ins)' }]}>
@@ -4207,6 +4222,18 @@ export default function SalesBillForm() {
         partyId={customerId}
         settings={systemSettings}
       />
+
+      {parcelOpen && (
+        <ParcelTagDialog
+          open={parcelOpen}
+          onClose={() => setParcelOpen(false)}
+          party={selectedParty}
+          walkInName={form.getFieldValue('walk_in_name') || ''}
+          billNumber={billNo || nextBillNoPreview || ''}
+          company={systemSettings}
+          parties={parties}
+        />
+      )}
 
       {/* Quick-add a new customer without leaving the sales form. */}
       <PartyForm

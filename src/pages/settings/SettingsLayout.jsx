@@ -9,7 +9,7 @@ import {
   IdcardOutlined, WifiOutlined, WhatsAppOutlined, RobotOutlined,
   CreditCardOutlined, GlobalOutlined, FieldTimeOutlined, CloudDownloadOutlined,
   ShoppingCartOutlined, ShoppingOutlined, DatabaseOutlined, PercentageOutlined,
-  BarcodeOutlined, CloseCircleFilled,
+  BarcodeOutlined, CloseCircleFilled, GiftOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -100,6 +100,8 @@ export const SETTINGS_GROUPS = [
     items: [
       { path: 'print',   icon: <PrinterOutlined />, tint: 'slate', label: 'Print Templates', perm: 'settings.print',
         find: ['Invoice template', 'Bill print', 'Paper size', 'Thermal', 'A4', 'A5', 'Printer'] },
+      { path: 'parcel-labels', icon: <GiftOutlined />, tint: 'brown', label: 'Parcel Labels', perm: 'settings.manage_company',
+        find: ['Parcel tag', 'Parcel slip', 'Shipping label', 'Carton label', '10 x 10', 'Courier', 'Transport label', 'Label design'] },
       { path: 'barcode', icon: <BarcodeOutlined />, tint: 'slate', label: 'Barcode Labels',  perm: 'settings.barcode',
         find: ['Barcode', 'Label size', 'Sticker', 'Label designer'] },
     ],

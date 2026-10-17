@@ -131,6 +131,7 @@ import SalesBillSettings from './pages/settings/SalesBillSettings';
 import PurchaseBillSettings from './pages/settings/PurchaseBillSettings';
 import StockSettings from './pages/settings/StockSettings';
 import AccountsSettings from './pages/settings/AccountsSettings';
+import ParcelLabelSettings from './pages/settings/ParcelLabelSettings';
 import CustomerInsightSettings from './pages/settings/CustomerInsightSettings';
 import SettingsLayout, { SETTINGS_REDIRECTS } from './pages/settings/SettingsLayout';
 import EntityFormModalDemo from './pages/dev/EntityFormModalDemo';
@@ -906,6 +907,7 @@ export default function App() {
             <Route path="purchase-bill"       element={<RoleRoute perm="settings.manage_company"><PurchaseBillSettings /></RoleRoute>} />
             <Route path="stock"               element={<RoleRoute perm="settings.manage_company"><StockSettings /></RoleRoute>} />
             <Route path="accounts"            element={<RoleRoute perm="settings.manage_company"><AccountsSettings /></RoleRoute>} />
+            <Route path="parcel-labels"       element={<RoleRoute perm="settings.manage_company"><ParcelLabelSettings /></RoleRoute>} />
             {/* Old addresses keep working (bookmarks, links from other screens). */}
             {Object.entries(SETTINGS_REDIRECTS).map(([from, to]) => (
               <Route key={from} path={from} element={<Navigate to={`/settings/${to}`} replace />} />

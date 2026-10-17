@@ -2,15 +2,19 @@
 //
 // Build + print 10cm × 10cm parcel / shipping labels for a customer's goods.
 // Wholesale/distribution owners stick one of these on each carton before it
-// goes to a transport company, so the label is optimised for the two things a
-// delivery boy / transporter actually needs at a glance:
+// goes to a transport company, so every design is built around the few
+// things a transporter actually needs at a glance:
 //
-//   • WHERE it goes  — big TO name + address + a large, callable mobile number
-//   • WHICH parcel   — "1 / 3" so a split consignment is obvious
+//   • WHERE it goes  — the TO name, the city + PIN, a large callable mobile
+//   • WHICH parcel   — "1 of 3" so a split consignment is obvious
 //
-// Plus: the bill number, today's date, and an optional transport note. One
-// page per parcel; @page pins the sheet to 100mm × 100mm so it prints
-// true-to-size on a label printer or gets centred on A4.
+// Plus the sender, the bill number, the date and an optional transport note.
+// One page per parcel; @page pins the sheet to 100mm × 100mm so it prints
+// true-to-size on a label printer. Every design is black and white only, so
+// it prints cleanly on a thermal label printer.
+//
+// The shop picks a default design in Settings → Parcel Labels
+// (system_settings.parcel_tag_design); the print dialog can switch per print.
 
 import { printRawHTML } from '../services/printer';
 
@@ -40,26 +44,12 @@ function fromPhone(co) {
   return [co?.company_phone, co?.company_phone_2].map((x) => (x || '').trim()).filter(Boolean).join(' · ');
 }
 
-// Name size steps down with length so even long shop names fit (up to
-// three lines) beside the parcel counter.
-function nameSize(name) {
-  const n = String(name || '').length;
-  if (n <= 10) return 12;
-  if (n <= 16) return 9.4;
-  if (n <= 24) return 7.6;
-  if (n <= 34) return 6.1;
-  return 5.1;
-}
-
-// City steps down too, so a long town name never gets cut off.
-function citySize(city) {
-  const n = String(city || '').length;
-  if (n <= 7) return 8;
-  if (n <= 9) return 6.8;
-  if (n <= 12) return 5.6;
-  if (n <= 16) return 4.6;
-  return 3.8;
-}
+// Pick a size from [maxLength, mm] steps; the last step covers anything longer.
+const stepSize = (text, steps) => {
+  const n = String(text || '').length;
+  for (const [max, mm] of steps) if (n <= max) return mm;
+  return steps[steps.length - 1][1];
+};
 
 // 9876543210 → 98765 43210, easier to read out and dial.
 const fmtMobile = (m) => {
@@ -70,129 +60,280 @@ const fmtMobile = (m) => {
 // A crisp handset glyph (prints sharper than an emoji or font icon).
 const PHONE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>';
 
-// Build one label, laid out like a courier label: where it goes first and
-// biggest, the carton count where nobody can miss it, the sender and the
-// paperwork quietly at the bottom. Black and white only, so it prints
-// cleanly on a thermal label printer.
-function labelHTML({ from, to, streetLines, city, pin, mobile, billNumber, note, index, total, dateStr }) {
-  const fromBits = [esc(from.addr), from.phone ? `<span class="nb">Ph ${esc(from.phone)}</span>` : ''].filter(Boolean).join(' · ');
-  return `
-    <div class="label">
-      <div class="head">
-        <div class="to">
-          <div class="cap">Deliver to</div>
-          <div class="to-name" style="font-size:${nameSize(to)}mm">${esc(to) || '&nbsp;'}</div>
-          ${streetLines.length ? `<div class="to-addr">${streetLines.map(esc).join(', ')}</div>` : ''}
-        </div>
-        <div class="pc">
-          <div class="pc-n">${index}</div>
-          <div class="pc-of">of ${total}</div>
-        </div>
-      </div>
+const fromBitsOf = (from) => [esc(from.addr), from.phone ? `<span class="nb">Ph ${esc(from.phone)}</span>` : ''].filter(Boolean).join(' · ');
 
-      <div class="mid">
-      ${(city || pin) ? `
-      <div class="city">
-        <span class="city-n" style="font-size:${citySize(city)}mm">${esc(city)}</span>
-        ${pin ? `<span class="pin">${esc(pin)}</span>` : ''}
-      </div>` : ''}
-
-      ${mobile ? `<div class="mob">${PHONE_SVG}<span class="mnum">${esc(fmtMobile(mobile))}</span></div>` : ''}
-      </div>
-
-      <div class="foot">
-        <div class="from">
-          <div class="cap">From</div>
-          <div class="shop">${esc(from.name)}</div>
-          ${fromBits ? `<div class="fromline">${fromBits}</div>` : ''}
-        </div>
-        <div class="meta">
-          ${billNumber ? `<div><span>Bill</span><b>${esc(billNumber)}</b></div>` : ''}
-          <div><span>Date</span><b>${esc(dateStr)}</b></div>
-          ${note ? `<div><span>Via</span><b>${esc(note)}</b></div>` : ''}
-        </div>
-      </div>
-    </div>`;
-}
-
-const DOC_CSS = `
+// Shared by every design: the sheet, the label box, small caps.
+const BASE_CSS = `
   @page { size: 100mm 100mm; margin: 0; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   html, body { margin: 0; padding: 0; background: #fff; color: #000;
     font-family: 'Source Sans 3', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; }
-  .label { width: 100mm; height: 100mm; padding: 5.5mm 5.5mm 4.6mm; overflow: hidden;
+  .label { width: 100mm; height: 100mm; overflow: hidden;
     display: flex; flex-direction: column; page-break-after: always; }
   .label:last-child { page-break-after: auto; }
   .nb { white-space: nowrap; }
   .cap { font-size: 2.4mm; font-weight: 700; letter-spacing: 0.7mm; text-transform: uppercase; }
+  .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .clamp3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+`;
 
-  /* Deliver to + parcel counter */
+/* ── Design 1: Courier — deliver-to first, carton count in a black tile,
+ * city + PIN between heavy rules, sender and paperwork at the bottom. ── */
+const courier = {
+  html: (c) => `
+    <div class="label">
+      <div class="head">
+        <div class="to">
+          <div class="cap">Deliver to</div>
+          <div class="to-name clamp3" style="font-size:${stepSize(c.to, [[10, 12], [16, 9.4], [24, 7.6], [34, 6.1], [999, 5.1]])}mm">${esc(c.to) || '&nbsp;'}</div>
+          ${c.streetLines.length ? `<div class="to-addr clamp2">${c.streetLines.map(esc).join(', ')}</div>` : ''}
+        </div>
+        <div class="pc"><div class="pc-n">${c.index}</div><div class="pc-of">of ${c.total}</div></div>
+      </div>
+      <div class="mid">
+        ${(c.city || c.pin) ? `<div class="city"><span class="city-n" style="font-size:${stepSize(c.city, [[7, 8], [9, 6.8], [12, 5.6], [16, 4.6], [999, 3.8]])}mm">${esc(c.city)}</span>${c.pin ? `<span class="pin">${esc(c.pin)}</span>` : ''}</div>` : ''}
+        ${c.mobile ? `<div class="mob">${PHONE_SVG}<span class="mnum">${esc(fmtMobile(c.mobile))}</span></div>` : ''}
+      </div>
+      <div class="foot">
+        <div class="from">
+          <div class="cap">From</div>
+          <div class="shop">${esc(c.from.name)}</div>
+          ${fromBitsOf(c.from) ? `<div class="fromline clamp2">${fromBitsOf(c.from)}</div>` : ''}
+        </div>
+        <div class="meta">
+          ${c.billNumber ? `<div><span>Bill</span><b>${esc(c.billNumber)}</b></div>` : ''}
+          <div><span>Date</span><b>${esc(c.dateStr)}</b></div>
+          ${c.note ? `<div><span>Via</span><b>${esc(c.note)}</b></div>` : ''}
+        </div>
+      </div>
+    </div>`,
+  css: `
+  .label { padding: 5.5mm 5.5mm 4.6mm; }
   .head { display: flex; align-items: flex-start; gap: 4mm; }
   .to { flex: 1; min-width: 0; }
-  .to-name { font-weight: 800; line-height: 1.02; margin-top: 1mm; letter-spacing: -0.12mm;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
-  .to-addr { font-size: 3.8mm; line-height: 1.3; margin-top: 1.6mm;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .to-name { font-weight: 800; line-height: 1.02; margin-top: 1mm; letter-spacing: -0.12mm; }
+  .to-addr { font-size: 3.8mm; line-height: 1.3; margin-top: 1.6mm; }
   .pc { flex: 0 0 21mm; height: 21mm; border-radius: 2.4mm; background: #000; color: #fff;
     display: flex; flex-direction: column; align-items: center; justify-content: center; }
   .pc-n { font-size: 11.5mm; font-weight: 800; line-height: 0.95; font-variant-numeric: tabular-nums; }
   .pc-of { font-size: 2.8mm; font-weight: 700; letter-spacing: 0.3mm; text-transform: uppercase; margin-top: 0.6mm; }
-
-  /* City + PIN: what the transporter sorts by */
   .mid { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 3.4mm; padding: 3.4mm 0; }
   .city { display: flex; align-items: baseline; justify-content: space-between; gap: 3mm;
     padding: 2mm 0 1.8mm; border-top: 0.8mm solid #000; border-bottom: 0.8mm solid #000; }
   .city-n { font-weight: 800; text-transform: uppercase; letter-spacing: 0.3mm; line-height: 1.1;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pin { font-size: 7mm; font-weight: 800; letter-spacing: 0.6mm; line-height: 1.1;
-    font-variant-numeric: tabular-nums; flex-shrink: 0; }
-
-  /* Mobile */
+  .pin { font-size: 7mm; font-weight: 800; letter-spacing: 0.6mm; line-height: 1.1; font-variant-numeric: tabular-nums; flex-shrink: 0; }
   .mob { display: flex; align-items: center; gap: 2.8mm; }
   .mob svg { width: 7mm; height: 7mm; flex-shrink: 0; }
   .mnum { font-size: 9.6mm; font-weight: 800; letter-spacing: 0.3mm; line-height: 1; font-variant-numeric: tabular-nums; }
-
-  /* Sender + paperwork */
-  .foot { padding-top: 2.4mm; border-top: 0.3mm dashed #000;
-    display: flex; align-items: flex-end; justify-content: space-between; gap: 4mm; }
+  .foot { padding-top: 2.4mm; border-top: 0.3mm dashed #000; display: flex; align-items: flex-end; justify-content: space-between; gap: 4mm; }
   .from { flex: 1; min-width: 0; }
-  .shop { font-size: 3.8mm; font-weight: 800; line-height: 1.15; margin-top: 0.6mm;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .fromline { font-size: 2.5mm; line-height: 1.3; margin-top: 0.5mm;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .shop { font-size: 3.8mm; font-weight: 800; line-height: 1.15; margin-top: 0.6mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fromline { font-size: 2.5mm; line-height: 1.3; margin-top: 0.5mm; }
   .meta { flex: 0 1 auto; max-width: 50mm; display: flex; flex-direction: column; gap: 0.5mm; }
   .meta div { display: flex; justify-content: flex-end; align-items: baseline; gap: 1.8mm; font-size: 3mm; line-height: 1.2; }
   .meta span { font-size: 2.3mm; font-weight: 700; letter-spacing: 0.4mm; text-transform: uppercase; }
   .meta b { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42mm; }
-`;
+  `,
+};
+
+/* ── Design 2: Bold band — sender on top beside a boxed counter, a solid
+ * black city band, the mobile in a box. Maximum contrast. ── */
+const band = {
+  html: (c) => `
+    <div class="label">
+      <div class="top">
+        <div class="from">
+          <div class="cap">From</div>
+          <div class="shop">${esc(c.from.name)}</div>
+          ${fromBitsOf(c.from) ? `<div class="fromline clamp2">${fromBitsOf(c.from)}</div>` : ''}
+        </div>
+        <div class="pc"><div class="pc-cap">Parcel</div><div class="pc-n">${c.index}<span>/${c.total}</span></div></div>
+      </div>
+      <div class="to">
+        <div class="cap">Deliver to</div>
+        <div class="to-name clamp3" style="font-size:${stepSize(c.to, [[14, 9.5], [22, 8], [32, 6.4], [999, 5.2]])}mm">${esc(c.to) || '&nbsp;'}</div>
+        ${c.streetLines.length ? `<div class="to-addr clamp2">${c.streetLines.map(esc).join(', ')}</div>` : ''}
+      </div>
+      ${(c.city || c.pin) ? `<div class="city"><span class="city-n" style="font-size:${stepSize(c.city, [[9, 5.8], [12, 5], [16, 4.2], [999, 3.6]])}mm">${esc(c.city)}</span>${c.pin ? `<span class="pin">${esc(c.pin)}</span>` : ''}</div>` : ''}
+      ${c.mobile ? `<div class="mob"><span class="mob-cap">Call</span><span class="mnum">${esc(fmtMobile(c.mobile))}</span></div>` : ''}
+      <div class="foot">
+        ${c.billNumber ? `<span>Bill <b>${esc(c.billNumber)}</b></span>` : ''}
+        <span>${esc(c.dateStr)}</span>
+        ${c.note ? `<span class="note">${esc(c.note)}</span>` : ''}
+      </div>
+    </div>`,
+  css: `
+  .label { padding: 5mm 5mm 4.2mm; }
+  .cap { letter-spacing: 0.6mm; }
+  .top { display: flex; align-items: stretch; gap: 3mm; padding-bottom: 2.6mm; border-bottom: 0.6mm solid #000; }
+  .from { flex: 1; min-width: 0; }
+  .shop { font-size: 4.6mm; font-weight: 800; line-height: 1.1; margin-top: 0.6mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fromline { font-size: 2.6mm; line-height: 1.3; margin-top: 0.8mm; }
+  .pc { flex: 0 0 auto; min-width: 19mm; border: 0.6mm solid #000; border-radius: 2mm;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1mm 2mm; }
+  .pc-cap { font-size: 2.2mm; font-weight: 700; letter-spacing: 0.4mm; text-transform: uppercase; }
+  .pc-n { font-size: 8.5mm; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .pc-n span { font-size: 4.4mm; font-weight: 700; }
+  .to { margin-top: 3mm; min-height: 0; }
+  .to-name { font-weight: 800; line-height: 1.02; margin-top: 0.8mm; letter-spacing: -0.1mm; }
+  .to-addr { font-size: 3.5mm; line-height: 1.3; margin-top: 1.4mm; }
+  .city { margin-top: auto; background: #000; color: #fff; border-radius: 1.6mm;
+    display: flex; align-items: center; justify-content: space-between; gap: 3mm; padding: 1.8mm 3mm; }
+  .city-n { font-weight: 800; text-transform: uppercase; letter-spacing: 0.2mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pin { font-size: 5.6mm; font-weight: 800; letter-spacing: 0.5mm; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .mob { margin-top: 2.4mm; border: 0.6mm solid #000; border-radius: 1.6mm; display: flex; align-items: center; gap: 3mm; padding: 1.4mm 3mm; }
+  .mob-cap { font-size: 2.6mm; font-weight: 700; letter-spacing: 0.5mm; text-transform: uppercase; }
+  .mnum { font-size: 7mm; font-weight: 800; letter-spacing: 0.3mm; font-variant-numeric: tabular-nums; }
+  .foot { margin-top: 2.6mm; padding-top: 1.8mm; border-top: 0.3mm solid #000; display: flex; align-items: baseline; gap: 3mm; font-size: 3.2mm; }
+  .foot b { font-weight: 800; }
+  .foot .note { margin-left: auto; font-weight: 700; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42mm; }
+  `,
+};
+
+/* ── Design 3: Boxed — a ruled transport docket: every field in its own
+ * cell, so nothing runs into anything else. ── */
+const boxed = {
+  html: (c) => `
+    <div class="label">
+      <div class="grid">
+        <div class="cell to">
+          <div class="cap">Deliver to</div>
+          <div class="to-name clamp3" style="font-size:${stepSize(c.to, [[10, 10], [16, 8.2], [24, 6.8], [34, 5.6], [999, 4.8]])}mm">${esc(c.to) || '&nbsp;'}</div>
+          ${c.streetLines.length ? `<div class="to-addr clamp2">${c.streetLines.map(esc).join(', ')}</div>` : ''}
+        </div>
+        <div class="cell pc"><div class="cap">Parcel</div><div class="pc-n">${c.index}</div><div class="pc-of">of ${c.total}</div></div>
+        <div class="cell city"><div class="cap">City</div><div class="city-n" style="font-size:${stepSize(c.city, [[8, 6.6], [11, 5.4], [15, 4.4], [999, 3.6]])}mm">${esc(c.city) || '&nbsp;'}</div></div>
+        <div class="cell pin"><div class="cap">PIN</div><div class="pin-n">${esc(c.pin) || '&nbsp;'}</div></div>
+        <div class="cell mob"><div class="cap">Mobile</div><div class="mnum">${c.mobile ? esc(fmtMobile(c.mobile)) : '&nbsp;'}</div></div>
+        <div class="cell from">
+          <div class="cap">From</div>
+          <div class="shop">${esc(c.from.name)}</div>
+          ${fromBitsOf(c.from) ? `<div class="fromline clamp2">${fromBitsOf(c.from)}</div>` : ''}
+        </div>
+        <div class="cell meta">
+          ${c.billNumber ? `<div><span>Bill</span><b>${esc(c.billNumber)}</b></div>` : ''}
+          <div><span>Date</span><b>${esc(c.dateStr)}</b></div>
+          ${c.note ? `<div><span>Via</span><b>${esc(c.note)}</b></div>` : ''}
+        </div>
+      </div>
+    </div>`,
+  css: `
+  .label { padding: 3.5mm; }
+  .grid { flex: 1; display: grid; grid-template-columns: 1fr 31mm;
+    grid-template-rows: 1fr auto auto auto;
+    grid-template-areas: "to pc" "city pin" "mob mob" "from meta";
+    border: 0.7mm solid #000; border-radius: 1.6mm; overflow: hidden; }
+  .cell { padding: 2mm 2.6mm; border-right: 0.35mm solid #000; border-bottom: 0.35mm solid #000; min-width: 0; }
+  .cell.pc, .cell.pin, .cell.mob, .cell.meta { border-right: 0; }
+  .cell.from, .cell.meta { border-bottom: 0; }
+  .cap { font-size: 2.1mm; letter-spacing: 0.5mm; }
+  .to { grid-area: to; display: flex; flex-direction: column; }
+  .to-name { font-weight: 800; line-height: 1.03; margin-top: 1mm; letter-spacing: -0.1mm; }
+  .to-addr { font-size: 3.3mm; line-height: 1.3; margin-top: 1.4mm; }
+  .pc { grid-area: pc; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .pc-n { font-size: 14mm; font-weight: 800; line-height: 0.95; font-variant-numeric: tabular-nums; }
+  .pc-of { font-size: 3mm; font-weight: 700; letter-spacing: 0.3mm; text-transform: uppercase; }
+  .city { grid-area: city; }
+  .city-n { font-weight: 800; text-transform: uppercase; letter-spacing: 0.2mm; line-height: 1.15; margin-top: 0.6mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pin { grid-area: pin; }
+  .pin-n { font-size: 6mm; font-weight: 800; letter-spacing: 0.4mm; line-height: 1.15; margin-top: 0.6mm; font-variant-numeric: tabular-nums; }
+  .mob { grid-area: mob; display: flex; align-items: baseline; gap: 3mm; }
+  .mnum { font-size: 7.6mm; font-weight: 800; letter-spacing: 0.3mm; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .from { grid-area: from; }
+  .shop { font-size: 3.6mm; font-weight: 800; line-height: 1.15; margin-top: 0.5mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fromline { font-size: 2.4mm; line-height: 1.3; margin-top: 0.4mm; }
+  .meta { grid-area: meta; display: flex; flex-direction: column; justify-content: center; gap: 0.6mm; }
+  .meta div { display: flex; justify-content: space-between; align-items: baseline; gap: 1.4mm; font-size: 2.8mm; line-height: 1.2; }
+  .meta span { font-size: 2.1mm; font-weight: 700; letter-spacing: 0.3mm; text-transform: uppercase; }
+  .meta b { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  `,
+};
+
+/* ── Design 4: Minimal — hairlines and type only; saves ink and reads as
+ * a calm, boutique label. ── */
+const minimal = {
+  html: (c) => `
+    <div class="label">
+      <div class="head">
+        <div class="cap">To</div>
+        <div class="pc">${c.index}<span>/${c.total}</span></div>
+      </div>
+      <div class="to-name clamp3" style="font-size:${stepSize(c.to, [[10, 11], [16, 8.8], [24, 7.2], [34, 5.8], [999, 4.9]])}mm">${esc(c.to) || '&nbsp;'}</div>
+      ${c.streetLines.length ? `<div class="to-addr clamp2">${c.streetLines.map(esc).join(', ')}</div>` : ''}
+      ${(c.city || c.pin) ? `<div class="city"><span class="city-n" style="font-size:${stepSize(c.city, [[9, 6.2], [12, 5.2], [16, 4.4], [999, 3.6]])}mm">${esc(c.city)}</span>${c.pin ? `<span class="pin">${esc(c.pin)}</span>` : ''}</div>` : ''}
+      ${c.mobile ? `<div class="mob"><span class="cap">Mobile</span><span class="mnum">${esc(fmtMobile(c.mobile))}</span></div>` : ''}
+      <div class="foot">
+        <div class="from"><b>${esc(c.from.name)}</b>${fromBitsOf(c.from) ? `<div class="clamp2">${fromBitsOf(c.from)}</div>` : ''}</div>
+        <div class="meta">${[c.billNumber ? esc(c.billNumber) : '', esc(c.dateStr), c.note ? esc(c.note) : ''].filter(Boolean).map((x) => `<div>${x}</div>`).join('')}</div>
+      </div>
+    </div>`,
+  css: `
+  .label { padding: 6.5mm 6.5mm 5.5mm; }
+  .head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 2mm; border-bottom: 0.25mm solid #000; }
+  .head .cap { font-size: 2.6mm; letter-spacing: 1mm; }
+  .pc { font-size: 6mm; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .pc span { font-size: 3.6mm; font-weight: 600; }
+  .to-name { font-weight: 700; line-height: 1.05; margin-top: 3mm; letter-spacing: -0.15mm; }
+  .to-addr { font-size: 3.6mm; line-height: 1.35; margin-top: 1.8mm; }
+  .city { margin-top: auto; display: flex; align-items: baseline; gap: 3.5mm; }
+  .city-n { font-weight: 600; text-transform: uppercase; letter-spacing: 0.8mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pin { font-size: 5.4mm; font-weight: 400; letter-spacing: 0.6mm; font-variant-numeric: tabular-nums; padding-left: 3.5mm; border-left: 0.25mm solid #000; }
+  .mob { margin-top: 2.4mm; display: flex; align-items: baseline; gap: 3mm; }
+  .mob .cap { font-size: 2.3mm; }
+  .mnum { font-size: 8.4mm; font-weight: 700; letter-spacing: 0.2mm; line-height: 1; font-variant-numeric: tabular-nums; }
+  .foot { margin-top: 4mm; padding-top: 2.2mm; border-top: 0.25mm solid #000; display: flex; justify-content: space-between; gap: 4mm; font-size: 2.6mm; line-height: 1.35; }
+  .from { flex: 1; min-width: 0; }
+  .from b { display: block; font-size: 3.2mm; font-weight: 700; letter-spacing: 0.3mm; text-transform: uppercase; }
+  .meta { text-align: right; flex-shrink: 0; max-width: 40mm; }
+  .meta div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta div:first-child { font-weight: 700; font-size: 3mm; }
+  `,
+};
+
+const RENDERERS = { courier, band, boxed, minimal };
+
+/** The designs offered in Settings and in the print dialog. */
+export const PARCEL_DESIGNS = [
+  { v: 'courier', l: 'Courier',   d: 'Customer first and biggest, carton number in a black tile, your details at the bottom.' },
+  { v: 'band',    l: 'Bold band', d: 'Your shop on top, a solid black city band and a boxed mobile. Highest contrast.' },
+  { v: 'boxed',   l: 'Boxed',     d: 'A ruled docket: every detail in its own cell, like a transport form.' },
+  { v: 'minimal', l: 'Minimal',   d: 'Thin lines and clean type only. Uses the least ink.' },
+];
+export const DEFAULT_PARCEL_DESIGN = 'courier';
+export const normaliseParcelDesign = (v) => (RENDERERS[v] ? v : DEFAULT_PARCEL_DESIGN);
 
 /**
  * Build the full multi-page label document (one page per parcel).
  * Exported separately so a preview surface can show the exact printed markup.
+ * `party` can be a saved customer or a typed-in one (same field names).
+ * `design` falls back to the shop's default (company.parcel_tag_design).
  */
-export async function buildParcelTagHTML({ company, party, billNumber, totalParcels = 1, note = '' }) {
+export async function buildParcelTagHTML({ company, party, billNumber, totalParcels = 1, note = '', design }) {
+  const r = RENDERERS[normaliseParcelDesign(design || company?.parcel_tag_design)];
   const total = Math.max(1, Math.min(99, parseInt(totalParcels, 10) || 1));
-  const from = {
-    name: company?.company_name || 'Our Store',
-    addr: fromAddressLine(company),
-    phone: fromPhone(company),
-    gstin: (company?.company_gstin || '').trim(),
+  const ctx = {
+    from: {
+      name: company?.company_name || 'Our Store',
+      addr: fromAddressLine(company),
+      phone: fromPhone(company),
+    },
+    to: (party?.party_name || '').trim(),
+    streetLines: [party?.address_line_1, party?.address_line_2].map((x) => (x || '').trim()).filter(Boolean),
+    // No city on file: fall back to the state, so the label still says where it goes.
+    city: (party?.city || '').trim() || (party?.state || '').trim(),
+    pin: (party?.pincode || '').trim(),
+    mobile: (party?.mobile_1 || '').trim(),
+    billNumber: String(billNumber || '').trim(),
+    note: String(note || '').trim(),
+    dateStr: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+    total,
   };
-  const to = party?.party_name || '';
-  // Street lines in the address block; city + PIN get their own band.
-  const streetLines = [party?.address_line_1, party?.address_line_2].map((x) => (x || '').trim()).filter(Boolean);
-  // No city on file: fall back to the state, so the band still says where it goes.
-  const city = (party?.city || '').trim() || (party?.state || '').trim();
-  const pin = (party?.pincode || '').trim();
-  const mobile = (party?.mobile_1 || '').trim();
-  const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
   const labels = [];
-  for (let i = 1; i <= total; i++) {
-    labels.push(labelHTML({ from, to, streetLines, city, pin, mobile, billNumber, note, index: i, total, dateStr }));
-  }
+  for (let i = 1; i <= total; i++) labels.push(r.html({ ...ctx, index: i }));
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Parcel Tag</title><style>${DOC_CSS}</style></head><body>${labels.join('')}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Parcel Tag</title><style>${BASE_CSS}${r.css}</style></head><body>${labels.join('')}</body></html>`;
 }
 
 /**

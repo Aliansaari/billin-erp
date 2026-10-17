@@ -491,7 +491,7 @@ async function startServer() {
     //
     // Bump MIGRATION_VERSION whenever you add/change any migration below.
     // A simple integer counter works: just increment it.
-    const MIGRATION_VERSION = '12';
+    const MIGRATION_VERSION = '13';
     const migVersionFile = path.join(os.homedir(), '.zehen', 'migration-version.txt');
     let skipMigrations = false;
     try {
@@ -2552,6 +2552,13 @@ async function startServer() {
       END $$;
     `).catch((err) => {
       console.error('[Multi-color settings migration] Error:', err.message);
+    });
+
+    // Parcel label design (Settings → Parcel Labels). MIGRATION_VERSION 13.
+    await sequelize.query(`
+      ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_design VARCHAR(20) DEFAULT 'courier';
+    `).catch((err) => {
+      console.error('[Parcel label design migration] Error:', err.message);
     });
 
     // ── FY compliance fields ─────────────────────────────────────────

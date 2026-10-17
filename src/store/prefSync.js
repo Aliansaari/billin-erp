@@ -78,6 +78,9 @@ export const PREF_KEYS = {
   // and making them set it twice to get one outcome would be worse. New
   // preference, so there is no legacy key to adopt.
   plv_hide_totals:        { legacy: null },
+  // Last few transports typed on a parcel label ("VRL Logistics"), offered
+  // as one-tap chips next time. New preference, no legacy key.
+  parcel_recent_via:      { legacy: null },
 };
 
 /* Whole FAMILIES of preferences, matched by prefix.

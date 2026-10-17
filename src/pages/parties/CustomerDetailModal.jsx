@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { message } from 'antd';
 import dayjs from 'dayjs';
-import { printParcelTags } from '../../utils/parcelTag';
 import { partyAddressLines } from '../../utils/parcelTag';
+import ParcelTagDialog from '../../components/ParcelTagDialog';
 import MembershipCard from '../membership/MembershipCard';
 import './customer-detail-modal.css';
 
@@ -48,32 +47,23 @@ export default function CustomerDetailModal({
   onClose, onEdit, onStatement, onReceipt, onRemind, onToggleActive,
 }) {
   const [parcelOpen, setParcelOpen] = useState(false);
-  const [billNumber, setBillNumber] = useState('');
-  const [parcels, setParcels] = useState(1);
-  const [note, setNote] = useState('');
-  const [printing, setPrinting] = useState(false);
 
-  // Reset the parcel form each time a different party opens.
-  useEffect(() => {
-    if (open) {
-      setParcelOpen(false);
-      setBillNumber(''); setParcels(1); setNote('');
-    }
-  }, [open, party?.party_id]);
+  // A different party (or a fresh open) starts with the label dialog shut.
+  useEffect(() => { if (open) setParcelOpen(false); }, [open, party?.party_id]);
 
-  // Esc closes the modal (parcel panel first, then the whole modal).
+  // Esc closes the modal. While the label dialog is open it claims Esc
+  // first (window capture), so this only fires once that dialog is shut.
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        if (parcelOpen) setParcelOpen(false);
-        else onClose?.();
+        onClose?.();
       }
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [open, parcelOpen, onClose]);
+  }, [open, onClose]);
 
   const bal = parseFloat(party?.current_balance || 0);
   const owing = isCustomer ? bal : -bal;
@@ -81,17 +71,6 @@ export default function CustomerDetailModal({
   const status = party?.party_status || 'Regular';
   const addrLines = useMemo(() => partyAddressLines(party || {}), [party]);
   const initials = (party?.party_name || '?').trim().slice(0, 2).toUpperCase();
-
-  const handlePrintTags = async () => {
-    setPrinting(true);
-    try {
-      await printParcelTags({ company, party, billNumber: billNumber.trim(), totalParcels: parcels, note: note.trim() });
-      message.success(`Sent ${Math.max(1, parcels)} parcel tag${parcels > 1 ? 's' : ''} to printer`);
-    } catch (e) {
-      message.error('Could not print parcel tag: ' + (e?.message || 'unknown error'));
-    }
-    setPrinting(false);
-  };
 
   return (
     <>
@@ -175,40 +154,12 @@ export default function CustomerDetailModal({
               {isCustomer && <MembershipCard party={party} />}
             </div>
 
-            {/* Parcel tag panel */}
-            <div className={`cdm-parcel${parcelOpen ? ' open' : ''}`}>
-              <button className="cdm-parcel-toggle" onClick={() => setParcelOpen((o) => !o)}>
-                <I.Box/> Print parcel tag <span className="sz">10 × 10 cm</span>
-                <span className="chev">{parcelOpen ? '▾' : '▸'}</span>
+            {/* Parcel label — opens the shared label dialog. */}
+            <div className="cdm-parcel">
+              <button className="cdm-parcel-toggle" onClick={() => setParcelOpen(true)}>
+                <I.Box/> Print parcel label <span className="sz">10 × 10 cm</span>
+                <span className="chev">›</span>
               </button>
-              {parcelOpen && (
-                <div className="cdm-parcel-body">
-                  <div className="cdm-parcel-fields">
-                    <label className="cdm-fld">
-                      <span>Bill / LR number</span>
-                      <input value={billNumber} onChange={(e) => setBillNumber(e.target.value)} placeholder="e.g. 14612" />
-                    </label>
-                    <label className="cdm-fld sm">
-                      <span>No. of parcels</span>
-                      <input type="number" min="1" max="99" value={parcels}
-                        onChange={(e) => setParcels(Math.max(1, Math.min(99, parseInt(e.target.value, 10) || 1)))} />
-                    </label>
-                    <label className="cdm-fld">
-                      <span>Transport / note <em>(optional)</em></span>
-                      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. VRL Logistics" />
-                    </label>
-                  </div>
-                  <div className="cdm-parcel-foot">
-                    <span className="hint">
-                      Prints {parcels > 1 ? <b>{parcels} labels</b> : <b>1 label</b>} — each 10×10cm with From/To, big mobile
-                      number and parcel {parcels > 1 ? `1…${parcels}` : '1/1'}.
-                    </span>
-                    <button className="cdm-btn primary" disabled={printing} onClick={handlePrintTags}>
-                      <I.Print/> {printing ? 'Printing…' : `Print ${parcels > 1 ? parcels + ' tags' : 'tag'}`}
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Footer actions */}
@@ -230,6 +181,12 @@ export default function CustomerDetailModal({
           </>
         )}
       </div>
+      <ParcelTagDialog
+        open={open && parcelOpen}
+        onClose={() => setParcelOpen(false)}
+        party={party}
+        company={company}
+      />
     </>
   );
 }

@@ -1916,6 +1916,23 @@
 .sbf-addparty:active { transform: translateY(1px); }
 .sbf-addparty .anticon { font-size: 15px; }
 
+/* Parcel label — a quieter sibling of the add-customer button. */
+.sbf-parcelbtn {
+  flex: 0 0 auto;
+  width: 36px;
+  align-self: stretch;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.sbf-parcelbtn svg { width: 17px; height: 17px; }
+.sbf-parcelbtn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.sbf-parcelbtn:active { transform: translateY(1px); }
+
 /* Product dropdown — the customer picker's pattern: a heading row over
    aligned columns. Variant mode (families): product · category · variants ·
    stock. Single mode adds the sale rate. Same look as the purchase bill. */

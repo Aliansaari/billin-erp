@@ -836,6 +836,11 @@ async function runCompanySchemaMigrations(sequelize) {
       ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS emergency_phone VARCHAR(20);
     END $staff_profile$;
   `);
+
+  // Parcel label design (Settings → Parcel Labels); mirrors server/index.js.
+  await sequelize.query(`
+    ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS parcel_tag_design VARCHAR(20) DEFAULT 'courier';
+  `);
 }
 
 module.exports = { runCompanySchemaMigrations };
