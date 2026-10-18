@@ -2,6 +2,16 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.22",
+      "date": "2026-10-18",
+      "title": "Parcel labels print right",
+      "highlights": [
+        "Parcel labels now print straight to your label printer at the full 100 x 100 mm size, edge to edge, without the print window.",
+        "Labels print darker: small text like the sender and address is bolder. If it is still faint, choose Heavy darkness.",
+        "Choose the label printer, darkness and print a test label in Settings, Parcel Labels. Each computer keeps its own printer."
+      ]
+    },
+    {
       "version": "1.1.21",
       "date": "2026-10-17",
       "title": "Faster scanning, clearer customer",
