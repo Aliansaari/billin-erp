@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Form, Input } from 'antd';
-import { PrinterOutlined, CheckCircleFilled } from '@ant-design/icons';
-import { buildParcelTagHTML, PARCEL_DESIGNS, normaliseParcelDesign } from '../../utils/parcelTag';
+import { Button, Form, Input, Segmented, Select, Switch, Tooltip, message } from 'antd';
+import { PrinterOutlined, CheckCircleFilled, ReloadOutlined } from '@ant-design/icons';
+import {
+  buildParcelTagHTML, printParcelTags, PARCEL_DESIGNS, PARCEL_DARKNESS, normaliseParcelDesign,
+  getParcelPrinter, setParcelPrinter,
+} from '../../utils/parcelTag';
+import { listPrinters } from '../../services/printer';
 import ParcelTagDialog from '../../components/ParcelTagDialog';
 import { SettingsPage, Section, ToggleRow, useSystemSlice, SaveStrip } from './settingsKit';
 
@@ -37,15 +41,32 @@ export default function ParcelLabelSettings() {
   const showFrom = Form.useWatch('parcel_tag_show_from', form) !== false;
   const [docs, setDocs] = useState({});
   const [testOpen, setTestOpen] = useState(false);
+  // This computer's label printer — saved straight away, on this PC only.
+  const [pp, setPp] = useState(getParcelPrinter);
+  const [printers, setPrinters] = useState([]);
+  const [printerErr, setPrinterErr] = useState('');
+  const [testing, setTesting] = useState(false);
+  const loadPrinters = () => listPrinters().then((r) => { setPrinters(r.printers || []); setPrinterErr(r.error || ''); });
+  useEffect(() => { loadPrinters(); }, []);
+  const changePrinter = (patch) => setPp(setParcelPrinter(patch));
+  const testPrint = async () => {
+    setTesting(true);
+    try {
+      await printParcelTags({ company: raw || {}, ...SAMPLE, totalParcels: 1, design: chosen, showFrom });
+      message.success(pp.silent ? `Test label sent to ${pp.printer || 'the default printer'}` : 'Test label ready to print');
+    } catch (e) {
+      message.error('Could not print: ' + (e?.message || 'unknown error'));
+    } finally { setTesting(false); }
+  };
 
   // Draw every design with this shop's details once settings arrive.
   useEffect(() => {
     if (!raw) return;
     let alive = true;
-    Promise.all(PARCEL_DESIGNS.map((d) => buildParcelTagHTML({ company: raw, ...SAMPLE, design: d.v, showFrom }).then((h) => [d.v, h])))
+    Promise.all(PARCEL_DESIGNS.map((d) => buildParcelTagHTML({ company: raw, ...SAMPLE, design: d.v, showFrom, darkness: pp.darkness }).then((h) => [d.v, h])))
       .then((pairs) => { if (alive) setDocs(Object.fromEntries(pairs)); });
     return () => { alive = false; };
-  }, [raw, showFrom]);
+  }, [raw, showFrom, pp.darkness]);
 
   return (
     <SettingsPage
@@ -82,6 +103,58 @@ export default function ParcelLabelSettings() {
         <Section title="On the label">
           <ToggleRow name="parcel_tag_show_from" label={'Show "From"'}
                      desc="Your shop's name, address and phone on every label. Turn off for plain labels, or when the transporter fills the sender in. You can still change it for one print." />
+        </Section>
+
+        <Section title="Label printer" desc="For this computer only, and saved as soon as you change it. Each counter can use its own printer.">
+          <div className="ms-row">
+            <div>
+              <div className="ms-row-label">Printer</div>
+              <div className="ms-row-desc">{printerErr && !printers.length
+                ? 'Printers can be picked in the ZEHEN desktop app.'
+                : 'The thermal label printer with 100 × 100 mm labels loaded.'}</div>
+            </div>
+            <div className="ms-row-control">
+              <Select
+                value={pp.printer || ''}
+                onChange={(v) => changePrinter({ printer: v || '' })}
+                style={{ width: 260 }}
+                showSearch
+                options={[
+                  { value: '', label: 'Windows default printer' },
+                  ...printers.map((p) => ({ value: p.name, label: `${p.displayName || p.name}${p.isDefault ? ' (default)' : ''}` })),
+                ]}
+              />
+              <Tooltip title="Look for printers again"><Button icon={<ReloadOutlined />} onClick={loadPrinters} /></Tooltip>
+            </div>
+          </div>
+          <div className="ms-row">
+            <div>
+              <div className="ms-row-label">Print without asking</div>
+              <div className="ms-row-desc">Sends labels straight to the printer at exactly 100 × 100 mm, edge to edge, with no print window. Off: the print window opens each time.</div>
+            </div>
+            <div className="ms-row-control">
+              <Switch checked={pp.silent} onChange={(v) => changePrinter({ silent: v })} />
+            </div>
+          </div>
+          <div className="ms-row">
+            <div>
+              <div className="ms-row-label">Print darkness</div>
+              <div className="ms-row-desc">Thicker letters print darker on thermal labels. If small text comes out faint, choose Heavy.</div>
+            </div>
+            <div className="ms-row-control">
+              <Segmented value={pp.darkness} onChange={(v) => changePrinter({ darkness: v })}
+                         options={PARCEL_DARKNESS.map((d) => ({ value: d.v, label: d.l }))} />
+            </div>
+          </div>
+          <div className="ms-row">
+            <div>
+              <div className="ms-row-label">Test print</div>
+              <div className="ms-row-desc">Prints one sample label with the design and settings above.</div>
+            </div>
+            <div className="ms-row-control">
+              <Button icon={<PrinterOutlined />} loading={testing} onClick={testPrint}>Print test label</Button>
+            </div>
+          </div>
         </Section>
 
         <Section title="Where you print it">

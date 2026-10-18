@@ -412,6 +412,47 @@ const side = {
 
 const RENDERERS = { courier, band, boxed, minimal, hub, side };
 
+/* ── Print darkness ─────────────────────────────────────────────────
+ * Thermal heads print thin and small type faintly, so the quiet lines
+ * (address, sender, bill/date) get a heavier weight, and every glyph is
+ * thickened with a stroke in its own colour (white text in the black
+ * bands stays white). Heavy is for worn heads or pale label stock. */
+const DARKNESS_CSS = {
+  normal: '',
+  // Only the quiet lines get heavier; names and numbers keep their 800.
+  bold: `
+  .label { -webkit-text-stroke: 0.09mm currentColor; }
+  .label :is(.to-addr, .fromline, .from .clamp2, .meta div, .foot, .foot span, .via, .nb) { font-weight: 700; }
+  .label .cap { font-weight: 800; }`,
+  heavy: `
+  .label { -webkit-text-stroke: 0.16mm currentColor; }
+  .label * { font-weight: 800 !important; }`,
+};
+export const PARCEL_DARKNESS = [
+  { v: 'normal', l: 'Normal' },
+  { v: 'bold',   l: 'Bold' },
+  { v: 'heavy',  l: 'Heavy' },
+];
+
+/* ── This computer's label printer ───────────────────────────────────
+ * Kept per computer (not per shop): each counter has its own printer.
+ *   printer  — Windows printer name ('' = system default)
+ *   silent   — print straight away, no dialog (desktop app only)
+ *   darkness — normal | bold | heavy */
+const PRINTER_KEY = 'zehen_parcel_printer';
+const PRINTER_DEFAULTS = { printer: '', silent: true, darkness: 'bold' };
+export function getParcelPrinter() {
+  try {
+    const v = JSON.parse(localStorage.getItem(PRINTER_KEY) || 'null');
+    return { ...PRINTER_DEFAULTS, ...(v && typeof v === 'object' ? v : {}) };
+  } catch { return { ...PRINTER_DEFAULTS }; }
+}
+export function setParcelPrinter(patch) {
+  const next = { ...getParcelPrinter(), ...patch };
+  try { localStorage.setItem(PRINTER_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+  return next;
+}
+
 /** The designs offered in Settings and in the print dialog. */
 export const PARCEL_DESIGNS = [
   { v: 'courier', l: 'Courier',   d: 'Customer first and biggest, carton number in a black tile, your details at the bottom.' },
@@ -431,8 +472,9 @@ export const normaliseParcelDesign = (v) => (RENDERERS[v] ? v : DEFAULT_PARCEL_D
  * `design` falls back to the shop's default (company.parcel_tag_design);
  * `showFrom` to company.parcel_tag_show_from (on unless turned off).
  */
-export async function buildParcelTagHTML({ company, party, billNumber, totalParcels = 1, note = '', design, showFrom }) {
+export async function buildParcelTagHTML({ company, party, billNumber, totalParcels = 1, note = '', design, showFrom, darkness }) {
   const r = RENDERERS[normaliseParcelDesign(design || company?.parcel_tag_design)];
+  const dark = DARKNESS_CSS[darkness || getParcelPrinter().darkness] ?? DARKNESS_CSS.bold;
   const total = Math.max(1, Math.min(99, parseInt(totalParcels, 10) || 1));
   const ctx = {
     from: {
@@ -457,16 +499,34 @@ export async function buildParcelTagHTML({ company, party, billNumber, totalParc
   const labels = [];
   for (let i = 1; i <= total; i++) labels.push(r.html({ ...ctx, index: i }));
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Parcel Tag</title><style>${BASE_CSS}${r.css}</style></head><body>${labels.join('')}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Parcel Tag</title><style>${BASE_CSS}${r.css}${dark}</style></head><body>${labels.join('')}</body></html>`;
 }
 
 /**
- * Build + send the labels to the printer. Uses the print dialog (silent:false)
- * so the owner can pick the label printer and confirm the 100mm size the first
- * time. Returns true on success.
+ * Build + send the labels to this computer's label printer.
+ *
+ * Desktop app + "print without asking" (the default): straight to the
+ * chosen printer at exactly 100 × 100 mm with no margins, so the label
+ * fills the sticker instead of being shrunk onto the printer's default
+ * paper. Otherwise the normal print dialog. Throws if the printer refuses.
  */
 export async function printParcelTags(opts) {
-  const html = await buildParcelTagHTML(opts);
+  const prefs = getParcelPrinter();
+  const html = await buildParcelTagHTML({ darkness: prefs.darkness, ...opts });
+  const silent = opts?.silent ?? prefs.silent;
+  if (silent && typeof window !== 'undefined' && window.electronAPI?.printSilent) {
+    const r = await window.electronAPI.printSilent({
+      html,
+      deviceName: prefs.printer || undefined,
+      copies: 1,                       // one page per carton is already in the HTML
+      paperWidthMm: 100,
+      paperHeightMm: 100,
+      marginsMm: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    if (r?.error) throw new Error(r.error);
+    if (r?.success === false) throw new Error(r.failureReason || 'the printer did not accept the job');
+    return true;
+  }
   await printRawHTML(html, { silent: false });
   return true;
 }

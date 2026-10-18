@@ -4,7 +4,7 @@ import { PrinterOutlined, MinusOutlined, PlusOutlined, CloseCircleFilled } from 
 import { useSystemSettings } from '../hooks/useSystemSettings';
 import { getPref, setPref } from '../store/prefSync';
 import {
-  buildParcelTagHTML, printParcelTags, PARCEL_DESIGNS, normaliseParcelDesign,
+  buildParcelTagHTML, printParcelTags, PARCEL_DESIGNS, normaliseParcelDesign, getParcelPrinter,
 } from '../utils/parcelTag';
 import './parcel-tag-dialog.css';
 
@@ -283,6 +283,15 @@ export default function ParcelTagDialog({
               Print {cartons > 1 ? `${cartons} labels` : 'label'} <kbd className="ptd-kbd">F1</kbd>
             </Button>
           </div>
+          {open && (() => {
+            const pp = getParcelPrinter();
+            return (
+              <div className="ptd-printer">
+                <PrinterOutlined /> {pp.printer || 'Windows default printer'}
+                {pp.silent ? ' · prints without asking' : ' · print window opens'}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </Modal>
