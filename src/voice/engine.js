@@ -15,6 +15,8 @@
 
 const MIC_IDLE_CLOSE_MS = 60_000;   // let go of the mic (and its tray icon) after a minute unused
 const FINAL_WAIT_MS = 1500;
+// First start unpacks ~70 MB into the engine's cache; later starts are quick.
+const LOAD_TIMEOUT_MS = 120_000;
 
 export const voiceAvailable = () =>
   typeof window !== 'undefined' && !!window.electronAPI?.voice && !!navigator.mediaDevices?.getUserMedia;
@@ -46,8 +48,20 @@ export class VoiceEngine {
     }
     const mod = await import('vosk-browser');
     const Vosk = mod.createModel ? mod : mod.default;   // UMD build: named or default export
-    this.model = await Vosk.createModel(st.url);
-    this.model.setLogLevel(-2);
+    // Not Vosk.createModel: it waits for a "load" event only, so a model
+    // that fails to open left the mic spinning forever.
+    const model = new Vosk.Model(st.url, -2);
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('The speech model took too long to open')), LOAD_TIMEOUT_MS);
+        model.on('load', (m) => { clearTimeout(timer); m.result ? resolve() : reject(new Error('The speech model could not be opened')); });
+        model.on('error', (m) => { clearTimeout(timer); reject(new Error(m?.error || 'The speech model could not be opened')); });
+      });
+    } catch (e) {
+      try { model.terminate(); } catch { /* already gone */ }
+      throw e;
+    }
+    this.model = model;
     this.lang = lang;
   }
 

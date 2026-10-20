@@ -19,7 +19,7 @@ const { app, ipcMain, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
-const { zipToTarGz } = require('./voiceArchive');
+const { zipToTarGz, repairTarGz } = require('./voiceArchive');
 
 const SCHEME = 'zehen-voice';
 
@@ -46,14 +46,34 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const modelsDir = () => path.join(app.getPath('userData'), 'voice-models');
-const archivePath = (m) => path.join(modelsDir(), `${m.name}.tar.gz`);
+// "-2" = archives with folder entries. The engine caches by address, so a
+// new name also keeps it from reusing a half-saved copy of an older one.
+const archiveFile = (m) => `${m.name}-2.tar.gz`;
+const archivePath = (m) => path.join(modelsDir(), archiveFile(m));
+
+// The first build wrote archives without folder entries, which the engine
+// can't cache, so voice never finished loading. Rebuild such a file once
+// instead of downloading the model again.
+function repairOld(m) {
+  const old = path.join(modelsDir(), `${m.name}.tar.gz`);
+  if (!fs.existsSync(old) || fs.existsSync(archivePath(m))) return;
+  try {
+    const tmp = `${archivePath(m)}.part`;
+    fs.writeFileSync(tmp, repairTarGz(fs.readFileSync(old)));
+    fs.renameSync(tmp, archivePath(m));
+  } catch (e) {
+    console.warn('[voice] could not rebuild old model archive:', e.message);
+  }
+  try { fs.rmSync(old, { force: true }); } catch { /* leave it */ }
+}
 
 function status(lang) {
   const m = MODELS[lang];
   if (!m) return { ok: false, error: 'Unknown language' };
+  repairOld(m);
   let installed = false, bytes = 0;
   try { const st = fs.statSync(archivePath(m)); installed = st.size > 0; bytes = st.size; } catch { /* not yet */ }
-  return { ok: true, lang, label: m.label, sizeMB: m.sizeMB, installed, bytes, url: `${SCHEME}://models/${m.name}.tar.gz` };
+  return { ok: true, lang, label: m.label, sizeMB: m.sizeMB, installed, bytes, url: `${SCHEME}://models/${archiveFile(m)}` };
 }
 
 // ── download ────────────────────────────────────────────────────────
@@ -92,7 +112,9 @@ async function download(lang, onProgress) {
 function remove(lang) {
   const m = MODELS[lang];
   if (!m) return { ok: false, error: 'Unknown language' };
-  try { fs.rmSync(archivePath(m), { force: true }); } catch { /* already gone */ }
+  for (const f of [archivePath(m), path.join(modelsDir(), `${m.name}.tar.gz`)]) {
+    try { fs.rmSync(f, { force: true }); } catch { /* already gone */ }
+  }
   return status(lang);
 }
 
@@ -101,7 +123,7 @@ function init({ window }) {
     const cors = { 'Access-Control-Allow-Origin': '*' };
     const u = new URL(req.url);
     const file = path.basename(decodeURIComponent(u.pathname));
-    const known = Object.values(MODELS).find((m) => `${m.name}.tar.gz` === file);
+    const known = Object.values(MODELS).find((m) => archiveFile(m) === file);
     if (u.host !== 'models' || !known || !fs.existsSync(archivePath(known))) {
       return new Response('Not found', { status: 404, headers: cors });
     }

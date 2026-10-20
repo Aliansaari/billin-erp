@@ -42,21 +42,21 @@ function readZipEntries(buf) {
   return entries;
 }
 
-function tarHeader(name, size) {
+function tarHeader(name, size, type = '0') {
   const h = Buffer.alloc(512, 0);
   let prefix = '';
   if (Buffer.byteLength(name) > 100) {
-    const cut = name.lastIndexOf('/', 154);
+    const cut = name.replace(/\/$/, '').lastIndexOf('/', 154);
     prefix = name.slice(0, cut); name = name.slice(cut + 1);
   }
   h.write(name, 0, 100, 'utf8');
-  h.write('0000644\0', 100);
+  h.write(type === '5' ? '0000755\0' : '0000644\0', 100);
   h.write('0000000\0', 108);
   h.write('0000000\0', 116);
   h.write(size.toString(8).padStart(11, '0') + '\0', 124);
   h.write(Math.floor(Date.now() / 1000).toString(8).padStart(11, '0') + '\0', 136);
   h.write('        ', 148);
-  h.write('0', 156);
+  h.write(type, 156);
   h.write('ustar\0', 257);
   h.write('00', 263);
   h.write(prefix, 345, 155, 'utf8');
@@ -66,9 +66,19 @@ function tarHeader(name, size) {
   return h;
 }
 
-function zipToTarGz(zipBuf) {
+// Directory entries matter: without them the engine's extractor makes the
+// folders itself with no permissions, and saving the model into its
+// IndexedDB cache then fails ("Failed to sync file system"), so the model
+// never finishes loading.
+function entriesToTarGz(entries) {
   const parts = [];
-  for (const { name, data } of readZipEntries(zipBuf)) {
+  const dirs = new Set();
+  for (const { name } of entries) {
+    const segs = name.split('/').slice(0, -1);
+    for (let i = 1; i <= segs.length; i++) dirs.add(`${segs.slice(0, i).join('/')}/`);
+  }
+  for (const d of [...dirs].sort()) parts.push(tarHeader(d, 0, '5'));
+  for (const { name, data } of entries) {
     parts.push(tarHeader(name, data.length), data);
     const pad = (512 - (data.length % 512)) % 512;
     if (pad) parts.push(Buffer.alloc(pad, 0));
@@ -77,4 +87,28 @@ function zipToTarGz(zipBuf) {
   return zlib.gzipSync(Buffer.concat(parts), { level: 6 });
 }
 
-module.exports = { zipToTarGz, readZipEntries };
+const zipToTarGz = (zipBuf) => entriesToTarGz(readZipEntries(zipBuf));
+
+// Files in a .tar.gz this module wrote (ustar, regular files + folders).
+function readTarGzEntries(tgz) {
+  const buf = zlib.gunzipSync(tgz);
+  const entries = [];
+  for (let p = 0; p + 512 <= buf.length;) {
+    const h = buf.subarray(p, p + 512);
+    if (h.every((b) => b === 0)) break;
+    const str = (o, n) => h.toString('utf8', o, o + n).replace(/\0.*$/s, '');
+    const name = str(0, 100);
+    const prefix = str(345, 155);
+    const size = parseInt(str(124, 12).trim(), 8) || 0;
+    const type = str(156, 1) || '0';
+    p += 512;
+    if (type === '0') entries.push({ name: prefix ? `${prefix}/${name}` : name, data: Buffer.from(buf.subarray(p, p + size)) });
+    p += Math.ceil(size / 512) * 512;
+  }
+  return entries;
+}
+
+// Rebuild an archive written by the first version (no folder entries).
+const repairTarGz = (tgz) => entriesToTarGz(readTarGzEntries(tgz));
+
+module.exports = { zipToTarGz, readZipEntries, readTarGzEntries, repairTarGz };

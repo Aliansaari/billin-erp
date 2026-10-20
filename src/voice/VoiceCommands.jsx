@@ -43,6 +43,8 @@ export default function VoiceCommands() {
   const engineRef = useRef(null);
   const [state, setState] = useState('off');      // off | loading | ready | listening | working | error
   const [bubble, setBubble] = useState(null);     // { text, kind: 'heard' | 'ok' | 'warn' }
+  const [live, setLive] = useState('');           // words heard so far while the key is held
+  const [problem, setProblem] = useState(null);   // why voice isn't ready (shown on the mic)
   const bubbleTimer = useRef(null);
   const holdingRef = useRef(false);
   const holdStartRef = useRef(null);
@@ -76,11 +78,13 @@ export default function VoiceCommands() {
     engineRef.current = engine;
     setState('loading');
     engine.load(lang)
-      .then(() => { if (!cancelled) setState('ready'); })
+      .then(() => { if (!cancelled) { setState('ready'); setProblem(null); show(null); } })
       .catch((e) => {
         if (cancelled) return;
         setState('error');
-        show(e.code === 'model-missing' ? 'Voice: download the speech model in Settings → Voice Commands' : 'Voice could not start', 'warn', true);
+        setProblem(e.code === 'model-missing'
+          ? 'Download the speech model in Settings → Voice Commands'
+          : `Voice could not start: ${e.message || 'unknown error'}`);
       });
     return () => { cancelled = true; engine.unload(); engineRef.current = null; };
   }, [enabled, lang, modelRev, show]);
@@ -236,9 +240,10 @@ export default function VoiceCommands() {
     if (!engine?.model || holdingRef.current) return;
     holdingRef.current = true;
     if (wakeWord) engine.pauseAlways();
-    engine.onPartial = (p) => p && show(p, 'heard', true);
+    engine.onPartial = (p) => setLive(p || '');
+    setLive('');
+    show(null);
     setState('listening');
-    show('Listening…', 'heard', true);
     holdStartRef.current = engine.hold();
     try { await holdStartRef.current; } catch { holdingRef.current = false; setState('ready'); show('Microphone not available', 'warn'); }
   }, [show, wakeWord]);
@@ -251,6 +256,7 @@ export default function VoiceCommands() {
     try { await holdStartRef.current; } catch { return; }
     const text = await engine.release();
     engine.onPartial = null;
+    setLive('');
     setState('ready');
     await handleText(text);
     if (wakeWord) engine.listenAlways(onWakeText).catch(() => {});
@@ -279,23 +285,40 @@ export default function VoiceCommands() {
   }, [state, startHold, endHold]);
 
   if (state === 'off') return null;
-  const busy = state === 'loading' || state === 'working';
+  const listening = state === 'listening';
+  const title = state === 'error' ? `${problem || 'Voice is not ready'} (click to open settings)`
+    : state === 'loading' ? 'Getting voice ready… the first start takes up to a minute'
+      : wakeWord ? 'Hold to talk (Ctrl+Space), or say "Zehen …"' : 'Hold to talk (Ctrl+Space)';
   return (
-    <div className="zv-root" aria-live="polite">
-      {bubble && <div className={`zv-bubble zv-${bubble.kind}`}>{bubble.text}</div>}
-      <button
-        type="button"
-        className={`zv-mic${state === 'listening' ? ' is-on' : ''}${state === 'error' ? ' is-error' : ''}`}
-        title={wakeWord ? 'Hold to talk (Ctrl+Space), or say "Zehen"' : 'Hold to talk (Ctrl+Space)'}
-        aria-label="Voice command: hold to talk"
-        disabled={state === 'loading' || state === 'error'}
-        onPointerDown={(e) => { e.preventDefault(); startHold(); }}
-        onPointerUp={endHold}
-        onPointerLeave={() => { if (holdingRef.current) endHold(); }}
-      >
-        {busy ? <LoadingOutlined /> : <AudioOutlined />}
-        {wakeWord && state !== 'listening' && <span className="zv-wake-dot" />}
-      </button>
-    </div>
+    <>
+      {listening && (
+        <div className="zv-listen" aria-live="polite">
+          <span className="zv-bars" aria-hidden="true"><i /><i /><i /><i /></span>
+          <span className="zv-live">{live || 'Listening…'}</span>
+          <span className="zv-hint">Let go to run</span>
+        </div>
+      )}
+      <div className="zv-dock" aria-live="polite">
+        {bubble && <div className={`zv-bubble zv-${bubble.kind}`}>{bubble.text}</div>}
+        <button
+          type="button"
+          className={`zv-mic is-${state}`}
+          title={title}
+          aria-label={title}
+          onPointerDown={(e) => {
+            if (state === 'error') return;
+            e.preventDefault();
+            startHold();
+          }}
+          onPointerUp={endHold}
+          onPointerLeave={() => { if (holdingRef.current) endHold(); }}
+          onClick={() => { if (state === 'error') navigate('/settings/voice'); }}
+        >
+          {state === 'loading' || state === 'working' ? <LoadingOutlined /> : <AudioOutlined />}
+          {state === 'error' && <span className="zv-badge zv-badge-warn" />}
+          {state !== 'error' && wakeWord && !listening && <span className="zv-badge" />}
+        </button>
+      </div>
+    </>
   );
 }
