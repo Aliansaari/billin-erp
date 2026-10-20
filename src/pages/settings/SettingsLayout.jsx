@@ -10,7 +10,7 @@ import {
   GlobalOutlined, FieldTimeOutlined, CloudDownloadOutlined,
   ShoppingCartOutlined, ShoppingOutlined,
   BarcodeOutlined, CloseCircleFilled, GiftOutlined, ShopOutlined, ApartmentOutlined,
-  UserSwitchOutlined, CrownOutlined, LineChartOutlined, BookOutlined,
+  UserSwitchOutlined, CrownOutlined, LineChartOutlined, BookOutlined, AudioOutlined,
 } from '@ant-design/icons';
 import useDevModeStore from '../../store/devModeStore';
 import { hasPermission } from '../../utils/perms';
@@ -147,6 +147,8 @@ export const SETTINGS_GROUPS = [
         find: ['Home page', 'Shortcuts', 'Tiles'] },
       { path: 'dashboard',       icon: <LineChartOutlined />,     tint: 'blue', label: 'Dashboard',       perm: null,
         find: ['Dashboard tiles', 'Charts'] },
+      { path: 'voice',           icon: <AudioOutlined />,         tint: 'accent', label: 'Voice Commands',  perm: null,
+        find: ['Voice', 'Microphone', 'Speak', 'Hindi', 'Zehen', 'Ctrl+Space'] },
       { path: 'software-update', icon: <CloudDownloadOutlined />, tint: 'accent', label: 'Software Update', perm: 'settings.manage_company', localOnly: true,
         find: ['Update', 'Version', 'Automatic updates', 'Release notes'] },
       { path: 'license',         icon: <KeyOutlined />,           tint: 'amber', label: 'License',         perm: null, localOnly: true,

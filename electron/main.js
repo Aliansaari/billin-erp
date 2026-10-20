@@ -6,6 +6,9 @@ const os = require('os');
 const { startEmbeddedPostgres, stopEmbeddedPostgres } = require('./embeddedPostgres');
 const updater = require('./updater');
 const updateGuard = require('./updateGuard');
+// Voice commands: registers the zehen-voice:// scheme, which must happen
+// before app 'ready'. Downloads nothing until the owner turns voice on.
+const voice = require('./voice');
 
 // Set when an update is about to install: the window must close without the
 // exit-confirm round trip, or the installer's quit would be cancelled.
@@ -902,6 +905,8 @@ app.whenReady().then(async () => {
 
   // Software updates (electron/updater.js). Checks quietly in the
   // background; installs only at close or when the owner asks.
+  voice.init({ window: () => mainWindow });
+
   updater.init({
     window: () => mainWindow,
     clientMode: CLIENT_MODE,

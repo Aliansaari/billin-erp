@@ -1,0 +1,16 @@
+/* Voice commands (VoiceCommands.jsx): a small mic in the lower-left
+   corner, above the F-key action strip, and a one-line bubble beside it. */
+.zv-root { position: fixed; left: 16px; bottom: 64px; z-index: 1100; display: flex; align-items: center; gap: 10px; pointer-events: none; }
+.zv-mic { pointer-events: auto; position: relative; width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--bg-panel); color: var(--fg-secondary);
+  display: grid; place-items: center; font-size: 19px; cursor: pointer; touch-action: none;
+  box-shadow: 0 8px 22px -10px rgba(29,26,21,.45); transition: background .12s, color .12s, transform .12s; }
+.zv-mic:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.zv-mic.is-on { background: var(--accent); border-color: var(--accent); color: #FDFAF2; transform: scale(1.08); }
+.zv-mic.is-error, .zv-mic:disabled { opacity: .55; cursor: default; }
+.zv-wake-dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+.zv-bubble { pointer-events: auto; order: 2; max-width: min(520px, 70vw); padding: 8px 14px; border-radius: 12px;
+  font-size: 13px; line-height: 1.35; background: var(--bg-panel); color: var(--fg-primary);
+  border: 1px solid var(--border); box-shadow: 0 8px 22px -12px rgba(29,26,21,.4); }
+.zv-bubble.zv-heard { color: var(--fg-secondary); font-style: italic; }
+.zv-bubble.zv-warn { border-color: var(--warning); background: var(--warning-bg); }

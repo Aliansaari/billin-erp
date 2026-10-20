@@ -52,6 +52,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // screen, where a plain page reload can't re-attempt the database.
   restartApp: () => ipcRenderer.send('zehen:restart-app'),
 
+  // Voice commands (electron/voice.js): the free offline speech model,
+  // downloaded only when the owner turns voice on.
+  voice: {
+    modelStatus:   (lang) => ipcRenderer.invoke('voice:model-status', lang),
+    downloadModel: (lang) => ipcRenderer.invoke('voice:model-download', lang),
+    removeModel:   (lang) => ipcRenderer.invoke('voice:model-remove', lang),
+    onProgress: (cb) => {
+      const handler = (_e, p) => cb(p);
+      ipcRenderer.on('voice:model-progress', handler);
+      return () => ipcRenderer.removeListener('voice:model-progress', handler);
+    },
+  },
+
   // Software updates (electron/updater.js). Present only in the desktop
   // app; the Settings page checks for it and explains otherwise.
   updates: {

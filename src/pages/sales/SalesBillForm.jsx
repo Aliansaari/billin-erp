@@ -21,6 +21,8 @@ import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import confirmPrint, { confirmPrintWithSend } from '../../utils/confirmPrint';
 import ParcelTagDialog from '../../components/ParcelTagDialog';
 import './sales-bill-form.css';
+import { registerVoiceTarget } from '../../voice/bus';
+import { findBest } from '../../voice/match';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 import { getPref, setPref, clearPref } from '../../store/prefSync';
 
@@ -2428,6 +2430,76 @@ export default function SalesBillForm() {
     inst.focus?.();
     setTimeout(() => inst.select?.(), 0);
   }, []);
+
+  // ── Voice commands (src/voice) ──────────────────────────────────────
+  // "create sales bill for Ali", "make it 10", "add frock 20 into 20",
+  // "add barcode 8901…". The voice layer resolves names; these handlers
+  // only touch this bill, the same way the keyboard would. Read through
+  // a ref so the registration below stays put across renders.
+  const voiceRef = useRef(null);
+  voiceRef.current = {
+    setCustomer: (party) => {
+      if (!party?.party_id) return { ok: false };
+      setParties(prev => (prev.some(p => p.party_id === party.party_id) ? prev : [party, ...prev]));
+      form.setFieldValue('customer_id', party.party_id);
+      setTimeout(focusBarcode, 60);
+      return { ok: true, name: party.party_name };
+    },
+    focusScan: () => { focusBarcode(); return { ok: true }; },
+    setQty: (qty) => {
+      const last = items[items.length - 1];
+      if (!last) return { ok: false, error: 'No item on the bill yet' };
+      voiceRef.current.qtyOnLastLine(qty);
+      return { ok: true, name: last.product_name };
+    },
+    // Works on the newest list, so it is safe right after a scan lands.
+    qtyOnLastLine: (qty) => setItems(prev => {
+      if (!prev.length) return prev;
+      const next = prev.slice();
+      const u = { ...next[next.length - 1], quantity: qty };
+      const lt = (u.quantity || 0) * (u.rate || 0);
+      u.discount_amount = +(lt * (u.discount_percentage || 0) / 100).toFixed(2);
+      u.total_amount = +(lt - u.discount_amount).toFixed(2);
+      next[next.length - 1] = u;
+      return next;
+    }),
+    addBarcode: async (code) => {
+      handleScan(code);
+      await scanQueueRef.current;
+      focusBarcode();
+      return { ok: true, name: barcodeIndexRef.current?.get(code)?.product_name };
+    },
+    addProduct: async ({ query, qty }) => {
+      const label = (p) => [p.product_name, p.size_value, p.article_number, p.Category?.category_name || p.category_name].filter(Boolean).join(' ');
+      let pick = findBest(query, Array.from(barcodeIndexRef.current?.values() || []), label);
+      if (!pick.best) {
+        // Not in the scan index (no barcode, or a new product): ask the
+        // server with the first spoken word, then rank the same way.
+        try {
+          const { data } = await productAPI.search(query.split(' ')[0], { limit: 100 });
+          pick = findBest(query, data?.data || [], label);
+        } catch { /* fall through to the dropdown */ }
+      }
+      if (!pick.best || pick.ambiguous || !pick.best.barcode) {
+        // Let the operator choose: open the product box with what was said.
+        setProdOpen(true);
+        handleProdSearch(query);
+        setTimeout(() => prodRef.current?.focus?.(), 60);
+        return { ok: false, choices: pick.matches.slice(0, 3).map(m => label(m.item)) };
+      }
+      handleScan(String(pick.best.barcode));
+      await scanQueueRef.current;
+      if (qty) voiceRef.current.qtyOnLastLine(qty);
+      return { ok: true, name: label(pick.best) };
+    },
+  };
+  useEffect(() => registerVoiceTarget('sale-form', {
+    setCustomer: (p) => voiceRef.current.setCustomer(p),
+    focusScan:   () => voiceRef.current.focusScan(),
+    setQty:      (q) => voiceRef.current.setQty(q),
+    addBarcode:  (c) => voiceRef.current.addBarcode(c),
+    addProduct:  (a) => voiceRef.current.addProduct(a),
+  }), []);
 
   /* ─── Table columns ─────────────────────────────────────────────────────── */
   /* Excel-style cells: inputs fill the whole cell (no floating pill).

@@ -8,6 +8,7 @@ import TopNav from './TopNav';
 import PastFYBanner from '../PastFYBanner';
 import RemoteShopBanner from '../RemoteShopBanner';
 import UpdateNotifier from '../UpdateNotifier';
+import VoiceCommands from '../../voice/VoiceCommands';
 
 const { Content } = Layout;
 
@@ -342,6 +343,7 @@ export default function AppLayout() {
         <PastFYBanner />
         <RemoteShopBanner />
         <UpdateNotifier />
+        <VoiceCommands />
         <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Content style={{
             margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
@@ -412,6 +414,7 @@ export default function AppLayout() {
         <PastFYBanner />
         <RemoteShopBanner />
         <UpdateNotifier />
+        <VoiceCommands />
         <Content style={{
           margin:        isFullPage ? 0 : 'clamp(6px, 2vw, 20px)',
           padding:       isFullPage ? 0 : 'clamp(10px, 2vw, 24px)',

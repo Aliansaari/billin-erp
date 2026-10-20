@@ -26,6 +26,8 @@ export const SHORTCUTS_LIST = [
   { category: 'Global',     keys: 'Escape',               description: 'Close modal · cancel · clear search · else step back toward Home' },
   { category: 'Global',     keys: 'F5',                   description: 'Refresh the current page / list' },
   { category: 'Global',     keys: 'F9',                   description: 'Open company switcher' },
+  { category: 'Global',     keys: 'Hold Ctrl + Space',    description: 'Voice command — speak, then let go',
+    note: 'Turn on in Settings → Voice Commands' },
 
   // ── Top-level navigation (Alt + letter → menu popup) ───────────────────
   { category: 'Navigation', keys: 'Alt + H',              description: 'Home' },
