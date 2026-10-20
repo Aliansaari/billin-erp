@@ -81,7 +81,6 @@
     "electron-builder": "^25.1.8",
     "javascript-obfuscator": "^5.4.2",
     "vite": "^5.1.0",
-    "vosk-browser": "0.0.8",
     "wait-on": "^7.2.0",
     "xlsx": "^0.18.5"
   },

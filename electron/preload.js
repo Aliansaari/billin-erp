@@ -52,12 +52,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // screen, where a plain page reload can't re-attempt the database.
   restartApp: () => ipcRenderer.send('zehen:restart-app'),
 
-  // Voice commands (electron/voice.js): the free offline speech model,
+  // Voice commands (electron/voice.js): the free offline Whisper engine,
   // downloaded only when the owner turns voice on.
   voice: {
-    modelStatus:   (lang) => ipcRenderer.invoke('voice:model-status', lang),
-    downloadModel: (lang) => ipcRenderer.invoke('voice:model-download', lang),
-    removeModel:   (lang) => ipcRenderer.invoke('voice:model-remove', lang),
+    modelStatus:   (model) => ipcRenderer.invoke('voice:model-status', model),
+    downloadModel: (model) => ipcRenderer.invoke('voice:model-download', model),
+    removeModel:   (model) => ipcRenderer.invoke('voice:model-remove', model),
+    warm:          (opts) => ipcRenderer.invoke('voice:warm', opts),
+    transcribe:    (req) => ipcRenderer.invoke('voice:transcribe', req),
     onProgress: (cb) => {
       const handler = (_e, p) => cb(p);
       ipcRenderer.on('voice:model-progress', handler);

@@ -1,7 +1,7 @@
 /* Voice commands (VoiceCommands.jsx).
    The mic sits in the lower-right corner above the F-key action strip,
    clear of the sidebar's own buttons; results show in a bubble to its
-   left. While the key is held, a "Listening" bar shows the words heard. */
+   left. While the key is held, a "Listening" bar shows the mic level. */
 .zv-dock { position: fixed; right: 20px; bottom: 76px; z-index: 1100; display: flex; align-items: center; gap: 10px;
   flex-direction: row-reverse; pointer-events: none; }
 .zv-mic { pointer-events: auto; position: relative; width: 42px; height: 42px; border-radius: 50%;
@@ -30,12 +30,13 @@
 .zv-live { flex: 1; min-width: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .zv-hint { font-size: 11.5px; color: var(--fg-tertiary); white-space: nowrap; }
 .zv-bars { display: inline-flex; align-items: center; gap: 3px; height: 18px; }
-.zv-bars i { width: 3px; height: 100%; border-radius: 2px; background: var(--accent); animation: zv-bar .9s ease-in-out infinite; }
-.zv-bars i:nth-child(2) { animation-delay: .15s; }
-.zv-bars i:nth-child(3) { animation-delay: .3s; }
-.zv-bars i:nth-child(4) { animation-delay: .45s; }
+/* Bars follow the microphone level (--lvl, 0…1) so you can see you're heard. */
+.zv-bars i { width: 3px; height: 100%; border-radius: 2px; background: var(--accent);
+  transform: scaleY(calc(.2 + var(--lvl, 0) * .8)); transition: transform .08s linear; }
+.zv-bars i:nth-child(2) { transform: scaleY(calc(.2 + var(--lvl, 0) * 1.1)); }
+.zv-bars i:nth-child(3) { transform: scaleY(calc(.2 + var(--lvl, 0) * .95)); }
+.zv-bars i:nth-child(4) { transform: scaleY(calc(.2 + var(--lvl, 0) * .6)); }
 
-@keyframes zv-bar { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
 @keyframes zv-pulse { 0%, 100% { box-shadow: 0 0 0 4px var(--accent-bg), 0 6px 18px -8px rgba(0,0,0,.45); }
   50% { box-shadow: 0 0 0 9px var(--accent-bg), 0 6px 18px -8px rgba(0,0,0,.45); } }
 @keyframes zv-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }

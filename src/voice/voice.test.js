@@ -89,3 +89,11 @@ test('fuzzy party and product matching', () => {
   assert.equal(findBest('frok 20 x 30', products, (p) => p.n).best.n, 'FROCK 20*30');
   assert.equal(findBest('phrok 20 x 20', products, (p) => p.n).best.n, 'FROCK 20*20');
 });
+
+test('Whisper-style punctuation', () => {
+  assert.equal(parseCommand("Show me Ali's ledger.").party, 'ali');
+  assert.equal(parseCommand('Open bill 1,452.').billNo, '1452');
+  assert.equal(parseCommand('Zehen, make it 10.').qty, 10);
+  assert.equal(parseCommand('अली का लेजर दिखाओ।').intent, 'show_ledger');
+  assert.equal(parseCommand('Add barcode 8901234567.').code, '8901234567');
+});

@@ -6,8 +6,8 @@ const os = require('os');
 const { startEmbeddedPostgres, stopEmbeddedPostgres } = require('./embeddedPostgres');
 const updater = require('./updater');
 const updateGuard = require('./updateGuard');
-// Voice commands: registers the zehen-voice:// scheme, which must happen
-// before app 'ready'. Downloads nothing until the owner turns voice on.
+// Voice commands (offline Whisper). Downloads and runs nothing until the
+// owner turns voice on and speaks.
 const voice = require('./voice');
 
 // Set when an update is about to install: the window must close without the

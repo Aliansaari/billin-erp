@@ -15,7 +15,7 @@ import './voice.css';
  * owner turned voice on in Settings → Voice Commands on this computer.
  *
  *   Hold Ctrl+Space (or hold the mic button) and speak; let go to run it.
- *   With the wake word on, "Zehen, …" works without touching anything.
+ *   Whisper turns the speech into text on this PC (electron/voice.js).
  *
  * Every command does what the keyboard would: open a screen, pick the
  * customer, add a line. Nothing is saved, printed or deleted by voice.
@@ -23,7 +23,6 @@ import './voice.css';
 
 const PARTY_CACHE_MS = 5 * 60_000;
 const SHOW_MS = 2600;
-const WAKE_FOLLOW_MS = 6000;   // "Zehen" … pause … "open stock report"
 
 function speak(text, on) {
   if (!on || !text || typeof window === 'undefined' || !window.speechSynthesis) return;
@@ -37,18 +36,17 @@ function speak(text, on) {
 }
 
 export default function VoiceCommands() {
-  const { enabled, lang, wakeWord, speakBack, modelRev } = useVoiceSettings();
+  const { enabled, lang, model, speakBack, modelRev } = useVoiceSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const engineRef = useRef(null);
   const [state, setState] = useState('off');      // off | loading | ready | listening | working | error
   const [bubble, setBubble] = useState(null);     // { text, kind: 'heard' | 'ok' | 'warn' }
-  const [live, setLive] = useState('');           // words heard so far while the key is held
+  const [level, setLevel] = useState(0);          // microphone loudness while the key is held
   const [problem, setProblem] = useState(null);   // why voice isn't ready (shown on the mic)
   const bubbleTimer = useRef(null);
   const holdingRef = useRef(false);
   const holdStartRef = useRef(null);
-  const wakeUntilRef = useRef(0);
   const partiesRef = useRef({ at: 0, list: [] });
   const lastBillRef = useRef(null);
   const settingsRef = useRef({ speakBack });
@@ -77,7 +75,7 @@ export default function VoiceCommands() {
     const engine = new VoiceEngine();
     engineRef.current = engine;
     setState('loading');
-    engine.load(lang)
+    engine.load(lang, model)
       .then(() => { if (!cancelled) { setState('ready'); setProblem(null); show(null); } })
       .catch((e) => {
         if (cancelled) return;
@@ -87,7 +85,7 @@ export default function VoiceCommands() {
           : `Voice could not start: ${e.message || 'unknown error'}`);
       });
     return () => { cancelled = true; engine.unload(); engineRef.current = null; };
-  }, [enabled, lang, modelRev, show]);
+  }, [enabled, lang, model, modelRev, show]);
 
   // ── names ─────────────────────────────────────────────────────────
   const loadParties = useCallback(async () => {
@@ -198,55 +196,33 @@ export default function VoiceCommands() {
         tell(`Didn't understand "${cmd.query}"`, 'warn');
         return;
       }
-      case 'wake':
-        wakeUntilRef.current = Date.now() + WAKE_FOLLOW_MS;
-        show('Listening…', 'heard', true);
-        return;
       default:
         show(null);
     }
   }, [findParty, navigate, show, tell]);
 
-  const handleText = useCallback(async (text, { wakeOnly = false } = {}) => {
-    if (!text) { show(null); return; }
-    // After a bare "Zehen", the next sentence needs no wake word.
-    const following = Date.now() < wakeUntilRef.current;
-    const cmd = parseCommand(text, { requireWake: wakeOnly && !following });
-    if (cmd.intent === 'none') { if (!wakeOnly) show(`Didn't catch that`, 'warn'); return; }
-    if (cmd.intent !== 'wake') wakeUntilRef.current = 0;
+  const handleText = useCallback(async (text) => {
+    if (!text) { show(`Didn't hear anything`, 'warn'); return; }
+    const cmd = parseCommand(text);
+    if (cmd.intent === 'none' || cmd.intent === 'wake') { show(`Heard "${text}", but that isn't a command`, 'warn'); return; }
     show(text, 'heard', true);
     setState('working');
     try { await run(cmd); } catch { tell('Something went wrong', 'warn'); }
     setState('ready');
   }, [run, show, tell]);
 
-  // ── wake word ─────────────────────────────────────────────────────
-  // Through a ref: handleText changes with every navigation, and the
-  // microphone should not be re-opened each time.
-  const handleTextRef = useRef(handleText);
-  handleTextRef.current = handleText;
-  const onWakeText = useCallback((t) => handleTextRef.current(t, { wakeOnly: true }), []);
-  const engineReady = state === 'ready' || state === 'working' || state === 'listening';
-  useEffect(() => {
-    const engine = engineRef.current;
-    if (!engineReady || !engine || !wakeWord) return undefined;
-    engine.listenAlways(onWakeText).catch(() => show('Microphone not available', 'warn'));
-    return () => engine.stopAlways();
-  }, [wakeWord, engineReady, onWakeText, show]);
-
   // ── push-to-talk ──────────────────────────────────────────────────
   const startHold = useCallback(async () => {
     const engine = engineRef.current;
     if (!engine?.model || holdingRef.current) return;
     holdingRef.current = true;
-    if (wakeWord) engine.pauseAlways();
-    engine.onPartial = (p) => setLive(p || '');
-    setLive('');
+    engine.onLevel = (l) => setLevel(l);
+    setLevel(0);
     show(null);
     setState('listening');
     holdStartRef.current = engine.hold();
     try { await holdStartRef.current; } catch { holdingRef.current = false; setState('ready'); show('Microphone not available', 'warn'); }
-  }, [show, wakeWord]);
+  }, [show]);
 
   const endHold = useCallback(async () => {
     const engine = engineRef.current;
@@ -254,13 +230,20 @@ export default function VoiceCommands() {
     holdingRef.current = false;
     // A quick tap can let go before the microphone has even opened.
     try { await holdStartRef.current; } catch { return; }
-    const text = await engine.release();
-    engine.onPartial = null;
-    setLive('');
+    engine.onLevel = null;
+    setState('working');
+    show('Understanding…', 'heard', true);
+    let text;
+    try {
+      text = await engine.release();
+    } catch (e) {
+      setState('ready');
+      show(e.code === 'model-missing' ? 'Download the speech model in Settings → Voice Commands' : `Voice could not run: ${e.message}`, 'warn');
+      return;
+    }
     setState('ready');
     await handleText(text);
-    if (wakeWord) engine.listenAlways(onWakeText).catch(() => {});
-  }, [handleText, wakeWord, onWakeText]);
+  }, [handleText, show]);
 
   useEffect(() => {
     if (state === 'off' || state === 'error') return undefined;
@@ -287,14 +270,14 @@ export default function VoiceCommands() {
   if (state === 'off') return null;
   const listening = state === 'listening';
   const title = state === 'error' ? `${problem || 'Voice is not ready'} (click to open settings)`
-    : state === 'loading' ? 'Getting voice ready… the first start takes up to a minute'
-      : wakeWord ? 'Hold to talk (Ctrl+Space), or say "Zehen …"' : 'Hold to talk (Ctrl+Space)';
+    : state === 'loading' ? 'Getting voice ready…'
+      : 'Hold to talk (Ctrl+Space)';
   return (
     <>
       {listening && (
         <div className="zv-listen" aria-live="polite">
-          <span className="zv-bars" aria-hidden="true"><i /><i /><i /><i /></span>
-          <span className="zv-live">{live || 'Listening…'}</span>
+          <span className="zv-bars" aria-hidden="true" style={{ '--lvl': level.toFixed(2) }}><i /><i /><i /><i /></span>
+          <span className="zv-live">Listening… speak now</span>
           <span className="zv-hint">Let go to run</span>
         </div>
       )}
@@ -316,7 +299,6 @@ export default function VoiceCommands() {
         >
           {state === 'loading' || state === 'working' ? <LoadingOutlined /> : <AudioOutlined />}
           {state === 'error' && <span className="zv-badge zv-badge-warn" />}
-          {state !== 'error' && wakeWord && !listening && <span className="zv-badge" />}
         </button>
       </div>
     </>

@@ -1,145 +1,260 @@
-// Voice commands — speech model download + serving (main process).
+// Voice commands — the speech engine (main process).
 //
-// The speech engine itself (Vosk, compiled to WebAssembly) runs in a Web
-// Worker in the renderer; see src/voice/engine.js. Main only does what a
-// renderer can't:
+// Speech is turned into text by Whisper (whisper.cpp, MIT), running on
+// this PC, offline and free. Main does three things:
 //
-//   1. Download the free offline model from alphacephei.com the first
-//      time the owner turns voice on (a ~40 MB zip, never part of the
-//      installer or auto-updates).
-//   2. Repack it as the .tar.gz the WebAssembly engine reads.
-//   3. Serve it at a fixed address, zehen-voice://models/<file>, so the
-//      engine's own IndexedDB cache recognises it on the next start and
-//      skips re-reading the archive.
+//   1. Download, the first time the owner asks: the whisper.cpp program
+//      for Windows (~9 MB, from its GitHub releases) and one Whisper model
+//      (from Hugging Face). Neither is part of the installer or updates.
+//   2. Start whisper-server on 127.0.0.1 only when someone starts speaking,
+//      and stop it again after a few idle minutes, so nothing runs or
+//      holds memory while voice isn't used.
+//   3. Take the recorded WAV from the renderer and return the text.
 //
-// Models live in <userData>/voice-models. Nothing here runs unless the
-// renderer asks.
+// Files live in <userData>/voice-engine and <userData>/voice-models.
 
-const { app, ipcMain, protocol, net } = require('electron');
+const { app, ipcMain, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { pathToFileURL } = require('url');
-const { zipToTarGz, repairTarGz } = require('./voiceArchive');
+const os = require('os');
+const { spawn } = require('child_process');
+const { readZipEntries } = require('./voiceArchive');
 
-const SCHEME = 'zehen-voice';
-
-// Small Vosk models (Apache 2.0). Small models also let the engine take a
-// word list at runtime, which the big ones do not.
-const MODELS = {
-  hi: {
-    name: 'vosk-model-small-hi-0.22',
-    url: 'https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip',
-    label: 'Hindi + Hinglish',
-    sizeMB: 42,
-  },
-  'en-in': {
-    name: 'vosk-model-small-en-in-0.4',
-    url: 'https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip',
-    label: 'Indian English',
-    sizeMB: 36,
-  },
+// Pinned whisper.cpp build. CPU only: it picks the fastest code path the
+// processor supports (AVX2, AVX…) on its own.
+const ENGINE = {
+  tag: 'b5454',
+  url: 'https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip',
+  sizeMB: 9,
 };
 
-// Must run before app 'ready' — main.js requires this module at the top.
-protocol.registerSchemesAsPrivileged([
-  { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
-]);
+const HF = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
+const MODELS = {
+  small: { file: 'ggml-small-q5_1.bin', url: `${HF}/ggml-small-q5_1.bin`, label: 'Whisper Small', sizeMB: 182 },
+  turbo: { file: 'ggml-large-v3-turbo-q5_0.bin', url: `${HF}/ggml-large-v3-turbo-q5_0.bin`, label: 'Whisper Large Turbo', sizeMB: 547 },
+};
 
+const IDLE_STOP_MS = 5 * 60_000;
+const START_TIMEOUT_MS = 90_000;
+const TRANSCRIBE_TIMEOUT_MS = 60_000;
+
+const engineDir = () => path.join(app.getPath('userData'), 'voice-engine', ENGINE.tag);
 const modelsDir = () => path.join(app.getPath('userData'), 'voice-models');
-// "-2" = archives with folder entries. The engine caches by address, so a
-// new name also keeps it from reusing a half-saved copy of an older one.
-const archiveFile = (m) => `${m.name}-2.tar.gz`;
-const archivePath = (m) => path.join(modelsDir(), archiveFile(m));
+const modelPath = (m) => path.join(modelsDir(), m.file);
 
-// The first build wrote archives without folder entries, which the engine
-// can't cache, so voice never finished loading. Rebuild such a file once
-// instead of downloading the model again.
-function repairOld(m) {
-  const old = path.join(modelsDir(), `${m.name}.tar.gz`);
-  if (!fs.existsSync(old) || fs.existsSync(archivePath(m))) return;
-  try {
-    const tmp = `${archivePath(m)}.part`;
-    fs.writeFileSync(tmp, repairTarGz(fs.readFileSync(old)));
-    fs.renameSync(tmp, archivePath(m));
-  } catch (e) {
-    console.warn('[voice] could not rebuild old model archive:', e.message);
+function findFile(dir, name) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return null; }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isFile() && e.name.toLowerCase() === name) return p;
+    if (e.isDirectory()) { const hit = findFile(p, name); if (hit) return hit; }
   }
-  try { fs.rmSync(old, { force: true }); } catch { /* leave it */ }
+  return null;
+}
+const serverExe = () => findFile(engineDir(), 'whisper-server.exe');
+
+// The first voice build used Vosk models; they are no longer read.
+function dropVoskModels() {
+  try {
+    for (const f of fs.readdirSync(modelsDir())) {
+      if (f.startsWith('vosk-model-')) fs.rmSync(path.join(modelsDir(), f), { force: true, recursive: true });
+    }
+  } catch { /* no folder yet */ }
 }
 
-function status(lang) {
-  const m = MODELS[lang];
-  if (!m) return { ok: false, error: 'Unknown language' };
-  repairOld(m);
-  let installed = false, bytes = 0;
-  try { const st = fs.statSync(archivePath(m)); installed = st.size > 0; bytes = st.size; } catch { /* not yet */ }
-  return { ok: true, lang, label: m.label, sizeMB: m.sizeMB, installed, bytes, url: `${SCHEME}://models/${archiveFile(m)}` };
+function status(key) {
+  const m = MODELS[key];
+  if (!m) return { ok: false, error: 'Unknown speech model' };
+  dropVoskModels();
+  let bytes = 0;
+  try { bytes = fs.statSync(modelPath(m)).size; } catch { /* not yet */ }
+  const engine = !!serverExe();
+  const model = bytes > 1048576;
+  return { ok: true, model: key, label: m.label, sizeMB: m.sizeMB + (engine ? 0 : ENGINE.sizeMB), engine, installed: engine && model, bytes };
 }
 
 // ── download ────────────────────────────────────────────────────────
-const inFlight = new Map();
-
-async function download(lang, onProgress) {
-  const m = MODELS[lang];
-  if (!m) throw new Error('Unknown language');
-  if (inFlight.has(lang)) return inFlight.get(lang);
-  const job = (async () => {
-    fs.mkdirSync(modelsDir(), { recursive: true });
-    const res = await net.fetch(m.url);
-    if (!res.ok) throw new Error(`Download failed (HTTP ${res.status})`);
-    const total = Number(res.headers.get('content-length')) || m.sizeMB * 1048576;
-    const reader = res.body.getReader();
-    const chunks = [];
-    let got = 0, lastSent = 0;
+// Streams to "<file>.part" and renames at the end, so a cut connection
+// never leaves a file that looks complete.
+async function fetchTo(url, dest, onBytes) {
+  const res = await net.fetch(url);
+  if (!res.ok) throw new Error(`Download failed (HTTP ${res.status})`);
+  const total = Number(res.headers.get('content-length')) || 0;
+  const tmp = `${dest}.part`;
+  const out = fs.createWriteStream(tmp);
+  const reader = res.body.getReader();
+  let got = 0;
+  try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      chunks.push(Buffer.from(value));
+      if (!out.write(Buffer.from(value))) await new Promise((r) => out.once('drain', r));
       got += value.length;
-      if (got - lastSent > 512 * 1024) { lastSent = got; onProgress({ lang, received: got, total }); }
+      onBytes(got, total);
     }
-    onProgress({ lang, received: got, total, converting: true });
-    const tgz = zipToTarGz(Buffer.concat(chunks));
-    const tmp = `${archivePath(m)}.part`;
-    fs.writeFileSync(tmp, tgz);
-    fs.renameSync(tmp, archivePath(m));
-    return status(lang);
-  })();
-  inFlight.set(lang, job);
-  try { return await job; } finally { inFlight.delete(lang); }
+    await new Promise((resolve, reject) => out.end((e) => (e ? reject(e) : resolve())));
+  } catch (e) {
+    out.destroy();
+    try { fs.rmSync(tmp, { force: true }); } catch { /* ignore */ }
+    throw e;
+  }
+  if (total && got !== total) { fs.rmSync(tmp, { force: true }); throw new Error('Download was cut off'); }
+  fs.renameSync(tmp, dest);
 }
 
-function remove(lang) {
-  const m = MODELS[lang];
-  if (!m) return { ok: false, error: 'Unknown language' };
-  for (const f of [archivePath(m), path.join(modelsDir(), `${m.name}.tar.gz`)]) {
-    try { fs.rmSync(f, { force: true }); } catch { /* already gone */ }
+const inFlight = new Map();
+
+async function download(key, onProgress) {
+  const m = MODELS[key];
+  if (!m) throw new Error('Unknown speech model');
+  if (inFlight.has(key)) return inFlight.get(key);
+  const job = (async () => {
+    const engineBytes = serverExe() ? 0 : ENGINE.sizeMB * 1048576;
+    const modelBytes = fs.existsSync(modelPath(m)) ? 0 : m.sizeMB * 1048576;
+    const total = engineBytes + modelBytes || 1;
+    let lastSent = 0;
+    const report = (received) => {
+      if (received - lastSent < 512 * 1024 && received < total) return;
+      lastSent = received;
+      onProgress({ model: key, received, total });
+    };
+    if (engineBytes) {
+      const dir = engineDir();
+      fs.mkdirSync(dir, { recursive: true });
+      const zip = path.join(dir, 'whisper-bin-x64.zip');
+      await fetchTo(ENGINE.url, zip, (got) => report(Math.min(got, engineBytes)));
+      for (const { name, data } of readZipEntries(fs.readFileSync(zip))) {
+        const dest = path.join(dir, name);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, data);
+      }
+      fs.rmSync(zip, { force: true });
+      if (!serverExe()) throw new Error('The speech engine download did not contain whisper-server.exe');
+    }
+    if (modelBytes) {
+      fs.mkdirSync(modelsDir(), { recursive: true });
+      await fetchTo(m.url, modelPath(m), (got) => report(engineBytes + Math.min(got, modelBytes)));
+    }
+    return status(key);
+  })();
+  inFlight.set(key, job);
+  try { return await job; } finally { inFlight.delete(key); }
+}
+
+function remove(key) {
+  const m = MODELS[key];
+  if (!m) return { ok: false, error: 'Unknown speech model' };
+  if (server?.key === key) stopServer();
+  try { fs.rmSync(modelPath(m), { force: true }); } catch { /* already gone */ }
+  return status(key);
+}
+
+// ── whisper-server ──────────────────────────────────────────────────
+let server = null;     // { key, lang, port, proc, ready: Promise, log: string[] }
+let idleTimer = null;
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const s = require('net').createServer();
+    s.unref();
+    s.on('error', reject);
+    s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
+  });
+}
+
+function stopServer() {
+  clearTimeout(idleTimer);
+  const s = server;
+  server = null;
+  if (s?.proc && s.proc.exitCode == null) { try { s.proc.kill(); } catch { /* already gone */ } }
+}
+
+function touch() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(stopServer, IDLE_STOP_MS);
+}
+
+async function waitReady(s) {
+  const until = Date.now() + START_TIMEOUT_MS;
+  while (Date.now() < until) {
+    if (s.failed) throw new Error(`The speech engine could not start: ${s.failed.message}`);
+    if (s.proc.exitCode != null) throw new Error(`The speech engine stopped: ${s.log.slice(-3).join(' ').trim() || `exit ${s.proc.exitCode}`}`);
+    try {
+      const r = await fetch(`http://127.0.0.1:${s.port}/health`);
+      // 503 while the model loads; older builds have no /health at all.
+      if (r.ok || r.status === 404) return;
+    } catch { /* not listening yet */ }
+    await new Promise((r) => setTimeout(r, 150));
   }
-  return status(lang);
+  throw new Error('The speech engine took too long to start');
+}
+
+async function ensureServer(key, lang) {
+  const m = MODELS[key];
+  if (!m) throw new Error('Unknown speech model');
+  if (server && server.key === key && server.lang === lang && server.proc.exitCode == null && !server.failed) {
+    touch();
+    return server.ready.then(() => server);
+  }
+  const exe = serverExe();
+  if (!exe || !fs.existsSync(modelPath(m))) {
+    const err = new Error('The speech model is not downloaded yet');
+    err.code = 'model-missing';
+    throw err;
+  }
+  stopServer();
+  const port = await freePort();
+  const threads = Math.max(2, Math.min(8, Math.floor(os.cpus().length / 2) || 2));
+  const proc = spawn(exe, [
+    '-m', modelPath(m), '--host', '127.0.0.1', '--port', String(port),
+    '-t', String(threads), '-l', lang, '-nt', '-bo', '1',
+  ], { cwd: path.dirname(exe), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const s = { key, lang, port, proc, log: [] };
+  const keep = (d) => { s.log.push(String(d)); if (s.log.length > 40) s.log.shift(); };
+  proc.stdout.on('data', keep);
+  proc.stderr.on('data', keep);
+  proc.on('exit', () => { if (server === s) server = null; });
+  // e.g. antivirus blocked the program; without a handler this would take the app down.
+  proc.on('error', (e) => { s.failed = e; if (server === s) server = null; });
+  s.ready = waitReady(s);
+  server = s;
+  touch();
+  try { await s.ready; } catch (e) { stopServer(); throw e; }
+  return s;
+}
+
+// Whisper writes these for silence or noise instead of words.
+const NOISE = /\[[^\]]*\]|\([^)]*\)|\*[^*]*\*/g;
+
+async function transcribe({ model, lang, wav, prompt }) {
+  const s = await ensureServer(model, lang);
+  const form = new FormData();
+  form.append('file', new Blob([Buffer.from(wav)], { type: 'audio/wav' }), 'speech.wav');
+  form.append('response_format', 'json');
+  form.append('temperature', '0');
+  form.append('language', lang);
+  form.append('no_timestamps', 'true');
+  if (prompt) form.append('prompt', prompt);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TRANSCRIBE_TIMEOUT_MS);
+  try {
+    const r = await fetch(`http://127.0.0.1:${s.port}/inference`, { method: 'POST', body: form, signal: ctl.signal });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok || body.error) throw new Error(body.error || `Speech engine error (HTTP ${r.status})`);
+    return String(body.text || '').replace(NOISE, ' ').replace(/\s+/g, ' ').trim();
+  } finally {
+    clearTimeout(timer);
+    touch();
+  }
 }
 
 function init({ window }) {
-  protocol.handle(SCHEME, async (req) => {
-    const cors = { 'Access-Control-Allow-Origin': '*' };
-    const u = new URL(req.url);
-    const file = path.basename(decodeURIComponent(u.pathname));
-    const known = Object.values(MODELS).find((m) => archiveFile(m) === file);
-    if (u.host !== 'models' || !known || !fs.existsSync(archivePath(known))) {
-      return new Response('Not found', { status: 404, headers: cors });
-    }
-    const res = await net.fetch(pathToFileURL(archivePath(known)).toString());
-    const headers = new Headers(res.headers);
-    headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Content-Type', 'application/gzip');
-    headers.set('Content-Length', String(fs.statSync(archivePath(known)).size));
-    return new Response(res.body, { status: 200, headers });
-  });
-
-  ipcMain.handle('voice:model-status', (_e, lang) => status(lang));
-  ipcMain.handle('voice:model-remove', (_e, lang) => remove(lang));
-  ipcMain.handle('voice:model-download', async (_e, lang) => {
+  ipcMain.handle('voice:model-status', (_e, key) => status(key));
+  ipcMain.handle('voice:model-remove', (_e, key) => remove(key));
+  ipcMain.handle('voice:model-download', async (_e, key) => {
     try {
-      return await download(lang, (p) => {
+      return await download(key, (p) => {
         const w = window();
         if (w && !w.isDestroyed()) w.webContents.send('voice:model-progress', p);
       });
@@ -147,6 +262,15 @@ function init({ window }) {
       return { ok: false, error: e.message };
     }
   });
+  // Called the moment someone starts speaking, so the model is loaded by
+  // the time they let go.
+  ipcMain.handle('voice:warm', async (_e, { model, lang }) => {
+    try { await ensureServer(model, lang); return { ok: true }; } catch (e) { return { ok: false, error: e.message, code: e.code }; }
+  });
+  ipcMain.handle('voice:transcribe', async (_e, req) => {
+    try { return { ok: true, text: await transcribe(req) }; } catch (e) { return { ok: false, error: e.message, code: e.code }; }
+  });
+  app.on('will-quit', stopServer);
 }
 
 module.exports = { init, MODELS };

@@ -24,7 +24,7 @@ import { tokenize, soundKey, similarity, numberWords, wordValue, spokenDigits } 
  * transliterated ("लेजर" → "lejar").
  */
 
-const WAKE      = ['zehen', 'zehan', 'zehn', 'zehin', 'jehen', 'zahen', 'zahan'];
+const WAKE      = ['zehen', 'zehan', 'zehn', 'zehin', 'jehen', 'zahen', 'zahan', 'zahin', 'zain', 'jehan'];
 const WAKE_LEAD = ['hey', 'he', 'hi', 'ok', 'okay', 'oke', 'hello', 'helo'];
 const CREATE    = ['create', 'kriet', 'new', 'nyu', 'naya', 'nayi', 'naye', 'bana', 'banao', 'banado', 'banaao', 'start', 'make', 'mek', 'karo'];
 const SALE      = ['sale', 'sales', 'sel', 'sels', 'sell', 'bikri', 'becho'];

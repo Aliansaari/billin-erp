@@ -77,6 +77,8 @@ export function toLatin(text) {
 // punctuation out, split into words.
 export function tokenize(text) {
   return toLatin(text)
+    .replace(/['’]s\b/g, '')          // Whisper writes "Ali's ledger"
+    .replace(/(\d),(\d{3})\b/g, '$1$2')  // and "1,452"
     .replace(/(\d)\s*[*×]\s*(\d)/g, '$1 x $2')
     .replace(/(\d)x(\d)/g, '$1 x $2')
     .replace(/[^a-z0-9\s]/g, ' ')
