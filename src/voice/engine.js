@@ -12,19 +12,25 @@
  * only works between the two calls; when idle it costs nothing.
  */
 
-const MIC_IDLE_CLOSE_MS = 60_000;   // let go of the mic (and its tray icon) after a minute unused
+// The mic stays open (silently keeping only the last moment of sound) so
+// the first word after pressing the key isn't lost while it opens.
+const MIC_IDLE_CLOSE_MS = 30 * 60_000;
+const TAIL_MS = 300;                // people let go as they finish the last word
 const PRE_ROLL_S = 0.35;            // keep the start of a word said just before the key went down
 const RATE = 16000;                 // what Whisper expects
 const MIN_SPEECH_S = 0.3;
 
-// The voice setting 'en-in' is plain English to Whisper.
-const whisperLang = (lang) => (lang === 'en-in' ? 'en' : 'hi');
+// Always English: on a shop PC Whisper's Hindi mode measured 20+ seconds
+// a command and garbled text, while English mode writes Hinglish in Roman
+// letters ("Ramesh ka bill banao") in about a second, which the command
+// parser reads either way.
+const whisperLang = () => 'en';
 
-// A few example commands steer Whisper towards ZEHEN's words and the way
-// they are written: Devanagari for Hindi, digits for numbers.
+// ZEHEN's words, so Whisper spells them the way the command parser
+// expects. Kept short and free of names: Whisper echoes a long prompt
+// back when the audio is unclear.
 const PROMPTS = {
-  hi: 'ज़ेहन, अली का सेल्स बिल बनाओ। अली का लेजर दिखाओ। क्वांटिटी 10 करो। फ्रॉक 20x20 ऐड करो। बारकोड 8901234567। बिल 1452 खोलो।',
-  en: 'Zehen, create sales bill for Ali. Show Ali ledger. Make it 10. Add frock 20x20. Add barcode 8901234567. Open bill 1452. Open stock report.',
+  en: 'Sales bill banao, ledger dikhao, quantity das karo, barcode, stock report.',
 };
 
 export const voiceAvailable = () =>
@@ -80,6 +86,10 @@ export class VoiceEngine {
     }
     this.model = model;
     this.lang = whisperLang(lang);
+    // Get both ready now, so the first command is as quick as the rest.
+    this.warm().catch(() => {});
+    this.openMic().then(() => this.ctx?.resume()).catch(() => { /* asked again on first use */ });
+    this.idleTimer = setTimeout(() => this.closeMic(), MIC_IDLE_CLOSE_MS);
   }
 
   warm() {
@@ -87,8 +97,14 @@ export class VoiceEngine {
     return window.electronAPI.voice.warm({ model: this.model, lang: this.lang });
   }
 
-  async openMic() {
-    if (this.ctx) return;
+  // One opening at a time: load() and the first key press can both ask.
+  openMic() {
+    if (this.ctx) return Promise.resolve();
+    if (!this.micOpening) this.micOpening = this.startMic().finally(() => { this.micOpening = null; });
+    return this.micOpening;
+  }
+
+  async startMic() {
     this.stream = await navigator.mediaDevices.getUserMedia({
       video: false,
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
@@ -139,6 +155,7 @@ export class VoiceEngine {
   // could not run, with the reason in the message.
   async release() {
     if (!this.recording) return '';
+    await new Promise((r) => setTimeout(r, TAIL_MS));
     this.recording = false;
     const rate = this.ctx.sampleRate;
     const chunks = this.chunks;
@@ -148,7 +165,7 @@ export class VoiceEngine {
     // A tap, or nothing but room noise: don't make Whisper guess.
     if (seconds < MIN_SPEECH_S + PRE_ROLL_S || peak < 0.02) return '';
     const res = await window.electronAPI.voice.transcribe({
-      model: this.model, lang: this.lang, wav, prompt: PROMPTS[this.lang],
+      model: this.model, lang: this.lang, wav, prompt: PROMPTS[this.lang], seconds, peak,
     });
     if (!res?.ok) {
       const err = new Error(res?.error || 'The speech engine did not answer');
@@ -156,7 +173,7 @@ export class VoiceEngine {
       throw err;
     }
     // Whisper sometimes repeats the hint back for unclear audio.
-    if (res.text.length > 40 && PROMPTS[this.lang].includes(res.text)) return '';
+    if (res.text.length > 12 && PROMPTS[this.lang].includes(res.text)) return '';
     return res.text || '';
   }
 

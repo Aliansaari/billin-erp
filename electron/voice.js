@@ -34,7 +34,7 @@ const MODELS = {
   turbo: { file: 'ggml-large-v3-turbo-q5_0.bin', url: `${HF}/ggml-large-v3-turbo-q5_0.bin`, label: 'Whisper Large Turbo', sizeMB: 547 },
 };
 
-const IDLE_STOP_MS = 5 * 60_000;
+const IDLE_STOP_MS = 30 * 60_000;
 const START_TIMEOUT_MS = 90_000;
 const TRANSCRIBE_TIMEOUT_MS = 60_000;
 
@@ -227,22 +227,49 @@ async function ensureServer(key, lang) {
 // Whisper writes these for silence or noise instead of words.
 const NOISE = /\[[^\]]*\]|\([^)]*\)|\*[^*]*\*/g;
 
-async function transcribe({ model, lang, wav, prompt }) {
+// The last few recordings and what Whisper made of them, on this PC only,
+// so a wrong or slow result can be looked into. Older ones are deleted.
+const debugDir = () => path.join(app.getPath('userData'), 'voice-debug');
+const DEBUG_KEEP = 20;
+function keepDebug(wav, info) {
+  try {
+    const dir = debugDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    fs.writeFileSync(path.join(dir, `${stamp}.wav`), Buffer.from(wav));
+    fs.appendFileSync(path.join(dir, 'log.jsonl'), `${JSON.stringify({ at: stamp, ...info })}\n`);
+    const wavs = fs.readdirSync(dir).filter((f) => f.endsWith('.wav')).sort();
+    for (const f of wavs.slice(0, Math.max(0, wavs.length - DEBUG_KEEP))) fs.rmSync(path.join(dir, f), { force: true });
+  } catch { /* never let logging break a command */ }
+}
+
+async function transcribe({ model, lang, wav, prompt, seconds = 30, peak }) {
+  const t0 = Date.now();
   const s = await ensureServer(model, lang);
+  const tReady = Date.now();
   const form = new FormData();
   form.append('file', new Blob([Buffer.from(wav)], { type: 'audio/wav' }), 'speech.wav');
   form.append('response_format', 'json');
   form.append('temperature', '0');
+  // No retries at higher temperatures: unclear audio would take several
+  // times as long and still come out wrong.
+  form.append('temperature_inc', '0');
   form.append('language', lang);
   form.append('no_timestamps', 'true');
   if (prompt) form.append('prompt', prompt);
+  // Whisper normally works through a 30-second window however short the
+  // clip; a smaller one for a few seconds of speech is several times
+  // faster. 50 steps per second, with room to spare.
+  form.append('audio_ctx', String(Math.min(1500, Math.max(384, Math.ceil(seconds * 50) + 100))));
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TRANSCRIBE_TIMEOUT_MS);
   try {
     const r = await fetch(`http://127.0.0.1:${s.port}/inference`, { method: 'POST', body: form, signal: ctl.signal });
     const body = await r.json().catch(() => ({}));
     if (!r.ok || body.error) throw new Error(body.error || `Speech engine error (HTTP ${r.status})`);
-    return String(body.text || '').replace(NOISE, ' ').replace(/\s+/g, ' ').trim();
+    const text = String(body.text || '').replace(NOISE, ' ').replace(/\s+/g, ' ').trim();
+    keepDebug(wav, { model, lang, seconds, peak, raw: body.text, text, startMs: tReady - t0, whisperMs: Date.now() - tReady });
+    return text;
   } finally {
     clearTimeout(timer);
     touch();

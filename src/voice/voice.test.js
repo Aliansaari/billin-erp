@@ -97,3 +97,17 @@ test('Whisper-style punctuation', () => {
   assert.equal(parseCommand('अली का लेजर दिखाओ।').intent, 'show_ledger');
   assert.equal(parseCommand('Add barcode 8901234567.').code, '8901234567');
 });
+
+test('Whisper writes English commands in Devanagari under Hindi', () => {
+  assert.equal(parseCommand('क्रिएट सेल्स बिल फॉर अली।').party, 'ali');
+  assert.equal(parseCommand('मेक इट टेन').qty, 10);
+  assert.equal(parseCommand('ऐड बारकोड 8901234567').code, '8901234567');
+  assert.equal(parseCommand('कस्टमर्स दिखाओ').intent, 'navigate');
+});
+
+test('Whisper English-mode Hinglish', () => {
+  assert.deepEqual(parseCommand('Ramesh Ka Bilbanio'), { intent: 'new_sale', party: 'ramesh' });
+  assert.equal(parseCommand('Ramesh Ka Bill Baneo').party, 'ramesh');
+  assert.equal(parseCommand('Quantity dos carros.').qty, 10);
+  assert.equal(parseCommand('Open stock report.').intent, 'navigate');
+});

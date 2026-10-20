@@ -6,14 +6,15 @@ import { create } from 'zustand';
  *
  *   enabled    voice commands on at all
  *   lang       'hi' (Hindi + Hinglish) or 'en-in' (Indian English)
- *   model      Whisper model: 'small' (default) or 'turbo' (more accurate, slower)
+ *   model      Whisper model: 'small'. 'turbo' measured ~20 s a command on a
+ *              shop PC without a graphics card, so it isn't offered
  *   speakBack  say short confirmations ("Ali selected") out loud
  */
 const KEY = 'zehen.voice';
 const DEFAULTS = { enabled: false, lang: 'hi', model: 'small', speakBack: true };
 
 function read() {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return { ...DEFAULTS }; }
+  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}'), model: 'small' }; } catch { return { ...DEFAULTS }; }
 }
 
 const useVoiceSettings = create((set, get) => ({

@@ -76,7 +76,8 @@ export function toLatin(text) {
 // Lower-case, Devanagari → Latin, "20*20" / "20x20" → "20 x 20",
 // punctuation out, split into words.
 export function tokenize(text) {
-  return toLatin(text)
+  // Punctuation off first: "अली।" must end like "अली" for the vowel rules.
+  return toLatin(text.replace(/[।॥,.!?;:"“”]/g, ' '))
     .replace(/['’]s\b/g, '')          // Whisper writes "Ali's ledger"
     .replace(/(\d),(\d{3})\b/g, '$1$2')  // and "1,452"
     .replace(/(\d)\s*[*×]\s*(\d)/g, '$1 x $2')
@@ -166,7 +167,7 @@ const HI_NUMBERS = [
 // Common Latin spellings people (and the English model) produce.
 const HI_LATIN = {
   shunya: 0, sunya: 0, ek: 1, do: 2, teen: 3, tin: 3, char: 4, chaar: 4, panch: 5, paanch: 5,
-  chhe: 6, che: 6, chah: 6, chhah: 6, saat: 7, sat: 7, aath: 8, ath: 8, nau: 9, no: 9, das: 10, dus: 10,
+  chhe: 6, che: 6, chah: 6, chhah: 6, saat: 7, sat: 7, aath: 8, ath: 8, nau: 9, no: 9, das: 10, dus: 10, dos: 10,
   gyarah: 11, barah: 12, baarah: 12, terah: 13, chaudah: 14, pandrah: 15, solah: 16, satrah: 17,
   atharah: 18, unnis: 19, bees: 20, bis: 20, pachis: 25, pachchis: 25, tees: 30, chalis: 40,
   pachas: 50, saath: 60, sattar: 70, assi: 80, nabbe: 90, sau: 100,
@@ -183,7 +184,7 @@ for (const [w, n] of [...Object.entries(EN_UNITS), ...Object.entries(EN_TENS)]) 
 const MULTIPLIERS = { hundred: 100, sau: 100, thousand: 1000, hazaar: 1000, hazar: 1000, lakh: 100000, lac: 100000 };
 // "do" (two) and "no" are ordinary words too, so they only count as
 // numbers right after a quantity / barcode word — see wordValue's `loose`.
-const AMBIGUOUS = new Set(['do', 'no', 'sat', 'ek', 'tin', 'bis', 'oh']);
+const AMBIGUOUS = new Set(['do', 'no', 'sat', 'ek', 'tin', 'bis', 'oh', 'dos']);
 
 export function wordValue(token, { loose = false } = {}) {
   if (/^\d+(\.\d+)?$/.test(token)) return Number(token);

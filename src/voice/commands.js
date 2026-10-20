@@ -26,14 +26,14 @@ import { tokenize, soundKey, similarity, numberWords, wordValue, spokenDigits } 
 
 const WAKE      = ['zehen', 'zehan', 'zehn', 'zehin', 'jehen', 'zahen', 'zahan', 'zahin', 'zain', 'jehan'];
 const WAKE_LEAD = ['hey', 'he', 'hi', 'ok', 'okay', 'oke', 'hello', 'helo'];
-const CREATE    = ['create', 'kriet', 'new', 'nyu', 'naya', 'nayi', 'naye', 'bana', 'banao', 'banado', 'banaao', 'start', 'make', 'mek', 'karo'];
+const CREATE    = ['create', 'kriet', 'new', 'nyu', 'naya', 'nayi', 'naye', 'bana', 'banao', 'banado', 'banaao', 'baneo', 'banio', 'banayo', 'banaiye', 'start', 'make', 'mek', 'karo', 'karos'];
 const SALE      = ['sale', 'sales', 'sel', 'sels', 'sell', 'bikri', 'becho'];
 const BILL      = ['bill', 'bil', 'invoice', 'invois', 'parchi'];
 const PURCHASE  = ['purchase', 'parchej', 'parches', 'kharid', 'kharidi', 'khareed', 'kharido'];
 const LEDGER    = ['ledger', 'lejar', 'lejer', 'statement', 'stetment', 'istetment', 'khata', 'khaata', 'hisab', 'hisaab', 'account', 'akaunt'];
 const OPEN      = ['open', 'opan', 'kholo', 'khol', 'kholna', 'dikhao', 'dikha', 'dikhaao', 'show', 'sho', 'batao', 'dekho', 'go', 'jao', 'chalo'];
 const QTY       = ['quantity', 'kvantiti', 'kwantiti', 'qty', 'matra', 'piece', 'pieces', 'pcs', 'nag'];
-const QTY_VERB  = ['kar', 'karo', 'kardo', 'krdo', 'karde', 'set', 'change', 'chenj', 'make', 'mek'];
+const QTY_VERB  = ['kar', 'karo', 'karos', 'kro', 'kardo', 'krdo', 'karde', 'set', 'change', 'chenj', 'make', 'mek'];
 const BARCODE   = ['barcode', 'barkod', 'barkode'];
 const SCAN      = ['scan', 'skain', 'sken', 'scanner', 'skainar'];
 const ADD       = ['add', 'aid', 'ed', 'jodo', 'jod', 'dalo', 'daalo', 'dal', 'lagao', 'daal'];
@@ -75,8 +75,23 @@ export function stripWake(tokens) {
   return { woke: i > 0, rest: tokens.slice(i) };
 }
 
+// Whisper sometimes runs two words together ("Bilbanio" for "bill
+// banao"); split a word that is really two command words.
+function splitJoined(tokens) {
+  const out = [];
+  for (const t of tokens) {
+    if (t.length >= 6 && !isNumber(t) && !isKeyword(t)) {
+      let cut = 0;
+      for (let i = 3; i <= t.length - 3 && !cut; i++) if (isKeyword(t.slice(0, i)) && isKeyword(t.slice(i))) cut = i;
+      if (cut) { out.push(t.slice(0, cut), t.slice(cut)); continue; }
+    }
+    out.push(t);
+  }
+  return out;
+}
+
 export function parseCommand(text, { requireWake = false } = {}) {
-  const { woke, rest } = stripWake(tokenize(text));
+  const { woke, rest } = stripWake(splitJoined(tokenize(text)));
   if (requireWake && !woke) return { intent: 'none' };
   if (!rest.length) return { intent: woke ? 'wake' : 'none' };
 
@@ -157,7 +172,9 @@ export function parseCommand(text, { requireWake = false } = {}) {
   }
 
   // 8. Anything else is a screen to open — "stock report", "customers dikhao".
-  const query = tokens.filter((t) => !isWord(t, SETS.OPEN) && !isWord(t, SETS.FILLER)).join(' ').trim();
+  // "customers dikhao": "customer" is filler elsewhere but here it is the screen.
+  const query = tokens.filter((t) => !isWord(t, SETS.OPEN) && !isWord(t, SETS.FILLER)).join(' ').trim()
+    || tokens.filter((t) => !isWord(t, SETS.OPEN)).join(' ').trim();
   if (query) return { intent: 'navigate', query };
   return { intent: 'none' };
 }
