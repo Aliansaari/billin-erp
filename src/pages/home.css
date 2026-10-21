@@ -408,8 +408,10 @@
   width: 28px;
   height: 28px;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--accent, #4F46E5) 14%, transparent);
-  color: var(--accent, #4F46E5);
+  /* Same colour as the sidebar section the shortcut opens (.tint-*). */
+  background: color-mix(in srgb, var(--tint, var(--accent)) 17%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--tint, var(--accent)) 30%, transparent);
+  color: var(--tint, var(--accent));
   font-size: 15px;
 }
 

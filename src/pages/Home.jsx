@@ -13,6 +13,7 @@ import useHomeSettingsStore from '../store/homeSettingsStore';
 
 import Sparkline from '../components/editorial/Sparkline';
 import { GlobalSearchHomeCard } from '../components/GlobalSearch';
+import { actionTint } from '../config/navTints';
 import './home.css';
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -379,7 +380,7 @@ export default function Home() {
             return (
               <button
                 key={a.id}
-                className="cc-action"
+                className={`cc-action tint-${actionTint(a.id)}`}
                 data-tone={a.tone || ''}
                 onClick={() => navigate(a.route)}
                 title={`${a.label} — ${a.sub}`}

@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 
 import useHomeSettingsStore, { KNOWN_ACTIONS } from '../../store/homeSettingsStore';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { actionTint } from '../../config/navTints';
 import './ModuleSettings.css';
 
 const { Title, Text } = Typography;
@@ -277,14 +278,14 @@ function ActionPickerGrid({ actions, selectedIds, onToggle, disabled }) {
               e.currentTarget.style.boxShadow = '';
             }}
           >
-            <span style={{
+            <span className={`tint-${actionTint(id)}`} style={{
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
               width: 32, height: 32,
               borderRadius: 8,
-              background: checked ? 'var(--accent)' : 'var(--accent-bg)',
-              color: checked ? 'var(--fg-inverse, #fff)' : 'var(--accent)',
+              background: checked ? 'var(--tint)' : 'color-mix(in srgb, var(--tint) 17%, transparent)',
+              color: checked ? '#fff' : 'var(--tint)',
               fontSize: 16,
               flex: '0 0 auto',
               transition: 'background-color .12s ease, color .12s ease',

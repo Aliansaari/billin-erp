@@ -21,3 +21,19 @@ export const NAV_TINT = {
 };
 
 export const tintFor = (key) => NAV_TINT[key] || 'slate';
+
+// Home screen shortcuts wear the colour of the sidebar section they open
+// (Receipt sits under Sales, Payment under Purchase, Day book in Reports).
+export const ACTION_NAV = {
+  'sale-new': 'sales-menu',          'sales-return': 'sales-menu',      'receipt-new': 'sales-menu',
+  'purchase-new': 'purchase-menu',   'purchase-return': 'purchase-menu', 'payment-new': 'purchase-menu',
+  'customers': 'parties-menu',       'suppliers': 'parties-menu',
+  'products': 'inventory-menu',
+  'expense-new': 'expenses-menu',    'expenses': 'expenses-menu',
+  'banks': 'bank-menu',
+  'journal-new': 'accounts-menu',
+  'reports': 'reports-menu',         'day-book': 'reports-menu',
+  'dashboard': '/dashboard',
+};
+
+export const actionTint = (id) => tintFor(ACTION_NAV[id]);
