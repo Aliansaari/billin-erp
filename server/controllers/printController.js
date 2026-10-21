@@ -1,5 +1,11 @@
 const { PrintProfile, sequelize } = require('../models');
 
+// Older clients must not overwrite another workstation's printer routing.
+function sharedProfileFields(body) {
+  const { printer_name, silent_print, ...shared } = body;
+  return shared;
+}
+
 /*
  * Print Profile CRUD.
  *
@@ -45,7 +51,7 @@ exports.getDefault = async (req, res) => {
 exports.create = async (req, res) => {
   try {
     const row = await sequelize.transaction(async (t) => {
-      const created = await PrintProfile.create(req.body, { transaction: t });
+      const created = await PrintProfile.create(sharedProfileFields(req.body), { transaction: t });
       // Enforce single-default invariant per doc_type.
       if (created.is_default) {
         await PrintProfile.update(
@@ -66,7 +72,7 @@ exports.update = async (req, res) => {
     const row = await PrintProfile.findByPk(req.params.id);
     if (!row) return res.status(404).json({ error: 'Profile not found' });
     await sequelize.transaction(async (t) => {
-      await row.update(req.body, { transaction: t });
+      await row.update(sharedProfileFields(req.body), { transaction: t });
       if (row.is_default) {
         await PrintProfile.update(
           { is_default: false },
@@ -99,6 +105,8 @@ exports.duplicate = async (req, res) => {
     delete values.profile_id;
     delete values.created_date;
     delete values.modified_date;
+    delete values.printer_name;
+    delete values.silent_print;
     values.name = `${values.name} (copy)`;
     values.is_default = false;
     const copy = await PrintProfile.create(values);

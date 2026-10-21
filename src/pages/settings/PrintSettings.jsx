@@ -717,17 +717,17 @@ export default function PrintSettings() {
 
             {tab === 'printer' && (<>
               <PGroup title="Printer">
-                <PRow label="Print to">
+                <PRow label="Print to on this device" desc="Printer choices are saved on this computer only. Template layouts remain shared.">
                   <Select value={draft.printer_name || undefined} onChange={v => set('printer_name', v || '')}
                           style={{ width: 200 }} allowClear showSearch
-                          placeholder={printers.length ? 'System default' : 'No printers found'}
+                          placeholder="This device's system default"
                           options={printers.map(p => ({ value: p.name, label: `${p.displayName || p.name}${p.isDefault ? ' (default)' : ''}` }))} />
                   <Tooltip title="Look for printers again"><Button icon={<ReloadOutlined />} onClick={refreshPrinters} /></Tooltip>
                 </PRow>
                 <PStack label="Or type the printer's name" desc="Exactly as Windows shows it in Devices and Printers. Blank uses the system default.">
                   <Input value={draft.printer_name || ''} onChange={e => set('printer_name', e.target.value)} placeholder="e.g. POS-80C" />
                 </PStack>
-                <PRow label="Print without asking" desc="Sends the bill straight to the printer, no print dialog. Needs the desktop app.">
+                <PRow label="Print without asking" desc="Saved only on this device. Sends the bill straight to the printer, no print dialog. Needs the desktop app.">
                   <Switch checked={draft.silent_print} onChange={v => set('silent_print', v)} />
                 </PRow>
                 {(printerErr || !printers.length) && (

@@ -90,6 +90,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 // writes the whole file afresh from this list, so they drop out on
 // their own.
 const UI_SETTINGS_KEYS = [
+  'zehen_device_print_profiles', // Device-local document printer choices
   'barcode_label_layout',   // Barcode label designer layout
   'barcode_company_name',   // Barcode label company name
   'barcode_printer_name',   // Barcode label printer

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { createDevicePrintAPI } from '../services/devicePrintProfiles';
 // UI-C5 — static import (was `require('antd')` inside the 403 interceptor).
 // `require` only worked because Rollup polyfilled CJS in the desktop bundle;
 // the mobile / Capacitor build would throw inside that branch, silencing
@@ -771,15 +772,10 @@ export const tallyAPI = {
   getSyncLogs: (params) => api.get('/tally/sync-logs', { params }),
 };
 
-export const printAPI = {
-  list:       (params = {}) => api.get('/print/profiles', { params }),
-  getById:    (id)           => api.get(`/print/profiles/${id}`),
-  getDefault: (docType)      => api.get(`/print/profiles/default/${docType}`),
-  create:     (data)         => api.post('/print/profiles', data),
-  update:     (id, data)     => api.put(`/print/profiles/${id}`, data),
-  remove:     (id)           => api.delete(`/print/profiles/${id}`),
-  duplicate:  (id)           => api.post(`/print/profiles/${id}/duplicate`),
-};
+export const printAPI = createDevicePrintAPI(api, {
+  getItem: key => localStorage.getItem(key),
+  setItem: (key, value) => localStorage.setItem(key, value),
+}, () => JSON.stringify([api.defaults.baseURL, localStorage.getItem('zehen_company_id') || 'default']));
 
 export const journalAPI = {
   list:    (params = {}) => api.get('/journal-vouchers', { params }),

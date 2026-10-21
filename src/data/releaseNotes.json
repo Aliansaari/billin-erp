@@ -2,6 +2,16 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.23",
+      "date": "2026-10-18",
+      "title": "Each computer keeps its own printer",
+      "highlights": [
+        "Main and client computers now keep separate printers for invoices, receipts and vouchers. Changing one computer no longer changes another.",
+        "Choose your printer once in Print Templates on each computer after updating, or leave it blank to use that computer’s system default.",
+        "The print-without-asking choice is also saved per computer. Invoice layouts stay shared."
+      ]
+    },
+    {
       "version": "1.1.22",
       "date": "2026-10-18",
       "title": "Parcel labels print right",
