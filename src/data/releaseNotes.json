@@ -2,6 +2,17 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.24",
+      "date": "2026-10-21",
+      "title": "See the line you're on, and remove it with Delete",
+      "highlights": [
+        "On the sale and purchase bill, the line you tap or type in is highlighted across the whole row, with its number marked, so you always know which line you're changing.",
+        "Press Delete to remove that line. The cursor moves to the next line, so you can keep going.",
+        "After you remove a line, the lines below it are numbered again straight away.",
+        "Shortcuts on the Home screen use the same colours as the side menu, so Sale, Purchase, Reports and the rest are easy to spot."
+      ]
+    },
+    {
       "version": "1.1.23",
       "date": "2026-10-18",
       "title": "Each computer keeps its own printer",
