@@ -14,6 +14,7 @@ import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import useBillAutosave from '../../hooks/useBillAutosave';
 import useBack from '../../hooks/useBack';
+import useActiveBillLine from '../../hooks/useActiveBillLine';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 import { partySelectProps } from '../../utils/partySelectProps';
 
@@ -1387,7 +1388,10 @@ export default function PurchaseBillForm() {
     // barcode after addItem) because retail = scan-driven.
     setTimeout(()=>categoryRef.current?.focus(),50);
   },[entry,barcodeError,invalidateFamilyCache,batchTrackingEnabled]);
-  const removeItem=(key)=>setItems(prev=>prev.filter(i=>i.key!==key));
+  // Keys compare as strings: Delete hands over the DOM's data-row-key.
+  const removeItem=(key)=>setItems(prev=>prev.filter(i=>String(i.key)!==String(key)));
+  // Tapped line shows as a full strip; Delete removes it.
+  useActiveBillLine(tableWrapRef, removeItem, billMode === 'item');
 
   const togglePinMg=()=>{
     if(pinMg){ setPinMg(null); clearPref('pbf_pin_margin'); message.info('Margin is no longer fixed.'); return; }

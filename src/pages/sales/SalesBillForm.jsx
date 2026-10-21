@@ -10,6 +10,7 @@ import { whatsappAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import useBillAutosave from '../../hooks/useBillAutosave';
 import useBack from '../../hooks/useBack';
+import useActiveBillLine from '../../hooks/useActiveBillLine';
 import { useMultiWarehouseEnabled, useMergeRepeatScansMode, useMultiColorEnabled, useSystemSettings } from '../../hooks/useSystemSettings';
 import CustomerInsightPanel from '../../components/CustomerInsightPanel';
 import { UserAddOutlined } from '@ant-design/icons';
@@ -1518,7 +1519,16 @@ export default function SalesBillForm() {
     setTimeout(()=>barcodeRef.current?.focus(),50);
   },[entry, batchTrackingOn, batchOpts, blockExpiredSales]);
 
-  const removeItem=(key)=>setItems(prev=>prev.filter(i=>i.key!==key));
+  // Lines below the removed one get fresh records so their cells redraw
+  // with the new row number (shouldCellUpdate skips unchanged records).
+  // Keys compare as strings: Delete hands over the DOM's data-row-key.
+  const removeItem=(key)=>setItems(prev=>{
+    const at=prev.findIndex(i=>String(i.key)===String(key));
+    if(at<0) return prev;
+    return [...prev.slice(0,at), ...prev.slice(at+1).map(i=>({...i}))];
+  });
+  // Tapped line shows as a full strip; Delete removes it.
+  useActiveBillLine(tableWrapRef, removeItem, billMode === 'item');
 
   /* ── totals ── */
   const discPct    = Form.useWatch('discount_percentage',form)||0;
