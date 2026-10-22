@@ -3007,7 +3007,10 @@ export default function PurchaseBillForm() {
                 <div className="pbf-tot-lines">
                   <div className="pbf-tot-line total-row">
                     <span className="k">Total</span>
-                    <span className="pbf-val-box">{fmtN(taxableTotal)}</span>
+                    {/* Gross sum of items, BEFORE bill discount, GST and
+                        extras — as on the sale form. Net Total on the payment
+                        card is the final payable after all of those. */}
+                    <span className="pbf-val-box">{fmtN(subTotal)}</span>
                   </div>
                   <div className="pbf-tot-line with-pct">
                     <span className="k" title="Combined CGST + SGST rate. Typed value is split half/half into the two columns on save.">GST (C+S)</span>
