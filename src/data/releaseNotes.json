@@ -2,6 +2,14 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.25",
+      "date": "2026-10-22",
+      "title": "Purchase bill total, like the sale bill",
+      "highlights": [
+        "On the purchase bill, Total now shows the sum of the items before any discount, the same as on the sale bill. Net Total still shows what you pay after discount, GST and charges."
+      ]
+    },
+    {
       "version": "1.1.24",
       "date": "2026-10-21",
       "title": "See the line you're on, and remove it with Delete",
