@@ -28,6 +28,7 @@ import { reportAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { useTabLive } from '../../tabs/tabContext';
 
 const fmtAmt = (v) => {
   const n = Number(v) || 0;
@@ -189,10 +190,12 @@ export default function MonthlyRegister({ mode }) {
   // the table to focus it first. Ignored when focus is inside a form
   // field so the date-picker / overlay dropdown keep their native
   // arrow-key behaviour.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!data?.primary?.rows?.length) return;
     const rowCount = data.primary.rows.length;
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = (e.target?.tagName || '').toUpperCase();
       const isFormField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
                        || e.target?.isContentEditable

@@ -44,6 +44,7 @@ import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './balance-sheet.css';
 import './profit-loss.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { useTabLive } from '../../tabs/tabContext';
 
 const { RangePicker } = DatePicker;
 
@@ -489,8 +490,10 @@ export default function ProfitLoss() {
     .filter((r) => r.kind !== 'stage-divider' && r.kind !== 'aggregate-header')
   , [sides.credit]);
 
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
 

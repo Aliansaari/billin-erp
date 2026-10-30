@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTabLive } from '../tabs/tabContext';
 
 // useListSelection — cursor + multi-select state for list pages.
 //
@@ -131,9 +132,11 @@ export default function useListSelection({
     stateRef.current = { cursorIdx, anchorIdx, selectedSet, totalCount };
   });
 
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!enabled || !totalCount) return;
     const onKey = (e) => {
+      if (!tabLive()) return;
       // Skip when typing in an input / textarea / editable element.
       if (!hijackFromInputs) {
         const tag = e.target?.tagName;

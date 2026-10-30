@@ -9,7 +9,7 @@ import {
 import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import useDevModeStore from '../../store/devModeStore';
-import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
+import { chromeNavigate, isNewTabClick } from '../../tabs/tabActions';
 import { resolveMode } from '../../theme/tokens';
 import { useMenuItems, menuItems as staticMenuItems, getOpenKeys, filterMenuByPermissions } from './menuConfig';
 import useFavoritesStore from '../../store/favoritesStore';
@@ -94,8 +94,8 @@ export default function TopNav() {
   // swallowing every click because confirmLeave returns undefined when
   // used without its callback.
   const navigate = (to, opts) => {
-    if (to === location.pathname) return;
-    useNavGuard.getState().confirmLeave(() => rawNavigate(to, opts));
+    if (to === location.pathname + location.search && !isNewTabClick()) return;
+    chromeNavigate(to, opts, rawNavigate);
   };
 
   // Which top-level pill is "active". Walk up via getOpenKeys so deep routes
@@ -120,7 +120,7 @@ export default function TopNav() {
   // Prune the menu to items this user can reach.
   const visibleItems = useMemo(() => filterMenuByPermissions(menuItems, user), [user, menuItems]);
 
-  const handleLogout = () => { logout(); navigate('/login'); };
+  const handleLogout = () => { logout(); rawNavigate('/login'); };  // leaves the tabbed app
 
   const userMenuItems = [
     {
@@ -144,7 +144,7 @@ export default function TopNav() {
       disabled: true,
     },
     { key: 'profile',  icon: <UserOutlined />,    label: 'My Account', onClick: () => navigate('/settings/account') },
-    { key: 'change-password', icon: <LockOutlined />, label: 'Change Password', onClick: () => navigate('/change-password') },
+    { key: 'change-password', icon: <LockOutlined />, label: 'Change Password', onClick: () => rawNavigate('/change-password') },
     { key: 'settings', icon: <SettingOutlined />, label: 'Settings', onClick: () => navigate('/settings/company') },
     { type: 'divider' },
     // Keyboard shortcuts — mouse path to the cheat sheet (App.jsx listens

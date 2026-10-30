@@ -675,6 +675,252 @@ export default function App() {
     return <ServerSetup />;
   }
 
+  // The screens of the signed-in app. Rendered by each tab (AppLayout →
+  // TabHost) against that tab's own location.
+  const appPages = (
+    <>
+      {/*
+        / is the Command Center (Home) — greeting, global search, quick
+        actions, KPI strip. The deep 9-up Dashboard moved to /dashboard
+        so the home page stays a single-screen launchpad. Both routes
+        are always reachable; either is a safe fallback when an
+        operator's intended starting route is gated off.
+      */}
+      <Route index element={<Home />} />
+      <Route path="dashboard"          element={<Dashboard />} />
+      <Route path="dashboard/classic"  element={<DashboardClassic />} />
+
+      {/* Parties */}
+      <Route path="customers"    element={<RoleRoute perm="parties.view"><CustomerList /></RoleRoute>} />
+      <Route path="suppliers"    element={<RoleRoute perm="parties.view"><SupplierList /></RoleRoute>} />
+      {/* Members — loyalty enrolments. Gated in the menu by the
+          membership_enabled flag; the route itself only needs parties.view. */}
+      <Route path="members"      element={<RoleRoute perm="parties.view"><MembershipList /></RoleRoute>} />
+      <Route path="members/report" element={<RoleRoute perm="parties.view"><MembershipReport /></RoleRoute>} />
+      <Route path="staff-attendance" element={<RoleRoute perm="settings.manage_company"><AttendanceRegister /></RoleRoute>} />
+      <Route path="staff-payroll" element={<RoleRoute perm="settings.manage_company"><Payroll /></RoleRoute>} />
+      {/* /parties/:id — legacy detail page retired. The redirect below
+          resolves party type and bounces to Customer / Supplier
+          Statement (with ?id= so the picker pre-selects). */}
+      <Route path="parties/:id"  element={<RoleRoute perm="parties.view"><PartyDetailRedirect /></RoleRoute>} />
+
+      {/* Inventory */}
+      <Route path="products"                       element={<RoleRoute perm="inventory.view"><ProductList /></RoleRoute>} />
+      <Route path="categories"                     element={<RoleRoute perm="inventory.view"><CategoryList /></RoleRoute>} />
+      <Route path="stock-report"                   element={<RoleRoute perm="inventory.view"><StockReport /></RoleRoute>} />
+      <Route path="stock-report-pro"               element={<RoleRoute perm="inventory.view"><StockReportPro /></RoleRoute>} />
+      <Route path="stock-report-pro/:categoryId"   element={<RoleRoute perm="inventory.view"><SmartStockCategory /></RoleRoute>} />
+      {/* Splat route — keeps StockMovement mounted when navigating
+           from /stock-movement to /stock-movement/:productId, so
+           clicking a product doesn't remount the whole page (which
+           previously re-ran loadProducts and caused a visible blink). */}
+      <Route path="stock-movement/*"               element={<RoleRoute perm="inventory.view"><StockMovement /></RoleRoute>} />
+      <Route path="stock-transfers"                element={<MultiWarehouseRoute><RoleRoute perm="stock_transfers.view"><StockTransferList /></RoleRoute></MultiWarehouseRoute>} />
+      <Route path="stock-transfer/new"             element={<MultiWarehouseRoute><RoleRoute perm="stock_transfers.create"><StockTransferForm /></RoleRoute></MultiWarehouseRoute>} />
+      <Route path="stock-transfer/edit/:id"        element={<MultiWarehouseRoute><RoleRoute perm="stock_transfers.view"><StockTransferForm /></RoleRoute></MultiWarehouseRoute>} />
+
+      {/* Batches (Commit 5) — list + per-batch detail. Same
+          .report-editorial shell as Stock Transfers list / Sales
+          Report so cross-page navigation feels uniform. */}
+      <Route path="inventory/batches"              element={<RoleRoute perm="batches.view"><BatchesList /></RoleRoute>} />
+      <Route path="inventory/batches/:batch_id"    element={<RoleRoute perm="batches.view"><BatchDetail /></RoleRoute>} />
+      <Route path="reports/expiry"                 element={<RoleRoute perm="batches.view"><ExpiryReport /></RoleRoute>} />
+
+      {/* Purchase */}
+      <Route path="purchase/new"     element={<RoleRoute perm="purchase.create"><PurchaseBillForm /></RoleRoute>} />
+      <Route path="purchase/edit/:id" element={<RoleRoute perm="purchase.edit"><PurchaseBillForm /></RoleRoute>} />
+      <Route path="purchases"        element={<RoleRoute perm="purchase.view"><PurchaseList /></RoleRoute>} />
+
+      {/* Sales */}
+      <Route path="sale/new"      element={<RoleRoute perm="sales.create"><SalesBillForm /></RoleRoute>} />
+      <Route path="sale/edit/:id" element={<RoleRoute perm="sales.edit"><SalesBillForm /></RoleRoute>} />
+      <Route path="sales"         element={<RoleRoute perm="sales.view"><SalesList /></RoleRoute>} />
+
+      {/* Returns — split by module so sales staff can't touch supplier returns */}
+      <Route path="sales-return/new"      element={<RoleRoute perm="sales_returns.create"><SalesReturnForm /></RoleRoute>} />
+      <Route path="sales-return/edit/:id" element={<RoleRoute perm="sales_returns.edit"><SalesReturnForm /></RoleRoute>} />
+      <Route path="sales-returns"         element={<RoleRoute perm="sales_returns.view"><SalesReturnList /></RoleRoute>} />
+      <Route path="purchase-return/new"      element={<RoleRoute perm="purchase_returns.create"><PurchaseReturnForm /></RoleRoute>} />
+      <Route path="purchase-return/edit/:id" element={<RoleRoute perm="purchase_returns.edit"><PurchaseReturnForm /></RoleRoute>} />
+      <Route path="purchase-returns"         element={<RoleRoute perm="purchase_returns.view"><PurchaseReturnList /></RoleRoute>} />
+
+      {/* Payments */}
+      <Route path="payment/new" element={<RoleRoute perm="payments.create"><PaymentEntry /></RoleRoute>} />
+      <Route path="receipt/new" element={<RoleRoute perm="payments.create"><ReceiptEntry /></RoleRoute>} />
+      {/* Edit-existing routes — same component, different mode. Component
+          reads :id from useParams and switches to update() instead of create(). */}
+      <Route path="payment/edit/:id" element={<RoleRoute perm="payments.create"><PaymentEntry /></RoleRoute>} />
+      <Route path="receipt/edit/:id" element={<RoleRoute perm="payments.create"><ReceiptEntry /></RoleRoute>} />
+      <Route path="payments"    element={<RoleRoute perm="payments.view"><PaymentList /></RoleRoute>} />
+
+      {/* Expenses — Indirect / Direct expense bookings with full
+          double-entry. List + entry + report all hang off the
+          Expenses dropdown in the sidebar. */}
+      <Route path="expenses"            element={<RoleRoute perm="expenses.view"><ExpenseList /></RoleRoute>} />
+      <Route path="expenses/new"        element={<RoleRoute perm="expenses.create"><ExpenseEntry /></RoleRoute>} />
+      <Route path="expenses/edit/:id"   element={<RoleRoute perm="expenses.view"><ExpenseEntry /></RoleRoute>} />
+      <Route path="expenses/report"     element={<RoleRoute perm="expenses.view"><ExpenseReport /></RoleRoute>} />
+
+      {/* Reports */}
+      {/* Reports hub — landing for all reports. Cluttered flat dropdown
+          has been replaced by this page + a favorites-only nav menu. */}
+      <Route path="reports"               element={<ReportsHub />} />
+      <Route path="reports/sales"         element={<RoleRoute perm="reports.view"><SalesReport /></RoleRoute>} />
+      <Route path="reports/sales-by-salesman" element={<RoleRoute perm="reports.view"><SalesmanReport /></RoleRoute>} />
+      <Route path="reports/purchases"     element={<RoleRoute perm="reports.view"><PurchaseReport /></RoleRoute>} />
+      {/* /reports/stock removed — Stock Report lives at /stock-report
+          (inventory menu). Old links rewired in BalanceSheet + the
+          reports-hub config. */}
+      {/* Customer / Supplier Statement + COA Ledger replace the
+          old single Party Ledger page. The legacy /reports/party-
+          ledger route is preserved as a redirect so old bookmarks,
+          deep links from Aging / Outstanding, and any external
+          references (printed reports, emails) keep working. The
+          <PartyLedgerRedirect> component below resolves the party
+          type when ?id=<party_id> is present and bounces to the
+          correct flavor. */}
+      <Route path="reports/customer-statement" element={<RoleRoute perm="accounts.view"><CustomerStatement /></RoleRoute>} />
+      <Route path="reports/supplier-statement" element={<RoleRoute perm="accounts.view"><SupplierStatement /></RoleRoute>} />
+      <Route path="reports/staff-statement" element={<RoleRoute perm="settings.manage_company"><StaffStatementPage /></RoleRoute>} />
+      {/* One route serves both directions — ?direction=supplier|customer.
+          The registry lists them as two cards so each is pinnable. */}
+      <Route path="reports/party-lapse"        element={<RoleRoute perm="reports.view"><PartyLapseReport /></RoleRoute>} />
+      <Route path="reports/top-parties"        element={<RoleRoute perm="reports.view"><TopPartiesReport /></RoleRoute>} />
+      <Route path="reports/ledger"             element={<RoleRoute perm="accounts.view"><Ledger /></RoleRoute>} />
+      <Route path="reports/party-ledger"       element={<RoleRoute perm="accounts.view"><PartyLedgerRedirect /></RoleRoute>} />
+      <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />
+      <Route path="reports/receivables-aging" element={<RoleRoute perm="reports.view"><ReceivablesAging /></RoleRoute>} />
+      <Route path="reports/payables-aging"    element={<RoleRoute perm="reports.view"><PayablesAging /></RoleRoute>} />
+      {/* Legacy /reports/aging — keep alive for old bookmarks; lands
+          on Receivables (the more common workflow). */}
+      <Route path="reports/aging"             element={<RoleRoute perm="reports.view"><ReceivablesAging /></RoleRoute>} />
+      <Route path="reports/bills-receivable"    element={<RoleRoute perm="reports.view"><BillsReceivable /></RoleRoute>} />
+      <Route path="reports/bills-payable"       element={<RoleRoute perm="reports.view"><BillsPayable /></RoleRoute>} />
+      <Route path="reports/customer-outstanding" element={<RoleRoute perm="reports.view"><CustomerOutstanding /></RoleRoute>} />
+      <Route path="reports/supplier-outstanding" element={<RoleRoute perm="reports.view"><SupplierOutstanding /></RoleRoute>} />
+      <Route path="reports/monthly-sales"     element={<RoleRoute perm="reports.view"><MonthlySalesRegister /></RoleRoute>} />
+      <Route path="reports/monthly-purchases" element={<RoleRoute perm="reports.view"><MonthlyPurchaseRegister /></RoleRoute>} />
+      <Route path="reports/monthly-payments"  element={<RoleRoute perm="reports.view"><MonthlyPaymentRegister /></RoleRoute>} />
+      <Route path="reports/monthly-receipts"  element={<RoleRoute perm="reports.view"><MonthlyReceiptRegister /></RoleRoute>} />
+      <Route path="reports/product-sales"     element={<RoleRoute perm="reports.view"><ProductSalesReport /></RoleRoute>} />
+      <Route path="reports/product-purchases" element={<RoleRoute perm="reports.view"><ProductPurchaseReport /></RoleRoute>} />
+      <Route path="reports/gstr1"         element={<RoleRoute perm="reports.view"><GSTR1Report /></RoleRoute>} />
+      <Route path="reports/gstr3b"        element={<RoleRoute perm="reports.view"><GSTR3BReport /></RoleRoute>} />
+      <Route path="reports/trial-balance"     element={<RoleRoute perm="accounts.view"><TrialBalance /></RoleRoute>} />
+      <Route path="reports/balance-sheet"     element={<RoleRoute perm="accounts.view"><BalanceSheet /></RoleRoute>} />
+      <Route path="reports/cash-flow"         element={<RoleRoute perm="accounts.view"><CashFlow /></RoleRoute>} />
+      <Route path="reports/fund-flow"         element={<RoleRoute perm="accounts.view"><FundFlow /></RoleRoute>} />
+      <Route path="reports/day-book"          element={<RoleRoute perm="accounts.view"><DayBook /></RoleRoute>} />
+      <Route path="reports/hsn-summary"        element={<RoleRoute perm="reports.view"><HsnSummary /></RoleRoute>} />
+      {/* /reports/stock-summary removed — opening / inward / outward
+          now live on the inventory Stock Report via the movement-
+          period range picker. Drill-down from ProfitLoss rewired. */}
+      <Route path="reports/fast-slow-stock"    element={<RoleRoute perm="reports.view"><FastSlowStock /></RoleRoute>} />
+      <Route path="reports/stock-by-color"             element={<RoleRoute perm="reports.view"><StockByColor /></RoleRoute>} />
+      {/* Dev-only preview route for the new EntityFormModal shell.
+       *  Not linked from any menu. Visit /dev/efm directly to test. */}
+      <Route path="dev/efm"                            element={<EntityFormModalDemo />} />
+      <Route path="reports/stock-by-color/:productId"  element={<RoleRoute perm="reports.view"><StockByColorDetail /></RoleRoute>} />
+      {/* Redirect — keep the legacy /reports/movers slug alive
+          forever so any user-saved bookmark, copy-pasted URL, or
+          cached favourite resolves to the new path.  Replace=true
+          so the redirect doesn't pollute history. */}
+      <Route path="reports/movers"             element={<Navigate to="/reports/fast-slow-stock" replace />} />
+      <Route path="reports/transfer-register"  element={<MultiWarehouseRoute><RoleRoute perm="reports.view"><GodownTransferRegister /></RoleRoute></MultiWarehouseRoute>} />
+      <Route path="reports/godown-valuation"   element={<MultiWarehouseRoute><RoleRoute perm="reports.view"><GodownValuation /></RoleRoute></MultiWarehouseRoute>} />
+
+      {/* Accounts (double-entry) */}
+      <Route path="accounts/journal"          element={<RoleRoute perm="accounts.view"><JournalVoucherList /></RoleRoute>} />
+      <Route path="accounts/journal/new"      element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
+      <Route path="accounts/journal/edit/:id" element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
+      <Route path="accounts/integrity"        element={<DevGatedRoute flag="ledger_integrity"><RoleRoute perm="accounts.view"><LedgerIntegrity /></RoleRoute></DevGatedRoute>} />
+      <Route path="banks"                      element={<RoleRoute perm="accounts.view"><BankList /></RoleRoute>} />
+      {/* /banks/reconciliation and /banks/cheques must both come
+          before /banks/:ledger_id/statement — otherwise React Router
+          would try to use 'reconciliation' / 'cheques' as a
+          ledger_id. */}
+      <Route path="banks/reconciliation"       element={<RoleRoute perm="accounts.view"><BankReconciliation /></RoleRoute>} />
+      <Route path="banks/cheques"              element={<RoleRoute perm="cheques.view"><ChequeRegister /></RoleRoute>} />
+      <Route path="banks/:ledger_id/statement" element={<RoleRoute perm="accounts.view"><BankStatement /></RoleRoute>} />
+
+      {/* Loans — same shape as banks. /loans/schedule is the cross-loan
+          upcoming-EMI dashboard (mirror of bank reconciliation). */}
+      <Route path="loans"                      element={<RoleRoute perm="accounts.view"><LoanList /></RoleRoute>} />
+      <Route path="loans/schedule"             element={<RoleRoute perm="accounts.view"><LoanSchedule /></RoleRoute>} />
+      <Route path="loans/:ledger_id/statement" element={<RoleRoute perm="accounts.view"><LoanStatement /></RoleRoute>} />
+
+      {/* Settings hub — macOS-style layout with grouped left rail
+          and the active page rendering in the right pane via
+          <Outlet />. Bare /settings lands on Company so the hub
+          is never empty. */}
+      <Route path="settings" element={<SettingsLayout />}>
+        <Route index                      element={<Navigate to="/settings/company" replace />} />
+        <Route path="company"             element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />
+        <Route path="financial-year"      element={<RoleRoute perm="settings.manage_company"><FinancialYearSettings /></RoleRoute>} />
+        {/* My Account — every logged-in user can reach this; no permission gate. */}
+        <Route path="account"             element={<PrivateRoute><MyAccount /></PrivateRoute>} />
+        {/* Notifications preferences — per-user, no permission gate. */}
+        <Route path="notifications"       element={<PrivateRoute><NotificationsSettings /></PrivateRoute>} />
+        <Route path="users"               element={<RoleRoute perm="settings.manage_users"><UserManagement /></RoleRoute>} />
+        <Route path="barcode"             element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
+        {/* Task pages — the switches an operator looks for while doing
+            that job (these replaced the old Features + Defaults pages). */}
+        <Route path="sales-bill"          element={<RoleRoute perm="settings.manage_company"><SalesBillSettings /></RoleRoute>} />
+        <Route path="purchase-bill"       element={<RoleRoute perm="settings.manage_company"><PurchaseBillSettings /></RoleRoute>} />
+        <Route path="stock"               element={<RoleRoute perm="settings.manage_company"><StockSettings /></RoleRoute>} />
+        <Route path="accounts"            element={<RoleRoute perm="settings.manage_company"><AccountsSettings /></RoleRoute>} />
+        <Route path="parcel-labels"       element={<RoleRoute perm="settings.manage_company"><ParcelLabelSettings /></RoleRoute>} />
+        {/* Old addresses keep working (bookmarks, links from other screens). */}
+        {Object.entries(SETTINGS_REDIRECTS).map(([from, to]) => (
+          <Route key={from} path={from} element={<Navigate to={`/settings/${to}`} replace />} />
+        ))}
+        <Route path="customer-insight"    element={<RoleRoute perm="settings.manage_company"><CustomerInsightSettings /></RoleRoute>} />
+        <Route path="salesmen"            element={<RoleRoute perm="settings.manage_company"><SalesmanList /></RoleRoute>} />
+        <Route path="membership"          element={<RoleRoute perm="settings.manage_company"><MembershipSettings /></RoleRoute>} />
+        <Route path="membership-plans"    element={<RoleRoute perm="settings.manage_company"><MembershipPlans /></RoleRoute>} />
+        <Route path="staff-attendance"    element={<RoleRoute perm="settings.manage_company"><StaffAttendanceSettings /></RoleRoute>} />
+        <Route path="network"             element={<RoleRoute perm="settings.manage_company"><LanSettings /></RoleRoute>} />
+        <Route path="remote-access"       element={<RoleRoute perm="settings.manage_company"><RemoteAccess /></RoleRoute>} />
+        <Route path="whatsapp"            element={<RoleRoute perm="settings.manage_company"><WhatsappSettings /></RoleRoute>} />
+        <Route path="whatsapp-bot"        element={<RoleRoute perm="settings.manage_company"><WhatsappBotSettings /></RoleRoute>} />
+        <Route path="backup"              element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />
+        <Route path="software-update"     element={<RoleRoute perm="settings.manage_company"><SoftwareUpdate /></RoleRoute>} />
+        {/* Theme is per-user UX — anyone can pick light/dark. */}
+        <Route path="theme"               element={<ThemeSettings />} />
+        <Route path="import-export"       element={<DevGatedRoute flag="import_export"><RoleRoute perm="settings.import_export"><ImportExport /></RoleRoute></DevGatedRoute>} />
+        <Route path="import"              element={<DevGatedRoute flag="import_export"><RoleRoute perm="settings.import_export"><ImportV2 /></RoleRoute></DevGatedRoute>} />
+        <Route path="tally"               element={<DevGatedRoute flag="tally_sync"><RoleRoute perm="settings.tally"><TallySync /></RoleRoute></DevGatedRoute>} />
+        <Route path="print"               element={<RoleRoute perm="settings.print"><PrintSettings /></RoleRoute>} />
+        <Route path="godowns"             element={<MultiWarehouseRoute><RoleRoute perm="godowns.view"><GodownList /></RoleRoute></MultiWarehouseRoute>} />
+        {/* Home page customization — no perm gate; every operator can
+            pick what shows on their own landing page. */}
+        <Route path="home"                element={<HomeSettings />} />
+        {/* Dashboard customization — same per-user UX gate (none); the
+            /dashboard route renders whatever tiles the operator has
+            pinned in their localStorage settings. */}
+        <Route path="dashboard"           element={<DashboardSettings />} />
+        {/* Developer Settings — only reachable when developer mode is
+            unlocked on this device. The page itself shows the toggle
+            grid and the LAN-deployment knobs. */}
+        <Route path="developer"           element={<DevModeOnlyRoute><DeveloperSettings /></DevModeOnlyRoute>} />
+        {/* License panel — anyone can view their own license status
+            (so they know when it's about to expire); the Replace
+            flow inside the page is dev-gated separately. */}
+        <Route path="license"             element={<LicenseSettings />} />
+        {/* Manage Companies — list / create / archive. Visible to
+            every authenticated user (the sidebar entry is). The
+            CREATE button is implicitly gated by the dev_max_companies
+            cap on the server. */}
+        <Route path="companies"           element={<CompanyList />} />
+        {/* UI-C2 — catch-all 404 inside the authenticated/onboarded
+            shell. Without this a typo in any sidebar link or stale
+            bookmark renders a blank <Outlet/> with no feedback. */}
+        <Route path="*"                   element={<NotFoundPage />} />
+      </Route>
+      <Route path="*" element={<NotFoundPage />} />
+    </>
+  );
+
   return (
     <>
       <ShortcutsOverlay visible={showShortcuts} onClose={() => setShowShortcuts(false)} />
@@ -716,246 +962,9 @@ export default function App() {
         <Route path="/license" element={<LicenseActivation />} />
         <Route path="/login" element={<Login />} />
         <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
-        <Route path="/" element={<PrivateRoute><OnboardingGate><AppLayout /></OnboardingGate></PrivateRoute>}>
-          {/*
-            / is the Command Center (Home) — greeting, global search, quick
-            actions, KPI strip. The deep 9-up Dashboard moved to /dashboard
-            so the home page stays a single-screen launchpad. Both routes
-            are always reachable; either is a safe fallback when an
-            operator's intended starting route is gated off.
-          */}
-          <Route index element={<Home />} />
-          <Route path="dashboard"          element={<Dashboard />} />
-          <Route path="dashboard/classic"  element={<DashboardClassic />} />
-
-          {/* Parties */}
-          <Route path="customers"    element={<RoleRoute perm="parties.view"><CustomerList /></RoleRoute>} />
-          <Route path="suppliers"    element={<RoleRoute perm="parties.view"><SupplierList /></RoleRoute>} />
-          {/* Members — loyalty enrolments. Gated in the menu by the
-              membership_enabled flag; the route itself only needs parties.view. */}
-          <Route path="members"      element={<RoleRoute perm="parties.view"><MembershipList /></RoleRoute>} />
-          <Route path="members/report" element={<RoleRoute perm="parties.view"><MembershipReport /></RoleRoute>} />
-          <Route path="staff-attendance" element={<RoleRoute perm="settings.manage_company"><AttendanceRegister /></RoleRoute>} />
-          <Route path="staff-payroll" element={<RoleRoute perm="settings.manage_company"><Payroll /></RoleRoute>} />
-          {/* /parties/:id — legacy detail page retired. The redirect below
-              resolves party type and bounces to Customer / Supplier
-              Statement (with ?id= so the picker pre-selects). */}
-          <Route path="parties/:id"  element={<RoleRoute perm="parties.view"><PartyDetailRedirect /></RoleRoute>} />
-
-          {/* Inventory */}
-          <Route path="products"                       element={<RoleRoute perm="inventory.view"><ProductList /></RoleRoute>} />
-          <Route path="categories"                     element={<RoleRoute perm="inventory.view"><CategoryList /></RoleRoute>} />
-          <Route path="stock-report"                   element={<RoleRoute perm="inventory.view"><StockReport /></RoleRoute>} />
-          <Route path="stock-report-pro"               element={<RoleRoute perm="inventory.view"><StockReportPro /></RoleRoute>} />
-          <Route path="stock-report-pro/:categoryId"   element={<RoleRoute perm="inventory.view"><SmartStockCategory /></RoleRoute>} />
-          {/* Splat route — keeps StockMovement mounted when navigating
-               from /stock-movement to /stock-movement/:productId, so
-               clicking a product doesn't remount the whole page (which
-               previously re-ran loadProducts and caused a visible blink). */}
-          <Route path="stock-movement/*"               element={<RoleRoute perm="inventory.view"><StockMovement /></RoleRoute>} />
-          <Route path="stock-transfers"                element={<MultiWarehouseRoute><RoleRoute perm="stock_transfers.view"><StockTransferList /></RoleRoute></MultiWarehouseRoute>} />
-          <Route path="stock-transfer/new"             element={<MultiWarehouseRoute><RoleRoute perm="stock_transfers.create"><StockTransferForm /></RoleRoute></MultiWarehouseRoute>} />
-          <Route path="stock-transfer/edit/:id"        element={<MultiWarehouseRoute><RoleRoute perm="stock_transfers.view"><StockTransferForm /></RoleRoute></MultiWarehouseRoute>} />
-
-          {/* Batches (Commit 5) — list + per-batch detail. Same
-              .report-editorial shell as Stock Transfers list / Sales
-              Report so cross-page navigation feels uniform. */}
-          <Route path="inventory/batches"              element={<RoleRoute perm="batches.view"><BatchesList /></RoleRoute>} />
-          <Route path="inventory/batches/:batch_id"    element={<RoleRoute perm="batches.view"><BatchDetail /></RoleRoute>} />
-          <Route path="reports/expiry"                 element={<RoleRoute perm="batches.view"><ExpiryReport /></RoleRoute>} />
-
-          {/* Purchase */}
-          <Route path="purchase/new"     element={<RoleRoute perm="purchase.create"><PurchaseBillForm /></RoleRoute>} />
-          <Route path="purchase/edit/:id" element={<RoleRoute perm="purchase.edit"><PurchaseBillForm /></RoleRoute>} />
-          <Route path="purchases"        element={<RoleRoute perm="purchase.view"><PurchaseList /></RoleRoute>} />
-
-          {/* Sales */}
-          <Route path="sale/new"      element={<RoleRoute perm="sales.create"><SalesBillForm /></RoleRoute>} />
-          <Route path="sale/edit/:id" element={<RoleRoute perm="sales.edit"><SalesBillForm /></RoleRoute>} />
-          <Route path="sales"         element={<RoleRoute perm="sales.view"><SalesList /></RoleRoute>} />
-
-          {/* Returns — split by module so sales staff can't touch supplier returns */}
-          <Route path="sales-return/new"      element={<RoleRoute perm="sales_returns.create"><SalesReturnForm /></RoleRoute>} />
-          <Route path="sales-return/edit/:id" element={<RoleRoute perm="sales_returns.edit"><SalesReturnForm /></RoleRoute>} />
-          <Route path="sales-returns"         element={<RoleRoute perm="sales_returns.view"><SalesReturnList /></RoleRoute>} />
-          <Route path="purchase-return/new"      element={<RoleRoute perm="purchase_returns.create"><PurchaseReturnForm /></RoleRoute>} />
-          <Route path="purchase-return/edit/:id" element={<RoleRoute perm="purchase_returns.edit"><PurchaseReturnForm /></RoleRoute>} />
-          <Route path="purchase-returns"         element={<RoleRoute perm="purchase_returns.view"><PurchaseReturnList /></RoleRoute>} />
-
-          {/* Payments */}
-          <Route path="payment/new" element={<RoleRoute perm="payments.create"><PaymentEntry /></RoleRoute>} />
-          <Route path="receipt/new" element={<RoleRoute perm="payments.create"><ReceiptEntry /></RoleRoute>} />
-          {/* Edit-existing routes — same component, different mode. Component
-              reads :id from useParams and switches to update() instead of create(). */}
-          <Route path="payment/edit/:id" element={<RoleRoute perm="payments.create"><PaymentEntry /></RoleRoute>} />
-          <Route path="receipt/edit/:id" element={<RoleRoute perm="payments.create"><ReceiptEntry /></RoleRoute>} />
-          <Route path="payments"    element={<RoleRoute perm="payments.view"><PaymentList /></RoleRoute>} />
-
-          {/* Expenses — Indirect / Direct expense bookings with full
-              double-entry. List + entry + report all hang off the
-              Expenses dropdown in the sidebar. */}
-          <Route path="expenses"            element={<RoleRoute perm="expenses.view"><ExpenseList /></RoleRoute>} />
-          <Route path="expenses/new"        element={<RoleRoute perm="expenses.create"><ExpenseEntry /></RoleRoute>} />
-          <Route path="expenses/edit/:id"   element={<RoleRoute perm="expenses.view"><ExpenseEntry /></RoleRoute>} />
-          <Route path="expenses/report"     element={<RoleRoute perm="expenses.view"><ExpenseReport /></RoleRoute>} />
-
-          {/* Reports */}
-          {/* Reports hub — landing for all reports. Cluttered flat dropdown
-              has been replaced by this page + a favorites-only nav menu. */}
-          <Route path="reports"               element={<ReportsHub />} />
-          <Route path="reports/sales"         element={<RoleRoute perm="reports.view"><SalesReport /></RoleRoute>} />
-          <Route path="reports/sales-by-salesman" element={<RoleRoute perm="reports.view"><SalesmanReport /></RoleRoute>} />
-          <Route path="reports/purchases"     element={<RoleRoute perm="reports.view"><PurchaseReport /></RoleRoute>} />
-          {/* /reports/stock removed — Stock Report lives at /stock-report
-              (inventory menu). Old links rewired in BalanceSheet + the
-              reports-hub config. */}
-          {/* Customer / Supplier Statement + COA Ledger replace the
-              old single Party Ledger page. The legacy /reports/party-
-              ledger route is preserved as a redirect so old bookmarks,
-              deep links from Aging / Outstanding, and any external
-              references (printed reports, emails) keep working. The
-              <PartyLedgerRedirect> component below resolves the party
-              type when ?id=<party_id> is present and bounces to the
-              correct flavor. */}
-          <Route path="reports/customer-statement" element={<RoleRoute perm="accounts.view"><CustomerStatement /></RoleRoute>} />
-          <Route path="reports/supplier-statement" element={<RoleRoute perm="accounts.view"><SupplierStatement /></RoleRoute>} />
-          <Route path="reports/staff-statement" element={<RoleRoute perm="settings.manage_company"><StaffStatementPage /></RoleRoute>} />
-          {/* One route serves both directions — ?direction=supplier|customer.
-              The registry lists them as two cards so each is pinnable. */}
-          <Route path="reports/party-lapse"        element={<RoleRoute perm="reports.view"><PartyLapseReport /></RoleRoute>} />
-          <Route path="reports/top-parties"        element={<RoleRoute perm="reports.view"><TopPartiesReport /></RoleRoute>} />
-          <Route path="reports/ledger"             element={<RoleRoute perm="accounts.view"><Ledger /></RoleRoute>} />
-          <Route path="reports/party-ledger"       element={<RoleRoute perm="accounts.view"><PartyLedgerRedirect /></RoleRoute>} />
-          <Route path="reports/profit-loss"   element={<RoleRoute perm="accounts.view"><ProfitLoss /></RoleRoute>} />
-          <Route path="reports/receivables-aging" element={<RoleRoute perm="reports.view"><ReceivablesAging /></RoleRoute>} />
-          <Route path="reports/payables-aging"    element={<RoleRoute perm="reports.view"><PayablesAging /></RoleRoute>} />
-          {/* Legacy /reports/aging — keep alive for old bookmarks; lands
-              on Receivables (the more common workflow). */}
-          <Route path="reports/aging"             element={<RoleRoute perm="reports.view"><ReceivablesAging /></RoleRoute>} />
-          <Route path="reports/bills-receivable"    element={<RoleRoute perm="reports.view"><BillsReceivable /></RoleRoute>} />
-          <Route path="reports/bills-payable"       element={<RoleRoute perm="reports.view"><BillsPayable /></RoleRoute>} />
-          <Route path="reports/customer-outstanding" element={<RoleRoute perm="reports.view"><CustomerOutstanding /></RoleRoute>} />
-          <Route path="reports/supplier-outstanding" element={<RoleRoute perm="reports.view"><SupplierOutstanding /></RoleRoute>} />
-          <Route path="reports/monthly-sales"     element={<RoleRoute perm="reports.view"><MonthlySalesRegister /></RoleRoute>} />
-          <Route path="reports/monthly-purchases" element={<RoleRoute perm="reports.view"><MonthlyPurchaseRegister /></RoleRoute>} />
-          <Route path="reports/monthly-payments"  element={<RoleRoute perm="reports.view"><MonthlyPaymentRegister /></RoleRoute>} />
-          <Route path="reports/monthly-receipts"  element={<RoleRoute perm="reports.view"><MonthlyReceiptRegister /></RoleRoute>} />
-          <Route path="reports/product-sales"     element={<RoleRoute perm="reports.view"><ProductSalesReport /></RoleRoute>} />
-          <Route path="reports/product-purchases" element={<RoleRoute perm="reports.view"><ProductPurchaseReport /></RoleRoute>} />
-          <Route path="reports/gstr1"         element={<RoleRoute perm="reports.view"><GSTR1Report /></RoleRoute>} />
-          <Route path="reports/gstr3b"        element={<RoleRoute perm="reports.view"><GSTR3BReport /></RoleRoute>} />
-          <Route path="reports/trial-balance"     element={<RoleRoute perm="accounts.view"><TrialBalance /></RoleRoute>} />
-          <Route path="reports/balance-sheet"     element={<RoleRoute perm="accounts.view"><BalanceSheet /></RoleRoute>} />
-          <Route path="reports/cash-flow"         element={<RoleRoute perm="accounts.view"><CashFlow /></RoleRoute>} />
-          <Route path="reports/fund-flow"         element={<RoleRoute perm="accounts.view"><FundFlow /></RoleRoute>} />
-          <Route path="reports/day-book"          element={<RoleRoute perm="accounts.view"><DayBook /></RoleRoute>} />
-          <Route path="reports/hsn-summary"        element={<RoleRoute perm="reports.view"><HsnSummary /></RoleRoute>} />
-          {/* /reports/stock-summary removed — opening / inward / outward
-              now live on the inventory Stock Report via the movement-
-              period range picker. Drill-down from ProfitLoss rewired. */}
-          <Route path="reports/fast-slow-stock"    element={<RoleRoute perm="reports.view"><FastSlowStock /></RoleRoute>} />
-          <Route path="reports/stock-by-color"             element={<RoleRoute perm="reports.view"><StockByColor /></RoleRoute>} />
-          {/* Dev-only preview route for the new EntityFormModal shell.
-           *  Not linked from any menu. Visit /dev/efm directly to test. */}
-          <Route path="dev/efm"                            element={<EntityFormModalDemo />} />
-          <Route path="reports/stock-by-color/:productId"  element={<RoleRoute perm="reports.view"><StockByColorDetail /></RoleRoute>} />
-          {/* Redirect — keep the legacy /reports/movers slug alive
-              forever so any user-saved bookmark, copy-pasted URL, or
-              cached favourite resolves to the new path.  Replace=true
-              so the redirect doesn't pollute history. */}
-          <Route path="reports/movers"             element={<Navigate to="/reports/fast-slow-stock" replace />} />
-          <Route path="reports/transfer-register"  element={<MultiWarehouseRoute><RoleRoute perm="reports.view"><GodownTransferRegister /></RoleRoute></MultiWarehouseRoute>} />
-          <Route path="reports/godown-valuation"   element={<MultiWarehouseRoute><RoleRoute perm="reports.view"><GodownValuation /></RoleRoute></MultiWarehouseRoute>} />
-
-          {/* Accounts (double-entry) */}
-          <Route path="accounts/journal"          element={<RoleRoute perm="accounts.view"><JournalVoucherList /></RoleRoute>} />
-          <Route path="accounts/journal/new"      element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
-          <Route path="accounts/journal/edit/:id" element={<RoleRoute perm="accounts.view"><JournalVoucherForm /></RoleRoute>} />
-          <Route path="accounts/integrity"        element={<DevGatedRoute flag="ledger_integrity"><RoleRoute perm="accounts.view"><LedgerIntegrity /></RoleRoute></DevGatedRoute>} />
-          <Route path="banks"                      element={<RoleRoute perm="accounts.view"><BankList /></RoleRoute>} />
-          {/* /banks/reconciliation and /banks/cheques must both come
-              before /banks/:ledger_id/statement — otherwise React Router
-              would try to use 'reconciliation' / 'cheques' as a
-              ledger_id. */}
-          <Route path="banks/reconciliation"       element={<RoleRoute perm="accounts.view"><BankReconciliation /></RoleRoute>} />
-          <Route path="banks/cheques"              element={<RoleRoute perm="cheques.view"><ChequeRegister /></RoleRoute>} />
-          <Route path="banks/:ledger_id/statement" element={<RoleRoute perm="accounts.view"><BankStatement /></RoleRoute>} />
-
-          {/* Loans — same shape as banks. /loans/schedule is the cross-loan
-              upcoming-EMI dashboard (mirror of bank reconciliation). */}
-          <Route path="loans"                      element={<RoleRoute perm="accounts.view"><LoanList /></RoleRoute>} />
-          <Route path="loans/schedule"             element={<RoleRoute perm="accounts.view"><LoanSchedule /></RoleRoute>} />
-          <Route path="loans/:ledger_id/statement" element={<RoleRoute perm="accounts.view"><LoanStatement /></RoleRoute>} />
-
-          {/* Settings hub — macOS-style layout with grouped left rail
-              and the active page rendering in the right pane via
-              <Outlet />. Bare /settings lands on Company so the hub
-              is never empty. */}
-          <Route path="settings" element={<SettingsLayout />}>
-            <Route index                      element={<Navigate to="/settings/company" replace />} />
-            <Route path="company"             element={<RoleRoute perm="settings.manage_company"><CompanyProfile /></RoleRoute>} />
-            <Route path="financial-year"      element={<RoleRoute perm="settings.manage_company"><FinancialYearSettings /></RoleRoute>} />
-            {/* My Account — every logged-in user can reach this; no permission gate. */}
-            <Route path="account"             element={<PrivateRoute><MyAccount /></PrivateRoute>} />
-            {/* Notifications preferences — per-user, no permission gate. */}
-            <Route path="notifications"       element={<PrivateRoute><NotificationsSettings /></PrivateRoute>} />
-            <Route path="users"               element={<RoleRoute perm="settings.manage_users"><UserManagement /></RoleRoute>} />
-            <Route path="barcode"             element={<RoleRoute perm="settings.barcode"><BarcodeSettingsPage /></RoleRoute>} />
-            {/* Task pages — the switches an operator looks for while doing
-                that job (these replaced the old Features + Defaults pages). */}
-            <Route path="sales-bill"          element={<RoleRoute perm="settings.manage_company"><SalesBillSettings /></RoleRoute>} />
-            <Route path="purchase-bill"       element={<RoleRoute perm="settings.manage_company"><PurchaseBillSettings /></RoleRoute>} />
-            <Route path="stock"               element={<RoleRoute perm="settings.manage_company"><StockSettings /></RoleRoute>} />
-            <Route path="accounts"            element={<RoleRoute perm="settings.manage_company"><AccountsSettings /></RoleRoute>} />
-            <Route path="parcel-labels"       element={<RoleRoute perm="settings.manage_company"><ParcelLabelSettings /></RoleRoute>} />
-            {/* Old addresses keep working (bookmarks, links from other screens). */}
-            {Object.entries(SETTINGS_REDIRECTS).map(([from, to]) => (
-              <Route key={from} path={from} element={<Navigate to={`/settings/${to}`} replace />} />
-            ))}
-            <Route path="customer-insight"    element={<RoleRoute perm="settings.manage_company"><CustomerInsightSettings /></RoleRoute>} />
-            <Route path="salesmen"            element={<RoleRoute perm="settings.manage_company"><SalesmanList /></RoleRoute>} />
-            <Route path="membership"          element={<RoleRoute perm="settings.manage_company"><MembershipSettings /></RoleRoute>} />
-            <Route path="membership-plans"    element={<RoleRoute perm="settings.manage_company"><MembershipPlans /></RoleRoute>} />
-            <Route path="staff-attendance"    element={<RoleRoute perm="settings.manage_company"><StaffAttendanceSettings /></RoleRoute>} />
-            <Route path="network"             element={<RoleRoute perm="settings.manage_company"><LanSettings /></RoleRoute>} />
-            <Route path="remote-access"       element={<RoleRoute perm="settings.manage_company"><RemoteAccess /></RoleRoute>} />
-            <Route path="whatsapp"            element={<RoleRoute perm="settings.manage_company"><WhatsappSettings /></RoleRoute>} />
-            <Route path="whatsapp-bot"        element={<RoleRoute perm="settings.manage_company"><WhatsappBotSettings /></RoleRoute>} />
-            <Route path="backup"              element={<RoleRoute perm="settings.backup"><BackupRestore /></RoleRoute>} />
-            <Route path="software-update"     element={<RoleRoute perm="settings.manage_company"><SoftwareUpdate /></RoleRoute>} />
-            {/* Theme is per-user UX — anyone can pick light/dark. */}
-            <Route path="theme"               element={<ThemeSettings />} />
-            <Route path="import-export"       element={<DevGatedRoute flag="import_export"><RoleRoute perm="settings.import_export"><ImportExport /></RoleRoute></DevGatedRoute>} />
-            <Route path="import"              element={<DevGatedRoute flag="import_export"><RoleRoute perm="settings.import_export"><ImportV2 /></RoleRoute></DevGatedRoute>} />
-            <Route path="tally"               element={<DevGatedRoute flag="tally_sync"><RoleRoute perm="settings.tally"><TallySync /></RoleRoute></DevGatedRoute>} />
-            <Route path="print"               element={<RoleRoute perm="settings.print"><PrintSettings /></RoleRoute>} />
-            <Route path="godowns"             element={<MultiWarehouseRoute><RoleRoute perm="godowns.view"><GodownList /></RoleRoute></MultiWarehouseRoute>} />
-            {/* Home page customization — no perm gate; every operator can
-                pick what shows on their own landing page. */}
-            <Route path="home"                element={<HomeSettings />} />
-            {/* Dashboard customization — same per-user UX gate (none); the
-                /dashboard route renders whatever tiles the operator has
-                pinned in their localStorage settings. */}
-            <Route path="dashboard"           element={<DashboardSettings />} />
-            {/* Developer Settings — only reachable when developer mode is
-                unlocked on this device. The page itself shows the toggle
-                grid and the LAN-deployment knobs. */}
-            <Route path="developer"           element={<DevModeOnlyRoute><DeveloperSettings /></DevModeOnlyRoute>} />
-            {/* License panel — anyone can view their own license status
-                (so they know when it's about to expire); the Replace
-                flow inside the page is dev-gated separately. */}
-            <Route path="license"             element={<LicenseSettings />} />
-            {/* Manage Companies — list / create / archive. Visible to
-                every authenticated user (the sidebar entry is). The
-                CREATE button is implicitly gated by the dev_max_companies
-                cap on the server. */}
-            <Route path="companies"           element={<CompanyList />} />
-            {/* UI-C2 — catch-all 404 inside the authenticated/onboarded
-                shell. Without this a typo in any sidebar link or stale
-                bookmark renders a blank <Outlet/> with no feedback. */}
-            <Route path="*"                   element={<NotFoundPage />} />
-          </Route>
-        </Route>
+        {/* Every signed-in screen renders inside AppLayout's tabs: each tab
+            matches these routes against its own location (see src/tabs). */}
+        <Route path="/*" element={<PrivateRoute><OnboardingGate><AppLayout pages={appPages} /></OnboardingGate></PrivateRoute>} />
         {/* Top-level catch-all — covers any path not matched above
             (login, license, setup pages also fall through here when
             already authenticated and onboarded). */}

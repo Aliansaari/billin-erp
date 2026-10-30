@@ -38,6 +38,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getClientServerUrl: () => ipcRenderer.invoke('client:get-server-url'),
   setClientServerUrl: (url) => ipcRenderer.invoke('client:set-server-url', url),
 
+  // Ctrl+W is caught in the main process (it would otherwise close the
+  // whole window) and arrives here as a tab command.
+  onTabCommand: (cb) => {
+    const handler = (_e, cmd) => cb(cmd);
+    ipcRenderer.on('tabs:command', handler);
+    return () => ipcRenderer.removeListener('tabs:command', handler);
+  },
   // App-exit confirmation. Main intercepts the window close and asks the
   // renderer to show the themed confirm + sign the user out; the renderer
   // sends `app:exit-confirmed` back only when the user agrees to quit.

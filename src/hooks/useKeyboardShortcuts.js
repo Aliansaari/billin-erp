@@ -7,6 +7,8 @@ import useFilteredAltMenus from './useFilteredAltMenus';
 // only needs the unlock state at the moment the chord fires, and subscribing
 // would re-register the whole global listener every time dev mode flips.
 import useDevModeStore from '../store/devModeStore';
+import { useTabLive } from '../tabs/tabContext';
+import { chromeNavigate } from '../tabs/tabActions';
 
 /* Master cheat-sheet — every keyboard shortcut + every F-key action strip
  * surface the operator can reach. Categorised so the help overlay can
@@ -39,6 +41,15 @@ export const SHORTCUTS_LIST = [
   { category: 'Navigation', keys: 'Alt + R',              description: 'Reports hub' },
   { category: 'Navigation', keys: 'Alt + T',              description: 'Settings (direct)' },
   { category: 'Navigation', keys: 'Cmd/Ctrl + Alt + C',   description: 'Manage Companies' },
+
+  // ── Tabs (src/tabs) ────────────────────────────────────────────────────
+  { category: 'Tabs', keys: 'Ctrl + T',             description: 'New tab' },
+  { category: 'Tabs', keys: 'Ctrl + W',             description: 'Close tab (a bill is kept in Drafts)' },
+  { category: 'Tabs', keys: 'Ctrl + Shift + T',     description: 'Reopen the tab you closed' },
+  { category: 'Tabs', keys: 'Ctrl + Tab',           description: 'Next tab (Shift: previous)' },
+  { category: 'Tabs', keys: 'Ctrl + 1 … 8',         description: 'Go to that tab · Ctrl + 9 the last one' },
+  { category: 'Tabs', keys: 'Ctrl + Click',         description: 'Open a menu item in a new tab (right-click works too)' },
+  { category: 'Search palette', keys: 'Cmd/Ctrl + ↵', description: 'Open the highlighted row in a new tab' },
 
   // ── Quick create (Ctrl + letter → one-keystroke jump) ─────────────────
   { category: 'Quick create', keys: 'Ctrl + S',           description: 'New Sale bill' },
@@ -83,7 +94,6 @@ export const SHORTCUTS_LIST = [
   { category: 'Search palette', keys: '/a',               description: 'Scope to Actions / commands' },
   { category: 'Search palette', keys: '↑ / ↓',            description: 'Move highlight through results' },
   { category: 'Search palette', keys: '↵',                description: 'Open the highlighted row' },
-  { category: 'Search palette', keys: 'Cmd/Ctrl + ↵',     description: 'Open the highlighted row in a new window' },
   { category: 'Search palette', keys: 'Cmd/Ctrl + B',     description: 'Pin / unpin the highlighted row' },
 
   // ── Master chooser (Cmd/Ctrl + Shift + N) ─────────────────────────────
@@ -102,6 +112,7 @@ export const SHORTCUTS_CATEGORIES = [
   'Global',
   'Navigation',
   'Quick create',
+  'Tabs',
   'Bill form',
   'List page',
   'Search palette',
@@ -110,6 +121,8 @@ export const SHORTCUTS_CATEGORIES = [
 
 export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
   const navigate = useNavigate();
+  // Unsaved work on screen → the destination opens in its own tab.
+  const go = useCallback((to) => chromeNavigate(to, {}, navigate), [navigate]);
   const { openMenu } = useMenuPopup();
   // Use the filtered version so Alt+A → I (Ledger Integrity) etc.
   // respect the developer-tier toggles. Without filtering here, the
@@ -160,7 +173,7 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
       // switcher + manage UI.
       if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === 'KeyC') {
         e.preventDefault();
-        navigate('/settings/companies');
+        go('/settings/companies');
         return;
       }
 
@@ -181,7 +194,7 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
       // only reliable identity.
       if ((e.ctrlKey || e.metaKey) && e.altKey && e.shiftKey && e.code === 'KeyD') {
         e.preventDefault();
-        if (useDevModeStore.getState().unlocked) navigate('/settings/developer');
+        if (useDevModeStore.getState().unlocked) go('/settings/developer');
         else window.dispatchEvent(new Event('dev-gate:open'));
         return;
       }
@@ -219,13 +232,13 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
           // Single-item menus (Alt+H / Alt+D) skip the popup and just
           // navigate — opening a menu with one option would be friction.
           if (menu.items.length === 1) {
-            navigate(menu.items[0].route);
+            go(menu.items[0].route);
           } else {
             openMenu({
               title: menu.title,
               items: menu.items,
               anchorKey: menu.anchorKey,
-              onPick: (it) => navigate(it.route),
+              onPick: (it) => go(it.route),
             });
           }
           return;
@@ -241,7 +254,7 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
         const route = CTRL_DIRECT[e.code];
         if (route) {
           e.preventDefault();
-          navigate(route);
+          go(route);
           return;
         }
       }
@@ -275,18 +288,18 @@ export function useGlobalShortcuts({ onRefresh, onToggleHelp } = {}) {
       // deliberate no-op), so e.defaultPrevented tells us the page owns
       // it. Without this, F7 on the Purchase list opened Payment.
       if (e.key === 'F6' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        setTimeout(() => { if (!e.defaultPrevented) navigate('/receipt/new'); }, 0);
+        setTimeout(() => { if (!e.defaultPrevented) go('/receipt/new'); }, 0);
         return;
       }
       if (e.key === 'F7' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        setTimeout(() => { if (!e.defaultPrevented) navigate('/payment/new'); }, 0);
+        setTimeout(() => { if (!e.defaultPrevented) go('/payment/new'); }, 0);
         return;
       }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [navigate, onRefresh, onToggleHelp, openMenu, altMenus]);
+  }, [go, onRefresh, onToggleHelp, openMenu, altMenus]);
 }
 
 export function useEnterNavigation(containerRef, onLastField) {
@@ -337,8 +350,10 @@ export function useEnterNavigation(containerRef, onLastField) {
 
 // Hook to handle Ctrl+Enter for form submission
 export function useCtrlEnterSubmit(callback) {
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     const handler = (e) => {
+      if (!tabLive()) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         callback?.();

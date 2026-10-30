@@ -199,7 +199,7 @@ export default function PartyStatementPage({
     if (party) next.set('id', String(party.party_id));
     if (from)  next.set('from', from);
     if (to)    next.set('to',   to);
-    const current = new URLSearchParams(window.location.search).toString();
+    const current = searchParams.toString();
     if (next.toString() === current) return;
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { useTabId } from '../tabs/tabContext';
 
 /*
  * useBillAutosave — an unfinished bill survives a crash, a power cut, a
@@ -31,11 +32,32 @@ import { useCallback, useEffect, useRef } from 'react';
  */
 const EVERY_MS = 4000;
 
+/* Bills open in tabs right now. Two tabs can each hold a bill, so:
+ *   openDrafts   draft id → tab id: a draft open in one tab is never offered
+ *                for recovery (or recalled) in another.
+ *   instances    storage key → tab ids with a form mounted: the local copy is
+ *                shared per user, so while another tab has a bill it is not
+ *                "an unfinished bill from last time".
+ *   closeFlush   tab id → write-now, awaited before a tab with a bill closes. */
+const openDrafts = new Map();
+const instances = new Map();
+const closeFlush = new Map();
+
+/** The tab a draft is open in, if any. */
+export const tabOfDraft = (draftId) => openDrafts.get(draftId) ?? null;
+
+/** Save the bill in this tab right now (before the tab closes). */
+export async function flushTabBill(tabId) {
+  const f = closeFlush.get(tabId);
+  if (f) { try { await f(); } catch { /* the 4-second copy stands */ } }
+}
+
 const readLocal = (key) => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
 const writeLocal = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* full or blocked */ } };
 const dropLocal = (key) => { try { localStorage.removeItem(key); } catch { /* blocked */ } };
 
 export default function useBillAutosave({ enabled, dirty, buildPayload, draftApi, recalledDraftId, setRecalledDraftId, storageKey, userId }) {
+  const tabId = useTabId() ?? 'root';
   const ownedId = useRef(null);        // draft created by autosave (ours to discard on Reset)
   const lastJson = useRef('');
   const busy = useRef(false);
@@ -81,20 +103,42 @@ export default function useBillAutosave({ enabled, dirty, buildPayload, draftApi
   }, [draftApi, setRecalledDraftId, storageKey]);
 
   useEffect(() => {
+    if (!instances.has(storageKey)) instances.set(storageKey, new Set());
+    instances.get(storageKey).add(tabId);
+    return () => { instances.get(storageKey)?.delete(tabId); };
+  }, [storageKey, tabId]);
+
+  useEffect(() => {
+    if (recalledDraftId == null) return undefined;
+    openDrafts.set(recalledDraftId, tabId);
+    return () => { if (openDrafts.get(recalledDraftId) === tabId) openDrafts.delete(recalledDraftId); };
+  }, [recalledDraftId, tabId]);
+
+  const othersOpen = () => [...(instances.get(storageKey) || [])].some((t) => t !== tabId);
+
+  useEffect(() => {
     if (!enabled) return undefined;
+    closeFlush.set(tabId, tick);
     const t = setInterval(tick, EVERY_MS);
     const flush = () => { tick(); };
     window.addEventListener('beforeunload', flush);
     document.addEventListener('visibilitychange', flush);
-    return () => { clearInterval(t); window.removeEventListener('beforeunload', flush); document.removeEventListener('visibilitychange', flush); };
-  }, [enabled, tick]);
+    return () => {
+      clearInterval(t); window.removeEventListener('beforeunload', flush); document.removeEventListener('visibilitychange', flush);
+      if (closeFlush.get(tabId) === tick) closeFlush.delete(tabId);
+    };
+  }, [enabled, tick, tabId]);
 
   /** The bill was saved (its draft is already deleted server-side) or held. */
   const settled = useCallback(() => {
     gen.current += 1;
+    const mine = ownedId.current;
     ownedId.current = null; lastJson.current = '';
-    dropLocal(storageKey);
-  }, [storageKey]);
+    // The local copy is per user: leave it if it is another open tab's bill.
+    const loc = readLocal(storageKey);
+    if (!othersOpen() || !loc?.draft_id || loc.draft_id === mine) dropLocal(storageKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey, tabId]);
 
   /** The operator cleared the form on purpose: drop the draft autosave made. */
   const discard = useCallback(async () => {
@@ -115,10 +159,13 @@ export default function useBillAutosave({ enabled, dirty, buildPayload, draftApi
    *   { source: 'local', payload, at } — only the local copy survived
    */
   const findRecovery = useCallback((drafts, listOk) => {
+    const elsewhere = (id) => openDrafts.has(id) && openDrafts.get(id) !== tabId;
     const mine = (drafts || [])
-      .filter((d) => d.payload?._autosave && (!userId || d.created_by == null || d.created_by === userId))
+      .filter((d) => d.payload?._autosave && !elsewhere(d.draft_id) && (!userId || d.created_by == null || d.created_by === userId))
       .sort((a, b) => String(b.payload._autosaved_at || b.updated_date || '').localeCompare(String(a.payload._autosaved_at || a.updated_date || '')));
     if (mine.length) return { source: 'server', draft: mine[0] };
+    // Another tab has a bill going: the local copy is that bill, not a lost one.
+    if (othersOpen()) return null;
     const loc = readLocal(storageKey);
     if (loc?.payload && Date.now() - (loc.at || 0) < 7 * 86400000) {
       // If the server list was read and the local copy's draft is no longer
@@ -130,7 +177,8 @@ export default function useBillAutosave({ enabled, dirty, buildPayload, draftApi
       return { source: 'local', payload: loc.payload, at: loc.at };
     }
     return null;
-  }, [storageKey, userId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey, userId, tabId]);
 
   return { settled, discard, adopt, isOwned, findRecovery, flush: tick };
 }

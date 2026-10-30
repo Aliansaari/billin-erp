@@ -25,6 +25,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Select } from 'antd';
 import { partyAPI } from '../api';
 import { readRaw, writeRaw } from '../store/prefSync';
+import { useTabLive } from '../tabs/tabContext';
 
 const RECENT_KEY = (type) => `pp_recent_${type.toLowerCase()}`;
 const RECENT_MAX = 5;
@@ -77,8 +78,10 @@ export default function PartyPicker({ partyType, value, onChange }) {
 
   // `/` shortcut. Skip when typing into another input — `/` is a
   // legal character in narration / address fields elsewhere.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     const onKey = (e) => {
+      if (!tabLive()) return;
       if (e.key !== '/') return;
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) return;

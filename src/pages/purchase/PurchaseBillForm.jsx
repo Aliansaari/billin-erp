@@ -13,6 +13,8 @@ import { useDatePopup } from '../../components/keyboard/DatePopup';
 import confirmPrint from '../../utils/confirmPrint';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import useBillAutosave from '../../hooks/useBillAutosave';
+import { showDraftIfOpenElsewhere } from '../../tabs/tabActions';
+import { useTabId, useTabTitle } from '../../tabs/tabContext';
 import useBack from '../../hooks/useBack';
 import useActiveBillLine from '../../hooks/useActiveBillLine';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
@@ -33,6 +35,7 @@ import ProductFormModal from '../../components/ProductFormModal';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import './purchase-bill-form.css';
 import { getPref, setPref, clearPref } from '../../store/prefSync';
+import { useTabLive } from '../../tabs/tabContext';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 // Derive margin from purchase_rate/sale_rate when the stored value is 0/missing
@@ -220,6 +223,7 @@ export default function PurchaseBillForm() {
   const location = useLocation();
   const { id }   = useParams();
   const isEdit   = Boolean(id);
+  const tabId    = useTabId();
 
   const [form]            = Form.useForm();
   const [items, setItems] = useState([]);
@@ -1661,9 +1665,11 @@ export default function PurchaseBillForm() {
 
   // Global capture-phase keydown — intercepts ↑↓/Enter/Esc/Tab from ANY focused field
   // while the variant picker is visible, so focus position doesn't matter
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(()=>{
     if(!showVariantPicker) return;
     const handler=e=>{
+      if (!tabLive()) return;
       if(e.key==='ArrowDown'){
         e.preventDefault(); e.stopPropagation();
         setVariantPickerIdx(i=>{
@@ -1916,6 +1922,10 @@ export default function PurchaseBillForm() {
   // unsaved-work confirmation. Amount-mode counts as dirty when an amount > 0.
   const dirty = items.length > 0 || (billMode === 'amount' && parseFloat(amountVal) > 0);
   const confirmLeave = useUnsavedChangesWarning(dirty);
+  // Name the tab after the bill: "Purchase · YD GARMENTS".
+  const tabSupplier = parties.find((p) => p.party_id === supplierIdW);
+  useTabTitle(isEdit && billNumber ? `Purchase ${billNumber}` : 'Purchase',
+    (tabSupplier && !tabSupplier.is_system_cash ? tabSupplier.party_name : '') || (isEdit ? '' : 'New bill'));
 
   // ── Autosave: an unfinished bill survives a crash, power cut or sign-out ──
   const currentUserId = useMemo(() => { try { return JSON.parse(localStorage.getItem('user') || 'null')?.user_id || null; } catch { return null; } }, []);
@@ -2120,6 +2130,8 @@ export default function PurchaseBillForm() {
      row. Sets recalledDraftId so the next save deletes the draft inside
      the same transaction. */
   const recallDraft = useCallback(async (draftId) => {
+    // The same draft open in two tabs would be billed twice: go to it instead.
+    if (showDraftIfOpenElsewhere(draftId, tabId)) return;
     try {
       const { data: draft } = await purchaseDraftAPI.get(draftId);
       const p = draft.payload || {};
@@ -2193,6 +2205,7 @@ export default function PurchaseBillForm() {
   useEffect(() => {
     if (!draftsModalOpen || drafts.length === 0) return;
     const onKey = (e) => {
+      if (!tabLive()) return;
       if (document.querySelector('.ant-modal-confirm')) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();

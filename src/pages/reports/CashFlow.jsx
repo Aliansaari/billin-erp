@@ -37,6 +37,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './cash-flow.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { useTabLive } from '../../tabs/tabContext';
 
 // ── Number formatting ────────────────────────────────────────────────
 // Indian rupee, two decimals. Negative renders as `(-)X,XX,XXX.XX`
@@ -165,10 +166,12 @@ function CashFlowRegisterView() {
   }, [navigate, fromDate, toDate, presetKey]);
 
   // Keyboard nav — copy the contract from MonthlySummary.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!data?.rows?.length) return;
     const rowCount = data.rows.length;
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = (e.target?.tagName || '').toUpperCase();
       const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
                    || e.target?.isContentEditable
@@ -527,8 +530,10 @@ function CashFlowMonthView() {
   const outflowGroups = data?.outflow_groups || [];
 
   // Keyboard: ↑/↓ within current side, ←/→ switch sides, Enter drill.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = (e.target?.tagName || '').toUpperCase();
       const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
                    || e.target?.isContentEditable

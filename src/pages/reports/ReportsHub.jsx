@@ -13,6 +13,7 @@ import useAuthStore from '../../store/authStore';
 import { hasPermission } from '../../utils/perms';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import FavoriteStar from '../../components/FavoriteStar';
+import { useTabLive } from '../../tabs/tabContext';
 
 const { Title, Text } = Typography;
 
@@ -261,8 +262,10 @@ export default function ReportsHub() {
 
   useEffect(() => { if (!favLoaded) favLoad(); }, [favLoaded, favLoad]);
 
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     const onKey = (e) => {
+      if (!tabLive()) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         searchRef.current?.focus();

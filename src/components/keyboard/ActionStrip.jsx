@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { resolveBack } from '../../utils/escBack';
 import './ActionStrip.css';
+import { useTabLive } from '../../tabs/tabContext';
 
 // Classic accounting-style bottom action strip.
 //
@@ -124,8 +125,10 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
   const parsedRef = useRef(parsed);
   useEffect(() => { parsedRef.current = parsed; });
 
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     const handler = (e) => {
+      if (!tabLive()) return;
       const list = parsedRef.current;
       // First match wins. Iterate the live actions ref so the freshest
       // disabled/hidden state is honoured, even between renders.

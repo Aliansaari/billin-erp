@@ -14,6 +14,7 @@ import useHomeSettingsStore from '../store/homeSettingsStore';
 import Sparkline from '../components/editorial/Sparkline';
 import { GlobalSearchHomeCard } from '../components/GlobalSearch';
 import { actionTint } from '../config/navTints';
+import { chromeNavigate } from '../tabs/tabActions';
 import './home.css';
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -382,7 +383,7 @@ export default function Home() {
                 key={a.id}
                 className={`cc-action tint-${actionTint(a.id)}`}
                 data-tone={a.tone || ''}
-                onClick={() => navigate(a.route)}
+                onClick={() => chromeNavigate(a.route, {}, navigate)}
                 title={`${a.label} — ${a.sub}`}
               >
                 <span className="cc-action-icon"><Icon /></span>

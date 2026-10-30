@@ -32,6 +32,7 @@ import { Spin, Empty, Tooltip, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { reportAPI } from '../../api';
+import { useTabLive } from '../../tabs/tabContext';
 
 const fmt = (v) =>
   parseFloat(v || 0).toLocaleString('en-IN', {
@@ -253,8 +254,10 @@ export default function PartyOutstandingView({
     rows[activeIdx]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [activeIdx]);
 
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     const onKey = (e) => {
+      if (!tabLive()) return;
       // Skip while the bill view is in front — both views are mounted
       // simultaneously (for instant view-mode toggle), so without this
       // gate they'd both react to the same arrow keys.

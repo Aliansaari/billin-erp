@@ -42,6 +42,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './cash-flow.css';
 import './fund-flow.css';
+import { useTabLive } from '../../tabs/tabContext';
 
 // ── Number formatting (mirrors CashFlow.jsx) ─────────────────────────
 const fmtAmt = (v) => {
@@ -164,10 +165,12 @@ function FundFlowRegisterView() {
   }, [navigate, fromDate, toDate, presetKey]);
 
   // Keyboard nav — same contract as CashFlow / MonthlySummary.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!data?.rows?.length) return;
     const rowCount = data.rows.length;
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = (e.target?.tagName || '').toUpperCase();
       const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
                    || e.target?.isContentEditable
@@ -491,9 +494,11 @@ function FundFlowMonthView() {
   // (only meaningful on Net Profit / Funds Lost rows for now).
   const sources     = data?.sources || [];
   const applications = data?.applications || [];
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!data) return;
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = (e.target?.tagName || '').toUpperCase();
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       const list = activeSide === 'sources' ? sources : applications;

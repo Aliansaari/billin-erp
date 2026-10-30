@@ -10,6 +10,7 @@ import {
 import JsBarcode from 'jsbarcode';
 import { productAPI, settingsAPI } from '../api';
 import './barcode-print-modal.css';
+import { useTabLive } from '../tabs/tabContext';
 
 const { Text } = Typography;
 
@@ -710,9 +711,11 @@ export default function BarcodePrintModal({
     });
   });
 
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!visible) return;
     const onKey = (e) => {
+      if (!tabLive()) return;
       const S = kbRef.current;
       const k = e.key;
       // Print — F1 or Ctrl/Cmd+Enter

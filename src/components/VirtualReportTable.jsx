@@ -54,6 +54,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Table } from 'antd';
 import { PLACEHOLDER_ROW } from '../hooks/useVirtualizedReport';
+import { useTabLive } from '../tabs/tabContext';
 
 // Initial estimate for an Antd `size="small"` row. The real height is
 // measured at runtime (see `rowHeightRef` below) — this is just a
@@ -571,12 +572,14 @@ export default function VirtualReportTable({
     navRefs.current = { totalCount, ensureChunk, rows, onRowEnter, activeIdx };
   });
 
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!keyboardNav) return;
     // Controlled mode → parent (via useListSelection) owns the keyboard.
     // Skip the internal handler entirely so we don't double-fire.
     if (isControlled) return;
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
       const { totalCount: total, activeIdx: cur, onRowEnter: onEnter, rows: rs } = navRefs.current;

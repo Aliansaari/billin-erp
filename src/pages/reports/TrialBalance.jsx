@@ -29,6 +29,7 @@ import { reportAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import './trial-balance.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { useTabLive } from '../../tabs/tabContext';
 
 const fmtINR = (v) =>
   Number(v || 0).toLocaleString('en-IN', {
@@ -289,9 +290,11 @@ export default function TrialBalance() {
   // here. preventDefault tells AppLayout's up-one-level fallback that
   // this Esc is spoken for, which keeps it to ONE step: group → Trial
   // Balance, and only the next Esc leaves for /reports.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (page !== 'group') return;
     const onKey = (e) => {
+      if (!tabLive()) return;
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       const ae = document.activeElement;
       // A search box with text in it owns Esc first (clear, then close).
@@ -486,6 +489,7 @@ export default function TrialBalance() {
   // is reading and the keyboard hand are already on the keyboard).
   useEffect(() => {
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       const inField = tag === 'input' || tag === 'textarea' || tag === 'select';
       if (inField) return;

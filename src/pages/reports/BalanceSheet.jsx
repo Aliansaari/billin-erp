@@ -27,6 +27,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './balance-sheet.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { useTabLive } from '../../tabs/tabContext';
 
 const fmtINR = (v) =>
   Number(v || 0).toLocaleString('en-IN', {
@@ -320,8 +321,10 @@ export default function BalanceSheet() {
   // Esc is intentionally NOT handled here — AppLayout owns the global
   // Esc: it returns to the Reports hub only if this report was opened
   // from there, otherwise it cascades up to Home.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       const inField = tag === 'input' || tag === 'textarea' || tag === 'select';
       if (inField) return;

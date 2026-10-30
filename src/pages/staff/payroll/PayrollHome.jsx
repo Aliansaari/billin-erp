@@ -12,6 +12,7 @@ import useListSelection from '../../../hooks/useListSelection';
 import StaffAvatar from '../StaffAvatar';
 import QuickEntry, { payable } from './QuickEntry';
 import { inr0, cap, errText, ordinal } from './shared';
+import { useTabLive } from '../../../tabs/tabContext';
 
 /*
  * Payroll — a quiet list of staff with one entry line on top.
@@ -111,8 +112,9 @@ export default function PayrollHome({ onOpenView, onEditSalary, reloadBase, over
   useEffect(() => { if (visible.length && sel.cursorIdx == null) sel.setCursor(0); }, [visible.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // "/" jumps to the entry line from anywhere on the page.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
-    const onKey = (e) => { if (e.key === '/' && !busy && !inField(e.target)) { e.preventDefault(); entry.current?.focus(); } };
+    const onKey = (e) => { if (!tabLive()) return; if (e.key === '/' && !busy && !inField(e.target)) { e.preventDefault(); entry.current?.focus(); } };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [busy]);

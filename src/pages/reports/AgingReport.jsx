@@ -22,6 +22,7 @@ import { reportAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './aging-report.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { useTabLive } from '../../tabs/tabContext';
 
 /* ──────────────────────────── formatting ───────────────────────────── */
 
@@ -81,10 +82,11 @@ export default function AgingReport({ partyType = 'Customer' }) {
   const [displayOpen, setDisplayOpen] = useState(false);
   const displayBtnRef = useRef(null);
   // Close the popover on outside click / Escape.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!displayOpen) return;
     const close = (e) => { if (displayBtnRef.current && !displayBtnRef.current.contains(e.target)) setDisplayOpen(false); };
-    const esc = (e) => { if (e.key === 'Escape') setDisplayOpen(false); };
+    const esc = (e) => { if (!tabLive()) return; if (e.key === 'Escape') setDisplayOpen(false); };
     document.addEventListener('click', close);
     document.addEventListener('keydown', esc);
     return () => {
@@ -351,6 +353,7 @@ export default function AgingReport({ partyType = 'Customer' }) {
 
   useEffect(() => {
     const onKey = (e) => {
+      if (!tabLive()) return;
       // Don't fight inputs (search box, filter selects, etc.).
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;

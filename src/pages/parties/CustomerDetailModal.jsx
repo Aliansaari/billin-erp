@@ -4,6 +4,7 @@ import { partyAddressLines } from '../../utils/parcelTag';
 import ParcelTagDialog from '../../components/ParcelTagDialog';
 import MembershipCard from '../membership/MembershipCard';
 import './customer-detail-modal.css';
+import { useTabLive } from '../../tabs/tabContext';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * CustomerDetailModal — the F8 "full details" popup.
@@ -53,9 +54,11 @@ export default function CustomerDetailModal({
 
   // Esc closes the modal. While the label dialog is open it claims Esc
   // first (window capture), so this only fires once that dialog is shut.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
+      if (!tabLive()) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         onClose?.();

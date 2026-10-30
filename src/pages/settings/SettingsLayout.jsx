@@ -19,6 +19,7 @@ import { useSystemSettings } from '../../hooks/useSystemSettings';
 import './ModuleSettings.css';
 import './SettingsLayout.css';
 import { isRemoteShop } from '../../utils/remoteShop';
+import { useTabLive } from '../../tabs/tabContext';
 
 /**
  * SettingsLayout — macOS System Settings-style two-pane hub.
@@ -232,8 +233,10 @@ export default function SettingsLayout() {
   };
 
   // Ctrl/Cmd+F focuses the settings search while the hub is open.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     const onKey = (e) => {
+      if (!tabLive()) return;
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         searchRef.current?.focus();

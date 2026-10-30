@@ -174,7 +174,7 @@ function lsDel(k) { try { window.localStorage.removeItem(k); } catch { /* privat
  *
  * Returns null before sign-in; callers then fall back to the unscoped
  * key so the login screen still has a theme. */
-function currentScope() {
+export function currentScope() {
   const raw = lsGet('user');
   if (!raw || raw === 'undefined' || raw === 'null') return null;
   let userId = null;

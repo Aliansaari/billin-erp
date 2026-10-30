@@ -5,7 +5,7 @@ import {
   UserOutlined, ShopOutlined, AppstoreOutlined,
   FolderOpenOutlined, BankOutlined,
 } from '@ant-design/icons';
-import { useNavGuard } from '../hooks/useUnsavedChangesWarning';
+import { chromeNavigate } from '../tabs/tabActions';
 import './master-chooser.css';
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -47,9 +47,7 @@ export default function MasterChooser() {
   // this a Cmd+Shift+N inside a half-typed Sale would silently lose work.
   const goCreate = useCallback((opt) => {
     setOpen(false);
-    useNavGuard.getState().confirmLeave(() => {
-      rawNavigate(`${opt.route}?new=1`);
-    });
+    chromeNavigate(`${opt.route}?new=1`, {}, rawNavigate);
   }, [rawNavigate]);
 
   // Listen for the global trigger dispatched by the keyboard hook.

@@ -134,7 +134,7 @@ export default function Ledger() {
     if (ledgerId) next.set('id', String(ledgerId));
     if (from)     next.set('from', from);
     if (to)       next.set('to',   to);
-    const current = new URLSearchParams(window.location.search).toString();
+    const current = searchParams.toString();
     if (next.toString() === current) return;
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps

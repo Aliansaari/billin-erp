@@ -23,6 +23,7 @@ import './sales-view-modal.css';
 // classes so the Drafts dialog here matches the SalesBillForm version.
 import './sales-bill-form.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { showDraftIfOpenElsewhere } from '../../tabs/tabActions';
 
 // Optional columns the user can toggle via the Customize popover. Keys
 // match the state shape saved against the signed-in user (prefSync).
@@ -1074,7 +1075,7 @@ export default function SalesList() {
                     className="sbf-drafts-tr"
                     onDoubleClick={() => {
                       setDraftsModalOpen(false);
-                      navigate('/sale/new', { state: { recallDraft: d.draft_id } });
+                      if (!showDraftIfOpenElsewhere(d.draft_id)) navigate('/sale/new', { state: { recallDraft: d.draft_id } });
                     }}
                   >
                     <span className="c-date">
@@ -1099,7 +1100,7 @@ export default function SalesList() {
                         onClick={(e) => {
                           e.stopPropagation();
                           setDraftsModalOpen(false);
-                          navigate('/sale/new', { state: { recallDraft: d.draft_id } });
+                          if (!showDraftIfOpenElsewhere(d.draft_id)) navigate('/sale/new', { state: { recallDraft: d.draft_id } });
                         }}
                       >
                         <span className="sbf-drafts-btn-ico" aria-hidden>↩</span>

@@ -472,6 +472,16 @@ async function createWindow() {
   });
 
   mainWindow.setMenuBarVisibility(false);
+  // Ctrl+W closes the current TAB inside ZEHEN, never the window (the
+  // hidden default menu would otherwise treat it as "close window").
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const mod = process.platform === 'darwin' ? input.meta : input.control;
+    if (mod && !input.alt && !input.shift && String(input.key).toLowerCase() === 'w') {
+      event.preventDefault();
+      mainWindow.webContents.send('tabs:command', 'close');
+    }
+  });
   // Always launch maximised. The width/height/x/y above act as the
   // "restore-down" bounds — i.e. what the user gets back when they click
   // the restore button next to the X. Calling maximize() BEFORE show()

@@ -22,6 +22,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { partyAPI } from '../api';
 import './CustomerInsightPanel.css';
+import { useTabLive } from '../tabs/tabContext';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmtMoney(val) {
@@ -88,9 +89,10 @@ export default function CustomerInsightPanel({ open, onClose, partyId, settings,
   }, [open, partyId, isSupplier]);
 
   // F8 closes
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!open) return;
-    const handler = (e) => { if (e.key === 'F8') { e.preventDefault(); onClose(); } };
+    const handler = (e) => { if (!tabLive()) return; if (e.key === 'F8') { e.preventDefault(); onClose(); } };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose]);

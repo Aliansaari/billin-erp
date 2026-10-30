@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import confirmDialog from '../utils/confirmDialog';
+import { useTabId } from '../tabs/tabContext';
+import useTabStore from '../tabs/tabStore';
 
 const DEFAULT_MSG =
   "You have unsaved changes on this page. If you leave now, they will be lost.";
@@ -15,13 +17,23 @@ const DEFAULT_MSG =
  * Discarding requires an explicit click on the danger button, so a
  * reflexive keypress can never throw away a half-typed bill.
  */
-export const useNavGuard = create((set) => ({
-  dirty: false,
-  message: DEFAULT_MSG,
-  setGuard: (dirty, message) => set({ dirty, message: message || DEFAULT_MSG }),
-  clearGuard: () => set({ dirty: false }),
+export const useNavGuard = create((set, get) => ({
+  // One guard per tab (key 'root' outside tabs): two open bills must not
+  // overwrite or clear each other's unsaved state.
+  guards: {},
+  setGuard: (dirty, message, tabId = 'root') => set({ guards: { ...get().guards, [tabId]: { dirty, message: message || DEFAULT_MSG } } }),
+  clearGuard: (tabId = 'root') => {
+    if (!get().guards[tabId]) return;
+    const guards = { ...get().guards }; delete guards[tabId]; set({ guards });
+  },
+  isDirty: (tabId) => !!get().guards[tabId]?.dirty,
+  /** The guard of the screen on view. */
+  current: () => {
+    const g = get().guards;
+    return g[useTabStore.getState().activeId] || g.root || { dirty: false, message: DEFAULT_MSG };
+  },
   confirmLeave: (onConfirm) => {
-    const { dirty, message } = useNavGuard.getState();
+    const { dirty, message } = get().current();
     if (!dirty) { onConfirm?.(); return; }
     confirmDialog({
       title: 'Discard unsaved changes?',
@@ -45,10 +57,11 @@ export const useNavGuard = create((set) => ({
  * one cannot be styled. Only in-app navigation uses the themed modal.
  */
 export function useUnsavedChangesWarning(dirty, message = DEFAULT_MSG) {
+  const tabId = useTabId() ?? 'root';
   useEffect(() => {
-    useNavGuard.getState().setGuard(dirty, message);
-    return () => useNavGuard.getState().clearGuard();
-  }, [dirty, message]);
+    useNavGuard.getState().setGuard(dirty, message, tabId);
+    return () => useNavGuard.getState().clearGuard(tabId);
+  }, [dirty, message, tabId]);
 
   useEffect(() => {
     if (!dirty) return;

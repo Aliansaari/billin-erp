@@ -56,6 +56,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import './fast-slow-stock.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { useTabLive } from '../../tabs/tabContext';
 
 // ── Number / date formatters ─────────────────────────────────────────
 const fmtAmt = (v) => {
@@ -377,10 +378,12 @@ export default function FastSlowStock() {
   );
 
   // Keyboard nav.
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!data?.rows?.length) return;
     const rows = data.rows;
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = (e.target?.tagName || '').toUpperCase();
       const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
                    || e.target?.isContentEditable

@@ -141,7 +141,7 @@ export default function StaffStatementPage() {
     if (from) next.set('from', from);
     if (to) next.set('to', to);
     if (backToPayroll) next.set('back', 'payroll');
-    if (next.toString() === new URLSearchParams(window.location.search).toString()) return;
+    if (next.toString() === searchParams.toString()) return;
     setSearchParams(next, { replace: true });
   }, [staffId, from, to]); // eslint-disable-line react-hooks/exhaustive-deps
 

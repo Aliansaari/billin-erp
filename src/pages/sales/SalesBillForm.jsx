@@ -9,6 +9,8 @@ import { printDocument, shareBillViaWhatsApp, whatsappReady } from '../../servic
 import { whatsappAPI } from '../../api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import useBillAutosave from '../../hooks/useBillAutosave';
+import { showDraftIfOpenElsewhere } from '../../tabs/tabActions';
+import { useTabId, useTabTitle } from '../../tabs/tabContext';
 import useBack from '../../hooks/useBack';
 import useActiveBillLine from '../../hooks/useActiveBillLine';
 import { useMultiWarehouseEnabled, useMergeRepeatScansMode, useMultiColorEnabled, useSystemSettings } from '../../hooks/useSystemSettings';
@@ -24,6 +26,7 @@ import ParcelTagDialog from '../../components/ParcelTagDialog';
 import './sales-bill-form.css';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 import { getPref, setPref, clearPref } from '../../store/prefSync';
+import { useTabLive } from '../../tabs/tabContext';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
@@ -181,6 +184,7 @@ export default function SalesBillForm() {
   const location = useLocation();
   const { id }   = useParams();
   const isEdit   = Boolean(id);
+  const tabId    = useTabId();
 
   // Where Back / post-save returns to. Pages that link here can pass
   //   <Link to="/sale/edit/123" state={{ from: '/reports/gstr1?from=...' }}>
@@ -2172,6 +2176,8 @@ export default function SalesBillForm() {
    * backend, which deletes it inside the same txn).
    */
   const recallDraft = useCallback(async (draftId) => {
+    // The same draft open in two tabs would be billed twice: go to it instead.
+    if (showDraftIfOpenElsewhere(draftId, tabId)) return;
     try {
       const { data: draft } = await salesDraftAPI.get(draftId);
       const p = draft.payload || {};
@@ -2227,6 +2233,10 @@ export default function SalesBillForm() {
   // here (above the Drafts block) because handleRecallDraft depends on it.
   const dirty = items.length > 0 || (billMode === 'amount' && parseFloat(amountVal) > 0);
   const confirmLeave = useUnsavedChangesWarning(dirty);
+  // Name the tab after the bill: "Sale · ASHIYA DRESSES", "Sale 1043 · …".
+  const walkInW = Form.useWatch('walk_in_name', form);
+  const tabWho = selectedParty && !selectedParty.is_system_cash ? selectedParty.party_name : String(walkInW || '').trim();
+  useTabTitle(isEdit && billNo ? `Sale ${billNo}` : 'Sale', tabWho || (isEdit ? '' : 'New bill'));
 
   // ── Autosave: an unfinished bill survives a crash, power cut or sign-out ──
   const currentUserId = useMemo(() => { try { return JSON.parse(localStorage.getItem('user') || 'null')?.user_id || null; } catch { return null; } }, []);
@@ -2317,9 +2327,11 @@ export default function SalesBillForm() {
 
   /* Keyboard navigation inside the Drafts modal — Up/Down to move,
      Enter to recall the selected card, Delete to discard it. */
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!draftsModalOpen || drafts.length === 0) return;
     const onKey = (e) => {
+      if (!tabLive()) return;
       // Don't hijack typing inside a child modal (e.g. confirm dialog).
       if (document.querySelector('.ant-modal-confirm')) return;
       if (e.key === 'ArrowDown') {

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { createDevicePrintAPI } from '../services/devicePrintProfiles';
+import { noteResponse } from '../tabs/dataVersion';
 // UI-C5 — static import (was `require('antd')` inside the 403 interceptor).
 // `require` only worked because Rollup polyfilled CJS in the desktop bundle;
 // the mobile / Capacitor build would throw inside that branch, silencing
@@ -257,7 +258,8 @@ api.interceptors.request.use((config) => {
 //         effect. Instead we surface a toast and let the caller decide
 //         whether to show an empty state, a banner, or swallow it silently.
 api.interceptors.response.use(
-  (response) => response,
+  // A save anywhere marks lists and reports in other tabs as out of date.
+  (response) => { noteResponse(response.config); return response; },
   (error) => {
     const status = error.response?.status;
 

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { chromeNavigate, openTab } from '../tabs/tabActions';
 import {
   SearchOutlined, ShoppingCartOutlined, InboxOutlined, UserOutlined, TeamOutlined,
   AppstoreOutlined, FileTextOutlined, BankOutlined, BookOutlined, BarChartOutlined,
@@ -1450,7 +1451,11 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
           window.location.pathname + window.location.search,
         );
       } catch { /* swallow — Safari private mode etc. */ }
-      navigate(item.route);
+      // Unsaved work on screen → it opens in its own tab (and Esc there has
+      // nothing to go back to).
+      if (chromeNavigate(item.route, {}, navigate) === 'tab') {
+        try { sessionStorage.removeItem('search_back_from'); } catch { /* ignore */ }
+      }
     }
     onClose?.();
   };
@@ -1467,25 +1472,19 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
       if (item && item.id && item.kind !== 'more') onTogglePin(item);
       return;
     }
-    // ⌘Enter / Ctrl+Enter — open the selected row in a new window (#7).
+    // ⌘Enter / Ctrl+Enter — open the selected row in a new TAB (#7).
     // Useful when comparing reports / vouchers side-by-side, or when the
     // operator wants to peek at a destination without losing their place.
-    // Electron treats window.open as a real new window; the dev/browser
-    // build opens a new tab. We stopPropagation so the global Enter
-    // shortcut chain (if any in future) doesn't ALSO fire.
+    // We stopPropagation so the global Enter shortcut chain (if any in
+    // future) doesn't ALSO fire.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
       const item = flat[selectedIdx];
       if (item && item.route && item.kind !== 'more') {
-        try {
-          // Pre-load source-route for the cmd-tab dance to feel sane:
-          // if the new window is opened from /reports, closing it leaves
-          // the operator back here automatically (browser back / Esc).
-          window.open(item.route, '_blank', 'noopener,noreferrer');
-        } catch { /* swallow — popup blocker etc. */ }
+        openTab(item.route);
         // Cmd+Enter still records as a click for telemetry & frequency
-        // — the operator picked this row, just into a different window.
+        // — the operator picked this row, just into a different tab.
         clickedRef.current = true;
         telemetryPush({
           kind: 'click',
@@ -1497,6 +1496,7 @@ export function GlobalSearchPalette({ variant = 'modal', onClose, autoFocus = tr
           secondary: true,
           dwell: Date.now() - openedAtRef.current,
         });
+        onClose?.();
       }
       return;
     }

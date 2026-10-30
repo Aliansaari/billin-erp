@@ -1,0 +1,179 @@
+/* Tabs — strip + panes. Theme tokens only, so it follows light / dark,
+ * classic / modern and the accent colour. Section colours (--tint) come
+ * from the shared .tint-* palette in global.css. */
+
+/* ── Panes ─────────────────────────────────────────────────────────── */
+.erp-tab-stage { position: relative; flex: 1; min-height: 0; min-width: 0; }
+.erp-tab-pane {
+  position: absolute; inset: 0;
+  visibility: hidden; pointer-events: none;
+  /* No `contain` here: it would make the pane the containing block of
+     position:fixed elements inside screens. */
+}
+.erp-tab-pane.is-active { visibility: visible; pointer-events: auto; z-index: 1; }
+
+/* A tab whose screen crashed. */
+.tab-crash { max-width: 440px; margin: 12vh auto 0; padding: 28px; text-align: center;
+  background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 14px; }
+.tab-crash h3 { margin: 0 0 6px; font-size: 17px; color: var(--fg-primary); }
+.tab-crash p { margin: 0 0 18px; font-size: 13px; color: var(--fg-tertiary); }
+.tab-crash-actions { display: flex; gap: 8px; justify-content: center; }
+
+/* ── Strip ─────────────────────────────────────────────────────────── */
+.ztabbar {
+  --ztab-h: 28px;
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 4px;
+  height: 36px; padding: 0 8px 0 10px;
+  background: color-mix(in srgb, var(--bg-app) 82%, var(--bg-muted));
+  border-bottom: 1px solid var(--border-subtle);
+  user-select: none;
+  position: relative; z-index: 2;
+}
+.ztab-list {
+  flex: 0 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 2px;
+  height: 100%;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
+}
+.ztab-list::-webkit-scrollbar { display: none; }
+.ztab-list.fade-l { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 24px); mask-image: linear-gradient(90deg, transparent 0, #000 24px); }
+.ztab-list.fade-r { -webkit-mask-image: linear-gradient(270deg, transparent 0, #000 24px); mask-image: linear-gradient(270deg, transparent 0, #000 24px); }
+.ztab-list.fade-l.fade-r { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%); }
+
+.ztab {
+  position: relative;
+  flex: 0 1 196px; width: 196px; min-width: 100px; max-width: 220px;
+  height: var(--ztab-h);
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 4px 0 6px;
+  border-radius: 8px;
+  color: var(--fg-secondary);
+  font-size: 12.5px; line-height: 1;
+  cursor: default;
+  transition: background-color .14s ease, color .14s ease, box-shadow .14s ease, opacity .14s ease;
+  animation: ztab-in .18s ease-out;
+}
+@keyframes ztab-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* Hairline between two resting tabs, hidden next to the hovered/active one. */
+.ztab + .ztab::before {
+  content: ''; position: absolute; left: -2px; top: 8px; bottom: 8px; width: 1px;
+  background: var(--border); transition: opacity .14s;
+}
+.ztab:hover::before, .ztab:hover + .ztab::before,
+.ztab.is-active::before, .ztab.is-active + .ztab::before { opacity: 0; }
+
+.ztab:hover { background: color-mix(in srgb, var(--fg-primary) 6%, transparent); color: var(--fg-primary); }
+.ztab.is-active {
+  background: var(--bg-panel);
+  color: var(--fg-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .07), 0 0 0 1px var(--border-subtle);
+}
+[data-theme$="-dark"] .ztab.is-active { background: var(--bg-elevated); box-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 0 0 1px var(--border); }
+/* The active tab's section colour, as a short lit rule along its foot. */
+.ztab.is-active::after {
+  content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px;
+  border-radius: 2px; background: var(--tint);
+}
+
+.ztab-ic {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--tint);
+  background: color-mix(in srgb, var(--tint) 15%, transparent);
+  transition: background-color .14s, color .14s;
+}
+.ztab.is-active .ztab-ic { background: var(--tint); color: #fff; }
+.ztab.is-active.tint-amber .ztab-ic, .ztab.is-active.tint-teal .ztab-ic { color: #1d1a17; }
+.ztab.is-sleeping .ztab-ic { opacity: .55; }
+
+.ztab-text { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; }
+.ztab-title { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; letter-spacing: -0.005em; }
+.ztab-detail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--fg-tertiary); font-size: 11.5px; }
+.ztab.is-active .ztab-detail { color: var(--fg-secondary); }
+
+/* Close button; a dirty tab shows a dot there until hovered. */
+.ztab-end { flex: 0 0 auto; position: relative; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
+.ztab-x {
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--fg-tertiary); font-size: 10px; cursor: pointer;
+  opacity: 0; transition: opacity .12s, background-color .12s, color .12s;
+}
+.ztab:hover .ztab-x, .ztab.is-active .ztab-x { opacity: 1; }
+.ztab-x:hover { background: color-mix(in srgb, var(--fg-primary) 10%, transparent); color: var(--fg-primary); }
+.ztab-dot {
+  position: absolute; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--warning, #d97706);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning, #d97706) 22%, transparent);
+  transition: opacity .12s;
+}
+.ztab.is-dirty .ztab-x { opacity: 0; }
+.ztab.is-dirty:hover .ztab-x { opacity: 1; }
+.ztab.is-dirty:hover .ztab-dot { opacity: 0; }
+
+/* Opened in the background: a short glow so the eye finds it. */
+.ztab.is-flash { animation: ztab-in .18s ease-out, ztab-flash 1.2s ease-out; }
+@keyframes ztab-flash {
+  0%, 30% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--tint) 55%, transparent); background: color-mix(in srgb, var(--tint) 12%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* Dragging to reorder. */
+.ztab.is-dragging { opacity: .45; }
+.ztab.is-drop { box-shadow: inset 2px 0 0 var(--accent); }
+
+.ztab-new {
+  flex: 0 0 auto;
+  width: 26px; height: 26px; margin-left: 2px; padding: 0; border: 0; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--fg-tertiary); font-size: 12px; cursor: pointer;
+  transition: background-color .12s, color .12s;
+}
+.ztab-new:hover:not(:disabled) { background: color-mix(in srgb, var(--fg-primary) 7%, transparent); color: var(--fg-primary); }
+.ztab-new:disabled { opacity: .35; cursor: default; }
+
+/* ── Tooltip + menus ───────────────────────────────────────────────── */
+.ztab-tip .ant-tooltip-inner { padding: 8px 10px; }
+.ztab-tipbody { min-width: 180px; max-width: 320px; }
+.ztab-tipname { font-weight: 600; font-size: 12.5px; }
+.ztab-tipnote { margin-top: 3px; font-size: 11.5px; opacity: .75; }
+.ztab-tipnote.is-dirty { color: #fbbf24; opacity: 1; }
+.ztab-tipfoot { margin-top: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px; opacity: .7; }
+.ztab-tipfoot span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ztab-tip kbd, .ztab-menu kbd, .ztab-ctx kbd {
+  font: inherit; font-size: 10.5px; font-weight: 600; line-height: 16px;
+  padding: 0 5px; border-radius: 4px; white-space: nowrap;
+  border: 1px solid currentColor; opacity: .7;
+}
+.ztab-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-width: 190px; }
+.ztab-menu .ant-dropdown-menu-item-disabled kbd { opacity: .4; }
+
+/* Right-click on a menu entry: "Open in new tab". */
+.ztab-ctx {
+  position: fixed; z-index: 2100;
+  min-width: 260px; padding: 5px;
+  /* Portalled to <body>, outside antd's font scope: same face as the app. */
+  font-family: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  background: var(--bg-elevated); color: var(--fg-primary);
+  border: 1px solid var(--border-subtle); border-radius: 10px;
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, .28), 0 2px 6px rgba(0, 0, 0, .08);
+  animation: ztab-ctx-in .12s ease-out;
+}
+@keyframes ztab-ctx-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+.ztab-ctx button {
+  width: 100%; display: flex; align-items: center; gap: 9px;
+  padding: 7px 9px; border: 0; border-radius: 7px; background: transparent;
+  font: inherit; color: inherit; text-align: left; cursor: pointer; white-space: nowrap;
+}
+.ztab-ctx button span { flex: 1; min-width: 0; text-align: left; white-space: nowrap; }
+.ztab-ctx button .anticon { flex: 0 0 16px; display: inline-flex; justify-content: center; color: var(--fg-tertiary); font-size: 13px; }
+.ztab-ctx button:hover:not(:disabled) { background: var(--bg-hover); }
+.ztab-ctx button:disabled { opacity: .45; cursor: default; }
+.ztab-ctx kbd { color: var(--fg-tertiary); }
+.ztab-ctx-note { padding: 6px 9px 4px; font-size: 11.5px; color: var(--fg-tertiary); }

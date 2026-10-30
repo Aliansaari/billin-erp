@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useTabLive } from '../tabs/tabContext';
 
 /**
  * The active line of a bill's items table — the one last tapped or typed in.
@@ -20,6 +21,7 @@ export default function useActiveBillLine(wrapRef, onDelete, shown = true) {
   const deleteRef = useRef(onDelete);
   deleteRef.current = onDelete;
 
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return undefined;
@@ -47,6 +49,7 @@ export default function useActiveBillLine(wrapRef, onDelete, shown = true) {
     };
 
     const onKey = (e) => {
+      if (!tabLive()) return;
       if (e.key !== 'Delete' || e.ctrlKey || e.altKey || e.shiftKey || e.metaKey || e.defaultPrevented) return;
       if (active == null) return;
       const focus = document.activeElement;

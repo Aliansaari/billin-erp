@@ -9,6 +9,7 @@ import { reportAPI, categoryAPI, productAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import './smart-stock.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { useTabLive } from '../../tabs/tabContext';
 
 const fmt  = (v) => `₹ ${parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 const fmtN = (v) =>    parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -310,9 +311,11 @@ export default function SmartStockCategory() {
     navRefs.current = { visibleProducts, viewCell, editingId, visibleCols };
   });
 
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (bulkMode) return;
     const onKey = (e) => {
+      if (!tabLive()) return;
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
       const { visibleProducts: vp, viewCell: vc, editingId: ed, visibleCols: vcols } = navRefs.current;

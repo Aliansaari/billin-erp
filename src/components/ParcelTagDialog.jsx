@@ -7,6 +7,7 @@ import {
   buildParcelTagHTML, printParcelTags, PARCEL_DESIGNS, normaliseParcelDesign, getParcelPrinter,
 } from '../utils/parcelTag';
 import './parcel-tag-dialog.css';
+import { useTabLive } from '../tabs/tabContext';
 
 /**
  * ParcelTagDialog — print 10 × 10 cm parcel labels from anywhere.
@@ -112,9 +113,11 @@ export default function ParcelTagDialog({
   // Claim F1 / Ctrl+P / Esc before the page behind sees them.
   const printRef = useRef(print);
   printRef.current = print;
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
+      if (!tabLive()) return;
       const k = e.key;
       const isPrint = k === 'F1' || ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'p');
       const isFn = /^F([2-9]|1[0-2])$/.test(k);

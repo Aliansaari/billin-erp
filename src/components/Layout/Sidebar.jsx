@@ -5,7 +5,7 @@ import { Layout, Menu, Dropdown, Avatar } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
-import { useNavGuard } from '../../hooks/useUnsavedChangesWarning';
+import { chromeNavigate, isNewTabClick } from '../../tabs/tabActions';
 import { resolveMode } from '../../theme/tokens';
 import { useMenuItems, getOpenKeys, filterMenuByPermissions, getRouteIcon } from './menuConfig';
 import useFavoritesStore from '../../store/favoritesStore';
@@ -95,6 +95,7 @@ function CollapsedItem({ item, currentPath, navigate }) {
       onMouseLeave={hidePopup}
       onClick={() => { if (!item.children) { navigate(item.key); } }}
       title={item.children ? '' : item.label}
+      data-tab-link={item.children ? undefined : ''}
       data-shortcut-key={item.key}
     >
       <span className="erp-ci-icon"><span className="nav-tile">{item.icon}</span></span>
@@ -228,13 +229,11 @@ export default function Sidebar({ collapsed, setCollapsed }) {
   // and wrapped navigation in an `if`, which silently dropped every click
   // because confirmLeave returns undefined when used without its callback.
   const navigate = (to, opts) => {
-    if (to === location.pathname) return;
-    // This used to rewrite history when you switched section, to stop Esc
-    // chaining back into the section you had just left. Back no longer
-    // reads history at all — it walks the menu tree (src/utils/escBack.js)
-    // — so the rewrite bought nothing and only made the record of where
-    // you had been less honest.
-    useNavGuard.getState().confirmLeave(() => rawNavigate(to, opts));
+    // Ctrl+click / middle-click / right-click → new tab, even for this screen.
+    // Unsaved work on screen → the destination opens in its own tab.
+    // (History is not rewritten: Back walks the menu tree, src/utils/escBack.js.)
+    if (to === location.pathname + location.search && !isNewTabClick()) return;
+    chromeNavigate(to, opts, rawNavigate);
   };
 
   const themeStyle = useThemeStore((s) => s.themeStyle);
@@ -251,7 +250,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    rawNavigate('/login');  // leaves the tabbed app
   };
 
   // Developer-mode affordances in the user menu. The unlock modal itself
@@ -289,7 +288,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
       disabled: true,
     },
     { key: 'profile', icon: <UserOutlined />, label: 'My Profile' },
-    { key: 'change-password', icon: <LockOutlined />, label: 'Change Password', onClick: () => navigate('/change-password') },
+    { key: 'change-password', icon: <LockOutlined />, label: 'Change Password', onClick: () => rawNavigate('/change-password') },
     { key: 'settings', icon: <SettingOutlined />, label: 'Settings', onClick: () => navigate('/settings/company') },
     // Keyboard shortcuts cheat sheet — mouse path to the overlay (App.jsx
     // listens for 'shortcuts:open'). The Cmd/Ctrl+Shift+? keystroke still

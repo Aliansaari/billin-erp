@@ -61,6 +61,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import ReactDOM from 'react-dom';
 import { ConfigProvider } from 'antd';
 import './EntityFormModal.css';
+import { useTabLive } from '../tabs/tabContext';
 
 // ── Tone palette ──────────────────────────────────────────────────────
 //
@@ -232,9 +233,11 @@ function EntityFormModal({
     onClose?.();
   }, [dirty, escConfirm, onClose]);
 
+  const tabLive = useTabLive();  // hidden tabs ignore keys
   useEffect(() => {
     if (!open) return;
     const handler = (e) => {
+      if (!tabLive()) return;
       // Only handle when the event came from inside this modal (not
       // a stacked modal nested above it).
       const inMe = modalRef.current?.contains(e.target);
