@@ -66,6 +66,7 @@ const useTabStore = create((set, get) => ({
   closed: [],         // recently closed paths, newest first (Ctrl+Shift+T)
   scope: null,        // whose tabs these are (company + user)
   flash: null,        // id of a tab just opened in the background (pulse)
+  run: null,          // { from, last }: where the next tab opened from `from` goes
 
   /** Start (or restart after a sign-in) from the router's current location. */
   init(loc) {
@@ -96,10 +97,14 @@ const useTabStore = create((set, get) => ({
     const { tabs, activeId } = get();
     if (tabs.length >= MAX_TABS) return null;
     const tab = makeTab(toLocation(to, state));
-    const at = tabs.findIndex((t) => t.id === (after || activeId));
+    // Like a browser: several tabs opened from the same screen line up in
+    // the order you opened them, right after it.
+    const run = get().run;
+    const anchor = after || (run && run.from === activeId && tabs.some((t) => t.id === run.last) ? run.last : activeId);
+    const at = tabs.findIndex((t) => t.id === anchor);
     const next = [...tabs];
     next.splice(at < 0 ? next.length : at + 1, 0, tab);
-    set({ tabs: next, flash: activate ? null : tab.id });
+    set({ tabs: next, flash: activate ? null : tab.id, run: { from: activeId, last: tab.id } });
     if (activate) get().activate(tab.id);
     return tab.id;
   },
@@ -110,6 +115,7 @@ const useTabStore = create((set, get) => ({
     const now = Date.now();
     set({
       activeId: id,
+      run: null,
       tabs: tabs.map((t) => {
         if (t.id === activeId) return { ...t, lastSeen: now };
         if (t.id === id && t.sleeping) return { ...t, sleeping: false, mountKey: t.mountKey + 1, lastSeen: now };

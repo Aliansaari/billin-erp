@@ -44,10 +44,12 @@
 
 .ztab {
   position: relative;
-  flex: 0 1 196px; width: 196px; min-width: 100px; max-width: 220px;
+  /* Sized to the name (short names stay short, long ones get room),
+     shrinking evenly when many tabs are open. */
+  flex: 0 1 auto; min-width: 96px; max-width: 240px;
   height: var(--ztab-h);
   display: flex; align-items: center; gap: 7px;
-  padding: 0 4px 0 6px;
+  padding: 0 9px 0 6px;
   border-radius: 8px;
   color: var(--fg-secondary);
   font-size: 12.5px; line-height: 1;
@@ -96,8 +98,20 @@
 .ztab-detail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--fg-tertiary); font-size: 11.5px; }
 .ztab.is-active .ztab-detail { color: var(--fg-secondary); }
 
-/* Close button; a dirty tab shows a dot there until hovered. */
-.ztab-end { flex: 0 0 auto; position: relative; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
+/* Close button; a dirty tab shows a dot there until hovered. It floats
+   over the end of the name rather than reserving room, so many tabs still
+   show readable names; only the active and unsaved tabs keep the room. */
+.ztab.is-active, .ztab.is-dirty { padding-right: 29px; }
+/* The tab you are on always shows its full name (up to max-width). */
+.ztab.is-active { flex-shrink: 0; }
+.ztab-end {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+}
+.ztab:not(.is-active):not(.is-dirty):hover .ztab-text {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent calc(100% - 12px));
+  mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent calc(100% - 12px));
+}
 .ztab-x {
   width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px;
   display: inline-flex; align-items: center; justify-content: center;
