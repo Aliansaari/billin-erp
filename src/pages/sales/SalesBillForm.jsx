@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { PickName, PickCat, PickStock, PickMeta } from '../../utils/pickList';
+import { PickName, PickCat, PickStock, PickMeta, PickFoot } from '../../utils/pickList';
+import { partyDropdownRender, partyOptionRender } from '../../utils/partySelectProps';
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Tag, Checkbox } from 'antd';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -179,6 +180,9 @@ const modePillStyle = (active) => ({
  * state variable, ref, and calculation is preserved verbatim. Only the
  * render tree + colors changed.
  * ════════════════════════════════════════════════════════════════════════════ */
+// Built once: the customer picker's header + key hints never change.
+const customerDropdownRender = partyDropdownRender('Customer');
+
 export default function SalesBillForm() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -2842,43 +2846,10 @@ export default function SalesBillForm() {
                     // initial-load Form.Item hydration.
                     onSelect={() => setTimeout(() => barcodeRef.current?.focus(), 50)}
                     dropdownStyle={{minWidth:600,padding:0}}
-                    dropdownRender={menu=>(
-                      <div>
-                        <div style={{display:'flex',gap:0,background:'var(--warning-bg)',padding:'5px 12px',
-                          fontSize:11,fontWeight:700,color:'var(--fg-primary)',borderBottom:'1px solid var(--border)'}}>
-                          <span style={{flex:'0 0 180px'}}>Customer Name</span>
-                          <span style={{flex:'0 0 120px'}}>City</span>
-                          <span style={{flex:'0 0 110px'}}>Contact</span>
-                          <span style={{flex:'0 0 80px',textAlign:'right'}}>Balance</span>
-                          <span style={{flex:'0 0 70px',textAlign:'center'}}>Credit</span>
-                        </div>
-                        {menu}
-                      </div>
-                    )}
+                    popupClassName="party-pop"
+                    dropdownRender={customerDropdownRender}
                     options={partyOptions}
-                    optionRender={(opt)=>{
-                      const p=opt.data.party;
-                      const bal=parseFloat(p.current_balance||0);
-                      const absBal=Math.abs(bal);
-                      return (
-                        <div style={{display:'flex',gap:0,alignItems:'center',fontSize:12,padding:'2px 0'}}>
-                          <span style={{flex:'0 0 180px',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingRight:6}}>{p.party_name}</span>
-                          <span style={{flex:'0 0 120px',color:'var(--fg-tertiary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingRight:6}}>{p.city||'—'}</span>
-                          <span style={{flex:'0 0 110px',color:'var(--fg-secondary)'}}>{p.mobile_1||'—'}</span>
-                          <span style={{flex:'0 0 80px',textAlign:'right',fontWeight:700,paddingRight:8,
-                            color:bal>0?'var(--success)':bal<0?'var(--danger)':'var(--fg-tertiary)'}}>
-                            {bal===0?'0':<>{absBal.toFixed(1)} <span style={{fontSize:9,fontWeight:600,opacity:0.75}}>{bal>=0?'Dr':'Cr'}</span></>}
-                          </span>
-                          <span style={{flex:'0 0 70px',textAlign:'center'}}>
-                            <span style={{background:p.credit_allowed?'var(--success-bg)':'var(--danger-bg)',
-                              color:p.credit_allowed?'var(--success)':'var(--danger)',
-                              borderRadius:4,padding:'1px 7px',fontSize:10,fontWeight:700}}>
-                              {p.credit_allowed?'YES':'NO'}
-                            </span>
-                          </span>
-                        </div>
-                      );
-                    }}
+                    optionRender={partyOptionRender}
                   />
                 </Form.Item>
                 </div>
@@ -3114,6 +3085,7 @@ export default function SalesBillForm() {
                           ? <div className="sbf-pick-head fam"><span>Product</span><span>Category</span><span>Size · Art</span><span className="r">Stock</span></div>
                           : <div className="sbf-pick-head"><span>Product</span><span>Category</span><span>Size · Art</span><span className="r">Rate</span><span className="r">Stock</span></div>)}
                         {menu}
+                        {prodOpts.length > 0 && <PickFoot />}
                       </div>
                     )}
                   >

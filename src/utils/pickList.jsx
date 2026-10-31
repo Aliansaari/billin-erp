@@ -2,7 +2,7 @@
    two dropdowns look and behave the same. Styles live in global.css
    (.pick-*). */
 
-// Product name with the typed text marked, so the eye lands on why a row
+// Product name with the typed text underlined, so the eye lands on why a row
 // matched. Case-insensitive; marks the first occurrence only.
 export function PickName({ name, q }) {
   const text = name || '';
@@ -16,23 +16,30 @@ export function PickName({ name, q }) {
   );
 }
 
-// Category with a colour dot. The colour is fixed per category, so the same
-// name in two categories reads as two different things at a glance.
-export function PickCat({ id, name }) {
-  if (!name) return <span className="cat none">—</span>;
-  const hue = ((Number(id) || 0) * 67 + 20) % 360;
-  return <span className="cat"><i className="pick-dot" style={{ '--dot-h': hue }} />{name}</span>;
+// Category as plain text. Empty when the product has none.
+export function PickCat({ name }) {
+  return <span className="cat">{name || ''}</span>;
 }
 
-// Stock as a small pill: quiet at zero, amber when low, green otherwise.
+// Stock as a plain number: ink normally, amber when low, "Out" in red at zero.
 export function PickStock({ value }) {
   const n = parseFloat(value || 0);
   const cls = n <= 0 ? ' zero' : n <= 5 ? ' low' : '';
-  return <span className="stk"><span className={`pick-stk${cls}`}>{Number.isInteger(n) ? n : n.toFixed(1)}</span></span>;
+  const shown = n <= 0 ? 'Out' : n.toLocaleString('en-IN', { maximumFractionDigits: 1 });
+  return <span className={`stk${cls}`}>{shown}</span>;
 }
 
-// "N variants" chip, or the size · art of a single product.
+// "N sizes" for a family, or the size · art of a single product.
 export function PickMeta({ variants, size, art }) {
-  if (variants > 1) return <span className="meta"><span className="pick-chip">{variants} variants</span></span>;
-  return <span className="meta">{[size, art].filter(Boolean).join(' · ') || '—'}</span>;
+  if (variants > 1) return <span className="meta">{variants} sizes</span>;
+  return <span className="meta">{[size, art].filter(Boolean).join(' · ')}</span>;
+}
+
+// Key hints under a picker list.
+export function PickFoot() {
+  return (
+    <div className="pick-foot">
+      <span><b>↑ ↓</b> move</span><span><b>Enter</b> pick</span><span><b>Esc</b> close</span>
+    </div>
+  );
 }

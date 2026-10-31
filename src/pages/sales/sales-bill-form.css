@@ -1986,12 +1986,12 @@
 .sbf-pick-head .r { text-align: right; }
 .sbf-pick-row { font-variant-numeric: tabular-nums; min-height: 22px; }
 .sbf-pick-row .nm { font-weight: 600; font-size: 13px; color: var(--fg-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sbf-pick-row .cat { font-size: 12.5px; font-weight: 600; color: var(--fg-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbf-pick-row .cat { font-size: 12.5px; font-weight: 500; color: var(--fg-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sbf-pick-row .cat.none, .sbf-pick-row .meta { color: var(--fg-tertiary); }
-.sbf-pick-row .meta { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbf-pick-row .meta { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sbf-pick-row .rate { font-size: 12.5px; font-weight: 700; text-align: right; color: var(--fg-primary); }
-.sbf-pick-row .stk { font-size: 12.5px; font-weight: 600; text-align: right; color: var(--fg-secondary); }
-.sbf-pick-row .stk.zero { color: var(--fg-tertiary); font-weight: 500; }
+.sbf-pick-row .stk { font-size: 13px; font-weight: 700; text-align: right; color: var(--fg-primary); }
+.sbf-pick-row .stk.zero { color: var(--danger); font-weight: 600; font-size: 12px; }
 .sbf-pick-head.size, .sbf-pick-row.size { grid-template-columns: minmax(0, 1fr) 120px 80px 84px 56px; }
 .sbf-pick-row .stk.low { color: var(--warning); }
 .sbf-pick-pop .ant-select-item-option { padding: 8px 12px; }

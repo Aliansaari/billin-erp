@@ -2075,12 +2075,13 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
 
 /* ── Dropdown keyboard highlight ─────────────────────────────────────
    The option you are on with ↑ / ↓ must be unmistakable in every theme:
-   a soft accent wash plus a crisp accent bar on the left. The chosen value
-   keeps a fainter wash (no bar) so the two never look alike. */
+   a soft accent wash framed all round by a crisp accent outline (no side
+   bar). The chosen value keeps a fainter wash (no outline) so the two never
+   look alike. */
 .ant-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
-  background: color-mix(in srgb, var(--accent, #B1472F) 13%, var(--bg-panel, #fff)) !important;
-  box-shadow: inset 3px 0 0 var(--accent, #B1472F);
-  border-radius: 4px 6px 6px 4px;
+  background: color-mix(in srgb, var(--accent, #B1472F) 15%, var(--bg-panel, #fff)) !important;
+  box-shadow: inset 0 0 0 1.5px var(--accent, #B1472F);
+  border-radius: 7px;
 }
 .ant-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-active):not(.ant-select-item-option-disabled) {
   background: color-mix(in srgb, var(--accent, #B1472F) 6%, transparent) !important;
@@ -2089,8 +2090,8 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
 
 /* ── Product pickers (sale + purchase bills) ─────────────────────────────
    One look for both: edge-to-edge table under a quiet heading row, roomy
-   rows, typed text marked, a colour dot per category, stock pill.
-   Built from src/utils/pickList. */
+   rows, typed text underlined, plain category / sizes / stock text, key
+   hints at the foot. Built from src/utils/pickList. */
 .pbf-pick-pop.ant-select-dropdown, .sbf-pick-pop.ant-select-dropdown {
   padding: 0; border-radius: 12px; overflow: hidden;
   border: 1px solid var(--border-subtle);
@@ -2098,39 +2099,56 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
 }
 .pbf-pick-pop .rc-virtual-list, .sbf-pick-pop .rc-virtual-list { padding: 3px 0; }
 .pbf-pick-pop .ant-select-item-option, .sbf-pick-pop .ant-select-item-option {
-  padding: 6px 12px !important; margin: 0 4px; border-radius: 6px; min-height: 32px;
+  padding: 6px 12px !important; margin: 0 6px; border-radius: 7px; min-height: 32px;
 }
-.pbf-pick-pop .ant-select-item-option-active:not(.ant-select-item-option-disabled),
-.sbf-pick-pop .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
-  background: color-mix(in srgb, var(--accent, #B1472F) 11%, var(--bg-panel, #fff)) !important;
-  box-shadow: inset 3px 0 0 var(--accent, #B1472F) !important;
-  border-radius: 3px 6px 6px 3px;
-}
-.pbf-pick-pop .ant-select-item-option-active .nm, .sbf-pick-pop .ant-select-item-option-active .nm { color: var(--accent, #B1472F); }
 .pbf-pick-head, .sbf-pick-head {
   padding: 7px 16px 6px !important; background: transparent !important;
   font-size: 10px !important; letter-spacing: .8px !important; color: var(--fg-tertiary) !important;
   border-bottom: 1px solid var(--border-subtle) !important;
 }
 .pbf-pick-row .nm, .sbf-pick-row .nm { font-size: 13px; font-weight: 650; letter-spacing: .15px; }
-.pbf-pick-row .cat, .sbf-pick-row .cat { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12px; letter-spacing: .3px; }
-.pick-dot {
-  flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
-  background: hsl(var(--dot-h, 20) 58% 52%);
-  box-shadow: 0 0 0 3px hsl(var(--dot-h, 20) 58% 52% / .16);
-}
+.pbf-pick-row .cat, .sbf-pick-row .cat { font-weight: 500; font-size: 12.5px; letter-spacing: .2px; color: var(--fg-secondary); }
+.pbf-pick-row .meta, .sbf-pick-row .meta { font-size: 12.5px; color: var(--fg-tertiary); }
+.pbf-pick-row .stk, .sbf-pick-row .stk { font-size: 13px; font-weight: 700; color: var(--fg-primary); }
+.pbf-pick-row .stk.low, .sbf-pick-row .stk.low { color: var(--warning); }
+.pbf-pick-row .stk.zero, .sbf-pick-row .stk.zero { color: var(--danger); font-weight: 600; font-size: 12px; }
 .pick-mark {
-  color: inherit; padding: 0 1px; margin: 0 -1px; border-radius: 3px;
-  background: color-mix(in srgb, var(--accent, #B1472F) 20%, transparent);
+  color: inherit; background: none;
+  text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, var(--accent, #B1472F) 65%, transparent);
 }
-.pick-chip {
-  display: inline-block; padding: 0 8px; line-height: 18px; border-radius: 999px; font-size: 11px; font-weight: 600;
-  color: var(--fg-secondary); background: var(--bg-muted); border: 1px solid var(--border-subtle);
+/* Key hints under a picker list (pickList's PickFoot). */
+.pick-foot {
+  display: flex; gap: 14px; padding: 7px 16px;
+  border-top: 1px solid var(--border-subtle); background: var(--bg-muted);
+  font-size: 11px; color: var(--fg-tertiary);
 }
-.pick-stk {
-  display: inline-block; min-width: 30px; padding: 0 7px; line-height: 18px; border-radius: 999px; text-align: center;
-  font-size: 12px; font-weight: 700; color: var(--success, #3f8f5a);
-  background: color-mix(in srgb, var(--success, #3f8f5a) 14%, transparent);
+.pick-foot b { color: var(--fg-secondary); font-weight: 700; }
+
+/* ── Party dropdowns (src/utils/partySelectProps) ───────────────────────
+   Customer / supplier picker: same quiet heading row as the product
+   pickers, plain text instead of dashes and YES/NO pills. */
+.party-head, .party-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 120px 110px 96px 64px; column-gap: 12px; align-items: center;
 }
-.pick-stk.low { color: var(--warning); background: color-mix(in srgb, var(--warning, #c98a1b) 15%, transparent); }
-.pick-stk.zero { color: var(--fg-tertiary); font-weight: 600; background: transparent; }
+.party-head {
+  padding: 7px 16px 6px; font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+  color: var(--fg-tertiary); border-bottom: 1px solid var(--border-subtle);
+}
+.party-head .r, .party-row .r { text-align: right; }
+.party-head .c, .party-row .c { text-align: center; }
+.party-row { font-size: 12.5px; font-variant-numeric: tabular-nums; min-height: 22px; }
+.party-row .nm { font-weight: 600; font-size: 13px; color: var(--fg-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.party-row .city { color: var(--fg-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.party-row .party-ph { color: var(--fg-secondary); }
+.party-row .bal { font-weight: 700; color: var(--fg-primary); }
+.party-row .bal small { font-size: 10px; font-weight: 600; color: var(--fg-tertiary); margin-left: 3px; }
+.party-row .bal.zero { color: var(--fg-tertiary); font-weight: 500; }
+.party-row .yes { color: var(--fg-tertiary); font-size: 12px; }
+.party-row .no { color: var(--danger); font-size: 12px; font-weight: 700; }
+.party-row.cash { grid-template-columns: 1fr; }
+.party-row.cash .sub { color: var(--fg-tertiary); font-weight: 400; font-size: 12px; margin-left: 4px; }
+/* Inset the rows so the orange highlight outline never touches the panel
+   edge or slides under the scrollbar. */
+.party-pop .rc-virtual-list { padding: 3px 0; }
+.party-pop .ant-select-item-option { margin: 0 6px; border-radius: 7px; }

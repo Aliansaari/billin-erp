@@ -1356,10 +1356,10 @@
 .pbf-pick-head .r { text-align: right; }
 .pbf-pick-row { font-variant-numeric: tabular-nums; min-height: 22px; }
 .pbf-pick-row .nm { font-weight: 600; font-size: 13px; color: var(--fg-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pbf-pick-row .cat { font-size: 12.5px; font-weight: 600; color: var(--fg-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pbf-pick-row .cat { font-size: 12.5px; font-weight: 500; color: var(--fg-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pbf-pick-row .cat.none, .pbf-pick-row .meta { color: var(--fg-tertiary); }
-.pbf-pick-row .meta { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pbf-pick-row .stk { font-size: 12.5px; font-weight: 600; text-align: right; color: var(--fg-secondary); }
-.pbf-pick-row .stk.zero { color: var(--fg-tertiary); font-weight: 500; }
+.pbf-pick-row .meta { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pbf-pick-row .stk { font-size: 13px; font-weight: 700; text-align: right; color: var(--fg-primary); }
+.pbf-pick-row .stk.zero { color: var(--danger); font-weight: 600; font-size: 12px; }
 .pbf-pick-row .stk.low { color: var(--warning); }
 .pbf-pick-pop .ant-select-item-option { padding: 8px 12px; }

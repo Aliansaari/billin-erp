@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { PickName, PickCat, PickStock, PickMeta } from '../../utils/pickList';
+import { PickName, PickCat, PickStock, PickMeta, PickFoot } from '../../utils/pickList';
 import ReactDOM from 'react-dom';
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Popover, Checkbox, Tooltip } from 'antd';
 import { SettingOutlined, UserAddOutlined, PushpinOutlined, PushpinFilled } from '@ant-design/icons';
@@ -2739,6 +2739,7 @@ export default function PurchaseBillForm() {
                           <div className="pbf-pick-head"><span>Product</span><span>Category</span><span>Size · Art</span><span className="r">Stock</span></div>
                         )}
                         {menu}
+                        {dedupedProducts.length > 0 && <PickFoot />}
                       </div>
                     )}>
                     {dedupedProducts.map(p=>{
