@@ -2,6 +2,18 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.27",
+      "date": "2026-10-31",
+      "title": "Clearer pickers and safer confirmations",
+      "highlights": [
+        "The row you are on in any list now has a clear orange outline, so you always know which one Enter will pick.",
+        "Customer, supplier and product lists are easier to read: balances like ₹1,862 Dr, stock as plain numbers with low stock in amber and 'Out' in red, and no clutter of dots and badges.",
+        "When you cancel a bill, delete something or discard a draft, ZEHEN now starts on the safe button. Pressing Enter by habit keeps your work; doing it takes a deliberate click.",
+        "Every confirmation looks the same and shows its keys, and messages now follow dark mode.",
+        "Error messages stay on screen longer so you can read them, and close with a click."
+      ]
+    },
+    {
       "version": "1.1.26",
       "date": "2026-10-30",
       "title": "Tabs: several screens open at once",
