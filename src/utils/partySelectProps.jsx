@@ -16,7 +16,6 @@
 // onChange, placeholder, ref, etc. Styles live in global.css (.party-*).
 
 import React from 'react';
-import { PickFoot } from './pickList';
 
 // "NEW DELHI" → "New Delhi"; cities are stored in capitals.
 const titleCase = (s) => String(s).toLowerCase().replace(/(^|[\s-])(\S)/g, (m, a, b) => a + b.toUpperCase());
@@ -29,7 +28,6 @@ export function partyDropdownRender(partyLabel = 'Customer') {
         <span className="r">Balance</span><span className="c">Credit</span>
       </div>
       {menu}
-      <PickFoot />
     </div>
   );
 }

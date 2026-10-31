@@ -439,7 +439,10 @@ export default function ReceiptEntry() {
 
       const { print, whatsapp } = await confirmPrintWithSend(
         `Print Receipt ${txnNum}?`,
-        { content: remaining || 'Do you want to print it now?', whatsappEnabled: waEnabled, whatsappDefault: waDefault },
+        {
+          summary: { party: selectedParty?.party_name || '', detail: remaining, amount: result.total_amount ?? result.amount },
+          docType: 'receipt', whatsappEnabled: waEnabled, whatsappDefault: waDefault,
+        },
       );
       if (print) printDocument({ docType: 'receipt', id: txnId });
       if (whatsapp) shareBillViaWhatsApp({ docType: 'receipt', id: txnId });

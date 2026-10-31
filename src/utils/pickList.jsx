@@ -34,12 +34,3 @@ export function PickMeta({ variants, size, art }) {
   if (variants > 1) return <span className="meta">{variants} sizes</span>;
   return <span className="meta">{[size, art].filter(Boolean).join(' · ')}</span>;
 }
-
-// Key hints under a picker list.
-export function PickFoot() {
-  return (
-    <div className="pick-foot">
-      <span><b>↑ ↓</b> move</span><span><b>Enter</b> pick</span><span><b>Esc</b> close</span>
-    </div>
-  );
-}

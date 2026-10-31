@@ -2090,8 +2090,8 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
 
 /* ── Product pickers (sale + purchase bills) ─────────────────────────────
    One look for both: edge-to-edge table under a quiet heading row, roomy
-   rows, typed text underlined, plain category / sizes / stock text, key
-   hints at the foot. Built from src/utils/pickList. */
+   rows, typed text underlined, plain category / sizes / stock text.
+   Built from src/utils/pickList. */
 .pbf-pick-pop.ant-select-dropdown, .sbf-pick-pop.ant-select-dropdown {
   padding: 0; border-radius: 12px; overflow: hidden;
   border: 1px solid var(--border-subtle);
@@ -2117,13 +2117,6 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
   text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px;
   text-decoration-color: color-mix(in srgb, var(--accent, #B1472F) 65%, transparent);
 }
-/* Key hints under a picker list (pickList's PickFoot). */
-.pick-foot {
-  display: flex; gap: 14px; padding: 7px 16px;
-  border-top: 1px solid var(--border-subtle); background: var(--bg-muted);
-  font-size: 11px; color: var(--fg-tertiary);
-}
-.pick-foot b { color: var(--fg-secondary); font-weight: 700; }
 
 /* ── Party dropdowns (src/utils/partySelectProps) ───────────────────────
    Customer / supplier picker: same quiet heading row as the product
@@ -2157,4 +2150,30 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
 .erp-confirm-modal .ant-modal-confirm-btns .ant-btn:focus {
   outline: 2px solid var(--accent) !important;
   outline-offset: 2px;
+}
+
+/* ── Print prompt (utils/confirmPrint) ─────────────────────────────────
+   What is about to print and where: a box with who it is for, lines ·
+   payment and the total, then "Prints on <printer · paper>". The Print
+   button is ink, not accent, so it never looks like a red "cancel bill". */
+.erp-print-modal .pp-facts {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  margin-top: 4px; padding: 10px 12px; border-radius: 10px;
+  background: var(--bg-muted); border: 1px solid var(--border);
+}
+.erp-print-modal .pp-who { min-width: 0; }
+.erp-print-modal .pp-party { font-size: 14px; font-weight: 600; color: var(--fg-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.erp-print-modal .pp-detail { font-size: 12px; color: var(--fg-secondary); margin-top: 1px; }
+.erp-print-modal .pp-amt { flex: none; font-size: 18px; font-weight: 700; color: var(--fg-primary); font-variant-numeric: tabular-nums; }
+.erp-print-modal .pp-printer { margin-top: 10px; font-size: 13px; color: var(--fg-secondary); }
+.erp-print-modal .pp-printer b { color: var(--fg-primary); font-weight: 600; }
+.erp-confirm-modal.erp-print-modal .ant-btn-primary {
+  background: var(--fg-primary) !important; border-color: var(--fg-primary) !important;
+  color: var(--bg-panel) !important; box-shadow: 0 2px 10px rgba(0,0,0,.18) !important;
+}
+.erp-confirm-modal.erp-print-modal .ant-btn-primary:hover {
+  background: color-mix(in srgb, var(--fg-primary) 86%, var(--bg-panel)) !important;
+}
+.erp-confirm-modal.erp-print-modal .ant-btn-primary .ck-kbd {
+  background: rgba(127,127,127,.25); border-color: rgba(127,127,127,.45); color: inherit;
 }

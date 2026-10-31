@@ -15,7 +15,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import { partySelectProps } from '../../utils/partySelectProps';
-import confirmPrint from '../../utils/confirmPrint';
+import confirmPrint, { printSummary } from '../../utils/confirmPrint';
 import './return-form.css';
 import '../sales/sales-bill-form.css';
 import { getPref, setPref, clearPref } from '../../store/prefSync';
@@ -589,6 +589,7 @@ export default function SalesReturnForm() {
         if (!printId) return;
         const wantsPrint = await confirmPrint(
           num ? `Print credit note ${num}?` : 'Print credit note?',
+          { summary: printSummary(data), docType: 'sales_return' },
         );
         if (wantsPrint) printDocument({ docType: 'sales_return', id: printId });
       },

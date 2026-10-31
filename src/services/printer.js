@@ -96,6 +96,21 @@ function fallbackProfile(docType) {
 
 /* ── the public entry points ───────────────────────────────────────── */
 
+// "EPSON TM-T82 · 80 mm" — where printDocument will send this doc type on
+// this computer, for the print prompt to name before Enter is pressed.
+// Same profile resolution as printDocument; null if it can't be read.
+export async function describePrinter(docType) {
+  try {
+    const profile = (await resolveProfile(docType)) || fallbackProfile(docType);
+    const w = Number(profile.paper_width_mm) || 0;
+    const paper = w === 210 ? 'A4' : w === 148 ? 'A5' : w ? `${w} mm` : '';
+    const device = profile.printer_name || (profile.silent_print ? 'Default printer' : 'Print window');
+    return [device, paper].filter(Boolean).join(' · ');
+  } catch {
+    return null;
+  }
+}
+
 export async function printDocument({ docType, id, bill: presetBill, profileId, silent, preview }) {
   try {
     const bill = presetBill || (LOADERS[docType] ? await LOADERS[docType](id) : null);

@@ -15,7 +15,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import { partySelectProps } from '../../utils/partySelectProps';
-import confirmPrint from '../../utils/confirmPrint';
+import confirmPrint, { printSummary } from '../../utils/confirmPrint';
 import './return-form.css';
 import { getPref, setPref, clearPref } from '../../store/prefSync';
 
@@ -557,6 +557,7 @@ export default function PurchaseReturnForm() {
         if (!printId) return;
         const wantsPrint = await confirmPrint(
           num ? `Print debit note ${num}?` : 'Print debit note?',
+          { summary: printSummary(data, { partyKey: 'supplier' }), docType: 'purchase_return' },
         );
         if (wantsPrint) printDocument({ docType: 'purchase_return', id: printId });
       },

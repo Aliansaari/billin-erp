@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { PickName, PickCat, PickStock, PickMeta, PickFoot } from '../../utils/pickList';
+import { PickName, PickCat, PickStock, PickMeta } from '../../utils/pickList';
 import { partyDropdownRender, partyOptionRender } from '../../utils/partySelectProps';
 import { Form, Input, DatePicker, Select, InputNumber, Table, message, Modal, Tag, Checkbox } from 'antd';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -22,7 +22,7 @@ import BankLedgerSelect from '../../components/BankLedgerSelect';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
-import confirmPrint, { confirmPrintWithSend } from '../../utils/confirmPrint';
+import confirmPrint, { confirmPrintWithSend, printSummary } from '../../utils/confirmPrint';
 import ParcelTagDialog from '../../components/ParcelTagDialog';
 import './sales-bill-form.css';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
@@ -181,7 +181,7 @@ const modePillStyle = (active) => ({
  * state variable, ref, and calculation is preserved verbatim. Only the
  * render tree + colors changed.
  * ════════════════════════════════════════════════════════════════════════════ */
-// Built once: the customer picker's header + key hints never change.
+// Built once: the customer picker's header never changes.
 const customerDropdownRender = partyDropdownRender('Customer');
 
 export default function SalesBillForm() {
@@ -2392,7 +2392,7 @@ export default function SalesBillForm() {
         } catch { /* WhatsApp off / unreachable — prompt stays print-only */ }
         const { print, whatsapp } = await confirmPrintWithSend(
           billNo ? `Print bill ${billNo}?` : 'Print this bill?',
-          { whatsappEnabled: waEnabled, whatsappDefault: waDefault },
+          { summary: printSummary(data), docType: 'sales', whatsappEnabled: waEnabled, whatsappDefault: waDefault },
         );
         if (print) printDocument({ docType: 'sales', id: printId });
         if (whatsapp) shareBillViaWhatsApp({ docType: 'sales', id: printId });
@@ -3086,7 +3086,6 @@ export default function SalesBillForm() {
                           ? <div className="sbf-pick-head fam"><span>Product</span><span>Category</span><span>Size · Art</span><span className="r">Stock</span></div>
                           : <div className="sbf-pick-head"><span>Product</span><span>Category</span><span>Size · Art</span><span className="r">Rate</span><span className="r">Stock</span></div>)}
                         {menu}
-                        {prodOpts.length > 0 && <PickFoot />}
                       </div>
                     )}
                   >
