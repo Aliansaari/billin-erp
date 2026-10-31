@@ -2,6 +2,17 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.28",
+      "date": "2026-10-31",
+      "title": "See what prints, and where, before you press Enter",
+      "highlights": [
+        "After saving a bill, return or receipt, the print question now shows the customer, the number of items, how it was paid and the total, so you know exactly what is about to print.",
+        "It also shows which printer and paper size it will go to on this computer, so a wrong printer is caught before anything prints.",
+        "The buttons read Print and Not now. Enter still prints and Esc still skips.",
+        "Customer, supplier and product lists are a little cleaner: the keyboard hints under them are gone."
+      ]
+    },
+    {
       "version": "1.1.27",
       "date": "2026-10-31",
       "title": "Clearer pickers and safer confirmations",
