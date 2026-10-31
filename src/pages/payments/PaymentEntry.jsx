@@ -15,6 +15,7 @@ import { useDatePopup } from '../../components/keyboard/DatePopup';
 import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import { partySelectProps } from '../../utils/partySelectProps';
+import { themedConfirm } from '../../utils/confirmDialog';
 import '../../styles/bill-entry.css';
 
 const MODES = ['Cash', 'Card', 'UPI', 'Cheque', 'Bank Transfer'];
@@ -315,7 +316,7 @@ export default function PaymentEntry() {
     const nothingTicked = bill_allocations.length === 0 && obAlloc <= 0;
     if (nothingTicked || hasSurplus) {
       const confirmed = await new Promise((resolve) => {
-        Modal.confirm({
+        themedConfirm({
           title: 'Save as on-account credit?',
           content: nothingTicked
             ? `No bills are selected for allocation. ₹${fmt2(netAmount)} will be recorded ` +

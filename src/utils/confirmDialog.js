@@ -71,3 +71,56 @@ export default function confirmDialog({
     });
   });
 }
+
+/*
+ * themedConfirm — drop-in for Modal.confirm(config) with the same look and
+ * keys as confirmDialog. Takes Modal.confirm's own config (title, content,
+ * okText, onOk returning a promise keeps the spinner, …) so a call site
+ * only changes its name.
+ *
+ * A destructive confirm (okType 'danger' or okButtonProps.danger) starts on
+ * Cancel: Enter and Esc both back out, doing it takes a click. Anything
+ * else starts on OK so Enter confirms.
+ */
+export function themedConfirm(config = {}) {
+  const {
+    okType, okButtonProps = {}, cancelButtonProps = {},
+    okText = 'OK', cancelText = 'Cancel',
+    icon, className, autoFocusButton, ...rest
+  } = config;
+  const danger = okType === 'danger' || !!okButtonProps.danger;
+  const kbd = (k) => h('span', { className: 'ck-kbd' }, k);
+
+  return Modal.confirm({
+    centered: true,
+    maskClosable: false,
+    ...rest,
+    icon: icon !== undefined
+      ? icon
+      : h(danger ? ExclamationCircleFilled : QuestionCircleFilled, {
+          style: { color: danger ? 'var(--danger)' : 'var(--accent)' },
+        }),
+    okText: danger ? okText : h('span', null, kbd('Enter'), okText),
+    cancelText: h('span', null, kbd('Esc'), cancelText),
+    okButtonProps: { size: 'large', ...okButtonProps, danger, style: { minWidth: 132, ...okButtonProps.style } },
+    cancelButtonProps: { size: 'large', ...cancelButtonProps, style: { minWidth: 132, ...cancelButtonProps.style } },
+    autoFocusButton: autoFocusButton ?? (danger ? 'cancel' : 'ok'),
+    className: ['erp-confirm-modal', className].filter(Boolean).join(' '),
+  });
+}
+
+/*
+ * themedNotice — drop-in for Modal.info / Modal.warning / Modal.error: a
+ * one-button notice in the same themed shell. Enter or Esc closes it.
+ */
+export function themedNotice(type, config = {}) {
+  const { okText = 'OK', okButtonProps = {}, className, ...rest } = config;
+  const kbd = (k) => h('span', { className: 'ck-kbd' }, k);
+  return Modal[type]({
+    centered: true,
+    ...rest,
+    okText: h('span', null, kbd('Enter'), okText),
+    okButtonProps: { size: 'large', ...okButtonProps, style: { minWidth: 132, ...okButtonProps.style } },
+    className: ['erp-confirm-modal', className].filter(Boolean).join(' '),
+  });
+}

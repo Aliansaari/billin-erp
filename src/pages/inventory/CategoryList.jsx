@@ -9,6 +9,7 @@ import { categoryAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import EntityFormModal from '../../components/EntityFormModal';
+import { themedConfirm } from '../../utils/confirmDialog';
 import './category-list.css';
 
 const { Section, Field } = EntityFormModal;
@@ -164,7 +165,7 @@ export default function CategoryList() {
   }, [initialForm]);
 
   const handleDelete = (cat) => {
-    Modal.confirm({
+    themedConfirm({
       title: `Deactivate "${cat.category_name}"?`,
       okText: 'Deactivate', okType: 'danger',
       onOk: async () => {

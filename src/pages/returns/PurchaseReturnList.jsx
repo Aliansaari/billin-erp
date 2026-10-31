@@ -18,6 +18,7 @@ import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/bill-list.css';
 import './return-list.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { themedConfirm } from '../../utils/confirmDialog';
 
 /* ════════════════════════════════════════════════════════════════════════════
  *  PurchaseReturnList — virtualized list with editorial visual treatment
@@ -243,7 +244,7 @@ export default function PurchaseReturnList() {
       message.info('Nothing to cancel — selection is already cancelled.');
       return;
     }
-    Modal.confirm({
+    themedConfirm({
       title: cancellable.length === 1
         ? `Cancel return ${cancellable[0].return_number}?`
         : `Cancel ${cancellable.length} returns?`,

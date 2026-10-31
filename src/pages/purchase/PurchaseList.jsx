@@ -18,6 +18,7 @@ import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/bill-list.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { themedConfirm } from '../../utils/confirmDialog';
 
 // Purchases don't carry a return amount — just items / GST / discount.
 const PURCHASE_OPTIONAL_COLS = [
@@ -320,7 +321,7 @@ export default function PurchaseList() {
       message.info('Nothing to cancel — selection is already cancelled.');
       return;
     }
-    Modal.confirm({
+    themedConfirm({
       title: cancellable.length === 1
         ? `Cancel bill ${cancellable[0].bill_number}?`
         : `Cancel ${cancellable.length} bills?`,

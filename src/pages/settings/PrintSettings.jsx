@@ -13,6 +13,7 @@ import { printAPI, settingsAPI } from '../../api';
 import { renderBillHTML } from '../../services/printRenderer';
 import { listPrinters, printRawHTML } from '../../services/printer';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { themedConfirm } from '../../utils/confirmDialog';
 import './ModuleSettings.css';
 
 
@@ -335,7 +336,7 @@ export default function PrintSettings() {
 
   const handleDelete = () => {
     if (!selectedId) { setDraft(blankProfile()); setDirty(false); return; }
-    Modal.confirm({
+    themedConfirm({
       title: 'Delete this profile?',
       content: `"${draft.name}" will be permanently removed.`,
       okText: 'Delete', okButtonProps: { danger: true },

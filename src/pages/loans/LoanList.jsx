@@ -20,6 +20,7 @@ import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import LoanAccountModal from './LoanAccountModal';
 import RecordEMIModal from './RecordEMIModal';
+import { themedConfirm } from '../../utils/confirmDialog';
 import './loans.css';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -64,7 +65,7 @@ export default function LoanList() {
   const toggleActive = async (loan) => {
     const target = !loan.is_active;
     const verb = target ? 'Activate' : 'Deactivate';
-    Modal.confirm({
+    themedConfirm({
       title: `${verb} "${loan.name}"?`,
       content: target
         ? `"${loan.name}" will reappear in any loan-aware UI.`
@@ -85,7 +86,7 @@ export default function LoanList() {
 
   const deleteLoan = async (loan) => {
     if ((loan.txn_count || 0) > 0) {
-      Modal.confirm({
+      themedConfirm({
         title: `Cannot delete "${loan.name}"`,
         icon: <WarningOutlined style={{ color: '#F59E0B' }} />,
         content: (
@@ -105,7 +106,7 @@ export default function LoanList() {
       });
       return;
     }
-    Modal.confirm({
+    themedConfirm({
       title: `Delete "${loan.name}"?`,
       icon: <DeleteOutlined style={{ color: '#EF4444' }} />,
       content: 'This loan has no EMIs recorded and can be safely deleted. This cannot be undone.',
@@ -119,7 +120,7 @@ export default function LoanList() {
         } catch (e) {
           const r = e.response?.data;
           if (r?.suggest_deactivate) {
-            Modal.confirm({
+            themedConfirm({
               title: `Cannot delete "${loan.name}"`,
               content: r.error,
               okText: 'Deactivate',

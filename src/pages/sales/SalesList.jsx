@@ -24,6 +24,7 @@ import './sales-view-modal.css';
 import './sales-bill-form.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
 import { showDraftIfOpenElsewhere } from '../../tabs/tabActions';
+import { themedConfirm } from '../../utils/confirmDialog';
 
 // Optional columns the user can toggle via the Customize popover. Keys
 // match the state shape saved against the signed-in user (prefSync).
@@ -505,7 +506,7 @@ export default function SalesList() {
       message.info('Nothing to cancel — selection is already cancelled.');
       return;
     }
-    Modal.confirm({
+    themedConfirm({
       title: cancellable.length === 1
         ? `Cancel bill ${cancellable[0].bill_number}?`
         : `Cancel ${cancellable.length} bills?`,
@@ -1111,7 +1112,7 @@ export default function SalesList() {
                         title="Discard draft"
                         onClick={(e) => {
                           e.stopPropagation();
-                          Modal.confirm({
+                          themedConfirm({
                             title: `Discard ${d.draft_number}?`,
                             content: 'This permanently deletes the draft. Cannot be undone.',
                             okText: 'Discard', okType: 'danger',

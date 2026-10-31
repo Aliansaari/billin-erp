@@ -40,6 +40,7 @@ const ReopenIcon = RedoOutlined;
 import dayjs from 'dayjs';
 import { chequeAPI, bankAPI } from '../../api';
 import ChequeForm from './ChequeForm';
+import { themedConfirm } from '../../utils/confirmDialog';
 import {
   DepositModal, ClearModal, BounceModal, CancelModal,
 } from './ChequeActionModals';
@@ -173,7 +174,7 @@ export default function ChequeRegister() {
   // because re-posting vouchers is a meaningful action (not a typo
   // recovery), and we want one extra "are you sure".
   const handleReopen = (row) => {
-    Modal.confirm({
+    themedConfirm({
       title: 'Reopen this cheque?',
       icon: <ReopenIcon style={{ color: '#4F46E5' }} />,
       content: 'The cheque goes back to PENDING and the receipt/issue voucher gets re-posted.',

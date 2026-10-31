@@ -27,6 +27,7 @@ import { loanAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
 import RecordEMIModal from './RecordEMIModal';
+import { themedConfirm } from '../../utils/confirmDialog';
 import './loans.css';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -104,7 +105,7 @@ export default function LoanStatement() {
   const paidCount = sched?.paid_count || 0;
   const handleCancelLastEmi = useCallback(() => {
     if (paidCount < 1) return;
-    Modal.confirm({
+    themedConfirm({
       title: 'Cancel the last recorded EMI?',
       content: 'This reverses the most recent EMI (a reversing voucher is posted on its original date). You can then Record EMI again with the correct amount or date.',
       okText: 'Cancel EMI',

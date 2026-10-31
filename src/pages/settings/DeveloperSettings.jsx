@@ -11,6 +11,7 @@ import api, { settingsAPI, companyAPI } from '../../api';
 import { refreshSystemSettings } from '../../hooks/useSystemSettings';
 import { refreshFinancialYear } from '../../hooks/useFinancialYear';
 import useDevModeStore from '../../store/devModeStore';
+import { themedConfirm } from '../../utils/confirmDialog';
 
 const { Text, Paragraph } = Typography;
 
@@ -226,7 +227,7 @@ export default function DeveloperSettings() {
   const toggleComplianceMode = (next) => {
     const hasConfig = !!(settings?.fy_soft_lock_date || settings?.fy_hard_lock_date);
     if (!next && hasConfig) {
-      Modal.confirm({
+      themedConfirm({
         title: 'Disable compliance mode?',
         icon: <ExclamationCircleOutlined style={{ color: '#dc2626' }} />,
         content: (
@@ -272,7 +273,7 @@ export default function DeveloperSettings() {
   };
 
   const handleLock = () => {
-    Modal.confirm({
+    themedConfirm({
       title: 'Lock developer mode?',
       icon: <LockOutlined />,
       content: 'This will hide the Developer Settings page on this device until the password is entered again. Toggles already saved stay in effect — unlocking just restores access to change them.',

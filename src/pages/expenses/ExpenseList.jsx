@@ -27,6 +27,7 @@ import { expenseAPI, partyAPI, ledgerAPI } from '../../api';
 import { useFinancialYear } from '../../hooks/useFinancialYear';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { themedConfirm } from '../../utils/confirmDialog';
 
 const { Title, Text } = Typography;
 
@@ -114,7 +115,7 @@ export default function ExpenseList() {
       return;
     }
     let reason = '';
-    Modal.confirm({
+    themedConfirm({
       title: cancellable.length === 1
         ? `Cancel expense ${cancellable[0].voucher_number}?`
         : `Cancel ${cancellable.length} expense vouchers?`,

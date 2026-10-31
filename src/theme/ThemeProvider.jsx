@@ -63,6 +63,15 @@ export default function ThemeProvider({ children }) {
     };
   }, [baseConfig, accent]);
 
+  // Static message / Modal calls render outside this tree, so they would
+  // fall back to AntD's default light theme. holderRender wraps them in the
+  // same tokens, so every toast and confirm follows light/dark and accent.
+  useEffect(() => {
+    ConfigProvider.config({
+      holderRender: (children) => <ConfigProvider theme={antdConfig}>{children}</ConfigProvider>,
+    });
+  }, [antdConfig]);
+
   // Apply data-theme on <html> so CSS vars update instantly.
   useEffect(() => {
     document.documentElement.dataset.theme = mode;

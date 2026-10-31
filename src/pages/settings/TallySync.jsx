@@ -30,6 +30,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { tallyAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { themedNotice } from '../../utils/confirmDialog';
 import './ModuleSettings.css';
 
 const { Title, Text, Paragraph } = Typography;
@@ -130,7 +131,7 @@ export default function TallySync() {
   const handleImportFile = async (file) => {
     try {
       const { data } = await tallyAPI.importXML(file);
-      Modal.info({
+      themedNotice('info', {
         title: 'Tally XML imported',
         width: 600,
         content: (

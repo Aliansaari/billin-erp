@@ -8,6 +8,7 @@ import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import PartyForm from './PartyForm';
 import CustomerDetailModal from './CustomerDetailModal';
+import { themedConfirm } from '../../utils/confirmDialog';
 import './party-list-view.css';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -411,7 +412,7 @@ export default function PartyListView({ partyType }) {
     if (!rowsToToggle || rowsToToggle.length === 0) return;
     if (rowsToToggle.length === 1) {
       const p = rowsToToggle[0];
-      Modal.confirm({
+      themedConfirm({
         title: `${p.is_active ? 'Deactivate' : 'Activate'} ${p.party_name}?`,
         content: p.is_active
           ? `Deactivated ${partyType.toLowerCase()}s are hidden from selection lists. Transactions stay intact.`
@@ -440,7 +441,7 @@ export default function PartyListView({ partyType }) {
     const parts = [];
     if (toDeactivate) parts.push(`${toDeactivate} to deactivate`);
     if (toActivate)   parts.push(`${toActivate} to activate`);
-    Modal.confirm({
+    themedConfirm({
       title: `Toggle ${rowsToToggle.length} ${partyType.toLowerCase()}s?`,
       content: `${parts.join(' · ')}. Each row's active state will be flipped.`,
       okText: 'Continue',

@@ -29,6 +29,7 @@ import VirtualReportTable from '../../components/VirtualReportTable';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import '../../styles/bill-list.css';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { themedConfirm } from '../../utils/confirmDialog';
 
 // Optional columns the user can toggle via the Customize popover.
 // Mode + remarks default ON to preserve the previous list shape; time
@@ -204,7 +205,7 @@ export default function PaymentList() {
       message.info('Nothing to cancel — selection is already cancelled.');
       return;
     }
-    Modal.confirm({
+    themedConfirm({
       title: cancellable.length === 1
         ? `Cancel ${cancellable[0].transaction_type.toLowerCase()} ${cancellable[0].transaction_number}?`
         : `Cancel ${cancellable.length} transactions?`,

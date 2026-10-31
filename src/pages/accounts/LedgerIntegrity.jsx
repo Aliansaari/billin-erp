@@ -33,6 +33,7 @@ import {
 } from '@ant-design/icons';
 import { ledgerAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { themedNotice } from '../../utils/confirmDialog';
 
 const { Title, Text } = Typography;
 const fmt = (v) =>
@@ -535,7 +536,7 @@ export default function LedgerIntegrity() {
       } else if (totals.failed === 0) {
         message.success(`Reconciled ${totals.posted} voucher${totals.posted === 1 ? '' : 's'}.`);
       } else {
-        Modal.warning({
+        themedNotice('warning', {
           title: 'Reconciliation finished with errors',
           width: 720,
           content: (

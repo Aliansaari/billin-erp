@@ -2152,3 +2152,9 @@ body > div[class*="ant-modal-root"]:has(> .ant-modal-mask + .ant-modal-wrap .erp
    edge or slides under the scrollbar. */
 .party-pop .rc-virtual-list { padding: 3px 0; }
 .party-pop .ant-select-item-option { margin: 0 6px; border-radius: 7px; }
+/* The button Enter will press in a themed confirm wears the same orange
+   outline as the highlighted row in a dropdown, so it is never a guess. */
+.erp-confirm-modal .ant-modal-confirm-btns .ant-btn:focus {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px;
+}

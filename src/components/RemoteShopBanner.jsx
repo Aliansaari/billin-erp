@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Modal } from 'antd';
 import { CloudServerOutlined, HomeOutlined } from '@ant-design/icons';
 import { getRemoteShop, returnHome } from '../utils/remoteShop';
+import { themedConfirm } from '../utils/confirmDialog';
 import './remote-shop-banner.css';
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -24,7 +25,7 @@ export default function RemoteShopBanner() {
   if (!shop) return null;
 
   const goHome = () => {
-    Modal.confirm({
+    themedConfirm({
       title: 'Return to this computer?',
       content: `You will leave ${shop.name} and go back to the shop on this machine. Anything you have not saved there will be lost.`,
       okText: 'Return',

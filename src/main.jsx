@@ -10,6 +10,9 @@ import { MenuPopupProvider } from './components/keyboard/MenuPopup';
 import { DatePopupProvider } from './components/keyboard/DatePopup';
 import './styles/global.css';
 import { startSessionKeeper } from './utils/sessionKeeper';
+import { installMessageDefaults } from './utils/messageDefaults';
+
+installMessageDefaults();
 
 /* ── Self-heal stale localStorage on boot ─────────────────────────────
  *

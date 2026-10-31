@@ -28,6 +28,7 @@ import './sales-bill-form.css';
 import { inrFormatter, inrParser, disabledDateForVoucher } from '../../utils/indianFormat';
 import { getPref, setPref, clearPref } from '../../store/prefSync';
 import { useTabLive } from '../../tabs/tabContext';
+import { themedConfirm } from '../../utils/confirmDialog';
 
 const fmtN = (v) => parseFloat(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
@@ -2266,7 +2267,7 @@ export default function SalesBillForm() {
       const total = Number(p._total_preview) || 0;
       const who = (rec.source === 'server' ? (rec.draft.customer?.party_name || rec.draft.supplier?.party_name) : null) || p.walk_in_name || '';
       const when = dayjs(p._autosaved_at || rec.at).format('D MMM, h:mm A');
-      Modal.confirm({
+      themedConfirm({
         title: 'Continue your unfinished bill?',
         content: `${who ? `${who} · ` : ''}${n} item${n === 1 ? '' : 's'}${total ? ` · ₹${Math.round(total).toLocaleString('en-IN')}` : ''} · last saved ${when}. It was kept when ZEHEN closed before the bill was saved.`,
         okText: 'Continue bill',
@@ -2314,10 +2315,10 @@ export default function SalesBillForm() {
     if (!d) return;
     if (dirty) {
       const proceed = await new Promise(res => {
-        Modal.confirm({
+        themedConfirm({
           title: 'Replace current bill?',
           content: 'You have unsaved work in the form. Recalling will replace it. Continue?',
-          okText: 'Recall', cancelText: 'Cancel',
+          okText: 'Replace with draft', cancelText: 'Keep this bill', okType: 'danger',
           onOk: () => res(true), onCancel: () => res(false),
         });
       });
@@ -3909,7 +3910,7 @@ export default function SalesBillForm() {
                         title="Discard draft"
                         onClick={(e) => {
                           e.stopPropagation();
-                          Modal.confirm({
+                          themedConfirm({
                             title: `Discard ${d.draft_number}?`,
                             content: 'This permanently deletes the draft. Cannot be undone.',
                             okText: 'Discard', okType: 'danger',

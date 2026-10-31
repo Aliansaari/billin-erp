@@ -8,6 +8,7 @@ import dayjs from 'dayjs';
 import { stockTransferAPI, godownAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { themedConfirm } from '../../utils/confirmDialog';
 // Editorial report skin (same .rpt-page-hd / .rpt-kpis / .rpt-filter /
 // .rpt-tbl-wrap classes Sales Report / Day Book / Trial Balance use,
 // living in src/styles/global.css). Pulls in all theme-aware tinted KPI
@@ -158,7 +159,7 @@ export default function StockTransferList() {
   // stock at the source godown when it was already submitted.
   const cancelCursor = useCallback(() => {
     if (!single) return;
-    Modal.confirm({
+    themedConfirm({
       title: `Cancel ${single.transfer_number}?`,
       content: isInTransit
         ? 'Stock at the source godown will be restored.'

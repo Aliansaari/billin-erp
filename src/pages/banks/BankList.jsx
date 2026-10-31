@@ -31,6 +31,7 @@ import { bankAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import BankAccountModal from './BankAccountModal';
+import { themedConfirm } from '../../utils/confirmDialog';
 import './banks.css';
 
 const fmtN = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -97,7 +98,7 @@ export default function BankList() {
       ? `"${bank.name}" will reappear in payment / receipt / sales bill bank pickers.`
       : `"${bank.name}" will be hidden from new transaction pickers, but ` +
         `its history (statements, reconciliation entries) stays visible.`;
-    Modal.confirm({
+    themedConfirm({
       title: `${verb} "${bank.name}"?`,
       content: blurb,
       okText: verb,
@@ -129,7 +130,7 @@ export default function BankList() {
     // Pre-flight check using the txn_count we already have. Saves a
     // round-trip in the common "this bank has history" case.
     if ((bank.txn_count || 0) > 0) {
-      Modal.confirm({
+      themedConfirm({
         title: `Cannot delete "${bank.name}"`,
         icon: <WarningOutlined style={{ color: '#F59E0B' }} />,
         content: (
@@ -158,7 +159,7 @@ export default function BankList() {
     }
 
     // Clean bank — confirm + hard delete.
-    Modal.confirm({
+    themedConfirm({
       title: `Delete "${bank.name}"?`,
       icon: <DeleteOutlined style={{ color: '#EF4444' }} />,
       content: 'This bank has no transactions and can be safely deleted. This cannot be undone.',
@@ -175,7 +176,7 @@ export default function BankList() {
           // didn't pre-check). Translate to the deactivate prompt.
           const r = e.response?.data;
           if (r?.suggest_deactivate) {
-            Modal.confirm({
+            themedConfirm({
               title: `Cannot delete "${bank.name}"`,
               icon: <WarningOutlined style={{ color: '#F59E0B' }} />,
               content: r.error,

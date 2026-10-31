@@ -51,6 +51,7 @@ import useBack from '../../hooks/useBack';
 import { useFiscalLockGuard, isFiscalLockCancel } from '../../hooks/useFiscalLockGuard';
 import FiscalLockOverrideModal from '../../components/FiscalLockOverrideModal';
 import { readRaw, writeRaw } from '../../store/prefSync';
+import { themedConfirm } from '../../utils/confirmDialog';
 
 const { Title, Text } = Typography;
 const MONO = 'Geist Mono, ui-monospace, monospace';
@@ -332,7 +333,7 @@ export default function ExpenseEntry() {
   const handleCancelVoucher = async () => {
     if (!isEdit || isCancelled) return;
     let reason = '';
-    Modal.confirm({
+    themedConfirm({
       title: `Cancel expense ${voucherNumber}?`,
       content: (
         <div>

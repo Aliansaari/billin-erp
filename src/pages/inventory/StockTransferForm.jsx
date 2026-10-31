@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import { stockTransferAPI, godownAPI, productAPI, categoryAPI, settingsAPI } from '../../api';
 import ActionStrip from '../../components/keyboard/ActionStrip';
 import { useDatePopup } from '../../components/keyboard/DatePopup';
+import { themedConfirm } from '../../utils/confirmDialog';
 // Reuse the Sales bill form's entry-ledger CSS verbatim so the entry
 // row visually matches its sibling on the Sales/Purchase forms — same
 // hairlines, same cell padding, same focus state, same dotted column
@@ -1274,7 +1275,7 @@ export default function StockTransferForm() {
               id: 'cancel', key: 'F8', label: 'Cancel Transfer', tone: 'danger',
               hidden: !isEdit || (status !== 'Draft' && status !== 'In-Transit'),
               disabled: loading,
-              onAction: () => Modal.confirm({
+              onAction: () => themedConfirm({
                 title: `Cancel ${transferNo}?`,
                 content: status === 'In-Transit'
                   ? 'Stock at the source godown will be restored.'

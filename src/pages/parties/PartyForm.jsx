@@ -23,6 +23,7 @@ import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { partyAPI, membershipAPI } from '../../api';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import EntityFormModal from '../../components/EntityFormModal';
+import { themedConfirm } from '../../utils/confirmDialog';
 
 const { Section, Field } = EntityFormModal;
 const { confirm } = Modal;
@@ -204,7 +205,7 @@ export default function PartyForm({
         } catch (err) {
           const errData = err.response?.data;
           if (errData?.canDeactivate) {
-            Modal.confirm({
+            themedConfirm({
               title: 'Cannot Delete — Has Transactions',
               icon: <ExclamationCircleOutlined style={{ color: '#f59e0b' }} />,
               content: (

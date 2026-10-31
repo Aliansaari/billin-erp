@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { journalAPI } from '../../api';
 import useListSelection from '../../hooks/useListSelection';
 import ActionStrip from '../../components/keyboard/ActionStrip';
+import { themedConfirm } from '../../utils/confirmDialog';
 
 const { Title, Text } = Typography;
 const fmt = (v) =>
@@ -45,7 +46,7 @@ export default function JournalVoucherList() {
   const handleReverseCursor = useCallback(() => {
     if (!single || single.is_reversed) return;
     let reason = '';
-    Modal.confirm({
+    themedConfirm({
       title: `Reverse JV ${single.voucher_number}?`,
       content: (
         <div>

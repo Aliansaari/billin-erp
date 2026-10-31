@@ -13,6 +13,7 @@ import StaffAvatar from '../StaffAvatar';
 import QuickEntry, { payable } from './QuickEntry';
 import { inr0, cap, errText, ordinal } from './shared';
 import { useTabLive } from '../../../tabs/tabContext';
+import { themedNotice } from '../../../utils/confirmDialog';
 
 /*
  * Payroll — a quiet list of staff with one entry line on top.
@@ -254,7 +255,7 @@ function PayAllModal({ list, h, banks, onClose, onDone }) {
     try {
       const { data } = await payrollAPI.payAll({ paid_on: date, payment_mode: from === 'cash' ? 'Cash' : 'Bank', bank_ledger_id: from === 'cash' ? null : from, staff_ids: everyone ? undefined : list.map((p) => p.staff_id) });
       if (data.failed?.length) {
-        Modal.warning({ rootClassName: 'ar-pop', title: `Paid ${inr0(data.total)} to ${data.paid.length}. ${data.failed.length} not paid.`,
+        themedNotice('warning', { rootClassName: 'ar-pop', title: `Paid ${inr0(data.total)} to ${data.paid.length}. ${data.failed.length} not paid.`,
           content: <ul className="ph-fail">{data.failed.map((f) => <li key={f.staff_id}><b>{cap(f.name)}</b>: {f.error}</li>)}</ul> });
       } else message.success(`Paid ${inr0(data.total)} to ${data.paid.length} ${data.paid.length === 1 ? 'person' : 'people'}.`);
       onDone(data.home);
