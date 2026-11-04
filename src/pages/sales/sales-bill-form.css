@@ -1995,3 +1995,13 @@
 .sbf-pick-head.size, .sbf-pick-row.size { grid-template-columns: minmax(0, 1fr) 120px 80px 84px 56px; }
 .sbf-pick-row .stk.low { color: var(--warning); }
 .sbf-pick-pop .ant-select-item-option { padding: 8px 12px; }
+
+/* ✓ tick cell — reachable with the arrow keys; Space / Enter ticks.
+   Same halo as the number cells so the operator always sees which
+   line's box the cursor is on while walking the bill to pack it. */
+.sbf-tbl-wrap .sbf-tick { display: grid; place-items: center; }
+.sbf-tbl-wrap .ant-table-tbody > tr > td:has(.sbf-tick input:focus) {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel)) !important;
+  box-shadow: inset 0 0 0 2px var(--accent);
+  z-index: 1;
+}

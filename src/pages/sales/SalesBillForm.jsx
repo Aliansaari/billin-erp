@@ -871,6 +871,8 @@ export default function SalesBillForm() {
   // sees the current length when navigating with arrow keys.
   const itemsLenRef = useRef(0);
   itemsLenRef.current = items.length;
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   const updateItem=(key,field,value)=>{
     setItems(prev=>prev.map(it=>{
@@ -883,14 +885,64 @@ export default function SalesBillForm() {
     }));
   };
 
-  const navTbl=(e,ri,ci)=>{
+  // ✓ tick column. Its cells carry id sc-{row}-{TICK_CI} so the arrow
+  // keys reach it like any other cell (see navTbl / tickKey below).
+  const TICK_CI = 9;
+  const tickOnRef = useRef(true);
+  tickOnRef.current = visibleCols.has('verified');
+  // Which way the operator is walking the lines (packing goes top→bottom
+  // or bottom→top); a tick moves on the same way.
+  const tickDirRef = useRef(1);
+  const toggleVerified=(key)=>{
+    setItems(prev=>prev.map(it=>it.key===key?{...it,verified:!it.verified}:it));
+  };
+  const focusCell=(ri,ci)=>{
+    const inp=document.getElementById(`sc-${ri}-${ci}`)?.querySelector('input');
+    if(!inp) return false;
+    inp.focus();
+    if(inp.type!=='checkbox') inp.select?.();
+    return true;
+  };
+  // Keys on the tick box itself: Space / Enter tick or untick the line
+  // (ticking moves on to the next line, so a whole bill can be checked
+  // with Space Space Space); arrows move like everywhere else in the grid.
+  const tickKey=(e,ri,key)=>{
+    if(e.key===' '||e.key==='Enter'){
+      e.preventDefault();
+      const was=!!itemsRef.current.find(it=>it.key===key)?.verified;
+      toggleVerified(key);
+      const next=ri+tickDirRef.current;
+      if(!was && next>=0 && next<itemsLenRef.current) focusCell(next,TICK_CI);
+      return;
+    }
+    if(e.key==='ArrowDown'){ e.preventDefault(); tickDirRef.current=1; focusCell(Math.min(ri+1,itemsLenRef.current-1),TICK_CI); return; }
+    if(e.key==='ArrowUp'){ e.preventDefault(); tickDirRef.current=-1; focusCell(Math.max(ri-1,0),TICK_CI); return; }
+    if(e.key==='Home'){ e.preventDefault(); tickDirRef.current=1; focusCell(0,TICK_CI); return; }
+    if(e.key==='End'){ e.preventDefault(); tickDirRef.current=-1; focusCell(itemsLenRef.current-1,TICK_CI); return; }
+    if(e.key==='ArrowLeft'){
+      e.preventDefault();
+      for(let c=TICK_CI-1;c>=0;c--){ if(focusCell(ri,c)) return; }
+    }
+  };
+
+  const navTbl=(e,ri,ci,key)=>{
+    // Space in a line's Qty / Rate / Disc / GST ticks that line — the
+    // same as clicking its ✓ box. (Space means nothing in a number.)
+    if(e.key===' ' && key!=null && tickOnRef.current){
+      e.preventDefault();
+      toggleVerified(key);
+      return;
+    }
     const isVert = e.key==='ArrowUp'||e.key==='ArrowDown';
     // Horizontal arrows only navigate at cursor boundary so typing still works.
     const inp = e.target;
     const val = String(inp.value || '');
     const pos = inp.selectionStart ?? 0;
+    // A cell lands with its whole value selected; ← / → then move on at
+    // once instead of first spending a press on clearing the selection.
+    const allSel = val.length>0 && pos===0 && (inp.selectionEnd ?? 0)>=val.length;
     const isLeft  = e.key==='ArrowLeft'  && (val.length===0 || pos===0);
-    const isRight = e.key==='ArrowRight' && (val.length===0 || pos>=val.length);
+    const isRight = e.key==='ArrowRight' && (val.length===0 || pos>=val.length || allSel);
     if(!isVert && !isLeft && !isRight) return;
     e.preventDefault();
     let nr=ri, nc=ci;
@@ -899,8 +951,10 @@ export default function SalesBillForm() {
     else if(isRight) nc=ci+1;
     else if(isLeft) nc=Math.max(ci-1,0);
     if(nr===ri&&nc===ci) return;
-    const cell=document.getElementById(`sc-${nr}-${nc}`);
-    if(cell){const inp2=cell.querySelector('input');inp2?.focus();inp2?.select?.();}
+    if(nr!==ri){ focusCell(nr,nc); return; }
+    // Sideways: skip columns that are switched off, up to the ✓ box.
+    const step=nc>ci?1:-1;
+    for(let c=nc;c>=0&&c<=TICK_CI;c+=step){ if(focusCell(nr,c)) return; }
   };
 
   // ── Shared scanned-line builder ─────────────────────────────────────
@@ -2467,7 +2521,7 @@ export default function SalesBillForm() {
     <div id={`sc-${ri}-${ci}`}>
       <InputNumber keyboard={false} variant="borderless" value={val}
         onChange={v=>updateItem(record.key,field,v??0)}
-        onKeyDown={e=>navTbl(e,ri,ci)} min={min??0}
+        onKeyDown={e=>navTbl(e,ri,ci,record.key)} min={min??0}
         size="small"/>
     </div>
   );
@@ -2475,7 +2529,7 @@ export default function SalesBillForm() {
     <div id={`sc-${ri}-${ci}`}>
       <Input variant="borderless" value={val}
         onChange={e=>updateItem(record.key,field,e.target.value)}
-        onKeyDown={e=>navTbl(e,ri,ci)}
+        onKeyDown={e=>navTbl(e,ri,ci,record.key)}
         size="small"/>
     </div>
   );
@@ -2600,12 +2654,17 @@ export default function SalesBillForm() {
     // Tick column — operator's "did I verify / hand over this line" check.
     // Toggles a `verified` flag on the line item; visual confirmation lives
     // on the row (see .sbf-tbl-wrap tr.row-verified styling).
-    {key:'verified',title:'✓',width:44,align:'center',render:(_,r)=>(
-      <Checkbox
-        checked={!!r.verified}
-        onChange={(e)=>updateItem(r.key,'verified',e.target.checked)}
-        onClick={(e)=>e.stopPropagation()}
-      />
+    // Keyboard: Space on any cell of the line, or ← → ↑ ↓ to the box and
+    // Space / Enter (see tickKey).
+    {key:'verified',title:<span title="Tick a line: press Space on it">✓</span>,width:44,align:'center',render:(_,r,ri)=>(
+      <div id={`sc-${ri}-${TICK_CI}`} className="sbf-tick">
+        <Checkbox
+          checked={!!r.verified}
+          onChange={(e)=>updateItem(r.key,'verified',e.target.checked)}
+          onClick={(e)=>e.stopPropagation()}
+          onKeyDown={(e)=>tickKey(e,ri,r.key)}
+        />
+      </div>
     )},
     {key:'remove',required:true,title:'',width:36,align:'center',render:(_,r)=>(
       <button onClick={()=>removeItem(r.key)}

@@ -11,6 +11,7 @@ import { bindTabNavigate, requestClose } from './tabActions';
 import { useNavGuard } from '../hooks/useUnsavedChangesWarning';
 import { getDataVersion } from './dataVersion';
 import { isEntryScreen } from './tabMeta';
+import { noteNav, takeArmedBack } from './backTrail';
 
 /*
  * Renders every open tab's screen and shows only the active one.
@@ -33,7 +34,17 @@ const PADDING = 'clamp(10px, 2vw, 24px)';
 
 function tabNavigator(tabId, outer) {
   const go = (to, state, replace) => {
-    const loc = toLocation(typeof to === 'string' ? to : { ...to, state }, state);
+    const cur = useTabStore.getState().tabs.find((t) => t.id === tabId)?.loc || null;
+    let loc = toLocation(typeof to === 'string' ? to : { ...to, state }, state);
+    // A page's own Back goes to the screen this one was opened from, when
+    // there is one (src/tabs/backTrail.js).
+    const back = takeArmedBack(tabId, loc.pathname, cur);
+    if (back && !back.keep) {
+      to = { pathname: back.pathname, search: back.search, hash: back.hash };
+      state = back.state;
+      loc = toLocation({ ...to, state }, state);
+    }
+    noteNav(tabId, loc, replace ? 'replace' : 'page', cur);
     useTabStore.getState().patchLoc(tabId, loc);
     if (isTabLive(tabId)) outer[replace ? 'replace' : 'push'](to, state);
   };
@@ -151,7 +162,10 @@ export default function TabHost({ pages, isFullPage, horizontal }) {
     if (first) return;
     const st = useTabStore.getState();
     const act = st.tabs.find((t) => t.id === st.activeId);
-    if (act && pathOf(act.loc) !== pathOf(location)) st.patchLoc(act.id, location);
+    if (act && pathOf(act.loc) !== pathOf(location)) {
+      noteNav(act.id, location, 'chrome', act.loc);
+      st.patchLoc(act.id, location);
+    }
   }, [location]);
 
   // Focus follows the tab: remember where the cursor was, put it back on return.

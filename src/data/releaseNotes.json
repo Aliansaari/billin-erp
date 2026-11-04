@@ -2,6 +2,18 @@
   "_about": "What's new in each ZEHEN version. Shown inside the app (Settings > Software Update, and after an update) and copied into the update feed by scripts/release/publish.js so the 'update available' card can show it before downloading. Newest first. Benefits only, plain words, no internal mechanics.",
   "releases": [
     {
+      "version": "1.1.29",
+      "date": "2026-11-05",
+      "title": "Esc takes you back where you came from, and tick bill lines from the keyboard",
+      "highlights": [
+        "Esc now closes a screen and puts you back on the one you opened it from. New sale from Home goes back to Home, a report opened from the Dashboard goes back to the Dashboard, and a ledger opened from a bill goes back to that bill.",
+        "Esc never walks back through screens you already closed. Picking a section from the menu starts fresh, and Esc from there goes Home.",
+        "Esc on a settings page goes Home instead of bouncing you back into Settings.",
+        "Tick bill lines without the mouse: press Space on any line to tick it. Use the arrow keys to reach the tick column, then Space ticks a line and moves to the next one, down or up the way you are going, so you can check a whole bill while packing.",
+        "In the bill lines, the left and right arrows now move to the next cell in one press."
+      ]
+    },
+    {
       "version": "1.1.28",
       "date": "2026-10-31",
       "title": "See what prints, and where, before you press Enter",

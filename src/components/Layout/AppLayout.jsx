@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Layout } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useThemeStore from '../../store/themeStore';
-import { resolveBack } from '../../utils/escBack';
+import { backTarget, markBack } from '../../tabs/backTrail';
+import useTabStore from '../../tabs/tabStore';
 import { ESC_OVERLAY_SELECTOR } from '../../utils/overlays';
 import Sidebar from './Sidebar';
 import TopNav from './TopNav';
@@ -281,11 +282,12 @@ export default function AppLayout({ pages }) {
       }
 
       // (2) Up-one-level fallback.
-      const path = location.pathname;
-      const up = resolveBack(path);
-      // Already at the top of the tree — nowhere further up. Esc does
-      // nothing, which is the correct "this is the top" signal.
-      if (up === path) return;
+      // Where this screen was opened from, else one step up the tree
+      // (src/tabs/backTrail.js). At Home there is nowhere further: Esc
+      // does nothing, which is the correct "this is the top" signal.
+      const tabId = useTabStore.getState().activeId;
+      const up = backTarget(tabId, location);
+      if (!up) return;
       // Defer one macrotask so page-level Esc owners (a bill form's
       // ActionStrip "Back", AntD modals, the custom popups) run first.
       // They call preventDefault when they handle it — e.g. the Sales
@@ -294,7 +296,8 @@ export default function AppLayout({ pages }) {
       // rule instead of an Esc handler on every list page.
       setTimeout(() => {
         if (e.defaultPrevented) return;
-        navigate(up, { replace: true });
+        markBack(tabId);
+        navigate({ pathname: up.pathname, search: up.search, hash: up.hash }, { replace: true, state: up.state });
       }, 0);
     };
     window.addEventListener('keydown', onKey);

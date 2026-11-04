@@ -183,7 +183,7 @@ export function SaveStrip({ form, loading, saving }) {
   return (
     <ActionStrip
       actions={[
-        { id: 'back', key: 'Esc', label: 'Back', onAction: () => navigate('/settings') },
+        { id: 'back', key: 'Esc', label: 'Back', onAction: () => navigate('/') },
         { id: 'save', key: 'F1', label: 'Save', tone: 'primary',
           disabled: saving || loading, onAction: () => form.submit() },
       ]}

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { resolveBack } from '../../utils/escBack';
+import { backTarget, armBack, markBack } from '../../tabs/backTrail';
+import { useTabId } from '../../tabs/tabContext';
 import './ActionStrip.css';
 import { useTabLive } from '../../tabs/tabContext';
 
@@ -109,11 +110,24 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
   // Returns true when it navigated. `replace` keeps the session's history
   // shallow: going up CLOSES a screen, it does not stack another copy of
   // the parent on top of the one already behind us.
+  // Destination: the screen this one was opened from, else one step up
+  // the menu tree (src/tabs/backTrail.js).
+  const tabId = useTabId();
+  const locRef = useRef(null);
+  const loc = useLocation();
+  useEffect(() => { locRef.current = loc; }, [loc]);
   const runBack = () => {
-    const to = resolveBack(pathRef.current);
-    if (to === pathRef.current) return false;   // already at the top
-    navigateRef.current(to, { replace: true });
+    const tgt = backTarget(tabId, locRef.current || { pathname: pathRef.current });
+    if (!tgt) return false;   // already at the top
+    markBack(tabId);
+    navigateRef.current({ pathname: tgt.pathname, search: tgt.search, hash: tgt.hash }, { replace: true, state: tgt.state });
     return true;
+  };
+  // A page's own Back handler (it may confirm unsaved work first) is told
+  // to go to the screen the user came from — see armBack.
+  const runPageBack = (a, e) => {
+    armBack(tabId, pathRef.current);
+    a.onAction(e);
   };
 
   // Pre-parse bindings once per render so the keydown handler doesn't
@@ -158,7 +172,7 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
           runBack();
           return;
         }
-        try { a.onAction?.(e); }
+        try { if (a.id === 'back' && a.onAction) runPageBack(a, e); else a.onAction?.(e); }
         catch (err) { console.error('[ActionStrip]', a.id, err); }
         return;
       }
@@ -181,6 +195,7 @@ export default function ActionStrip({ actions, dense = false, scope = 'global', 
             onClick={(e) => {
               e.preventDefault();
               if (a.id === 'back' && !a.onAction) { runBack(); return; }
+              if (a.id === 'back') { runPageBack(a, e); return; }
               a.onAction?.(e);
             }}
             disabled={!!a.disabled}

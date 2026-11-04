@@ -1,12 +1,15 @@
 import { useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { resolveBack } from '../utils/escBack';
+import { backTarget, markBack } from '../tabs/backTrail';
+import { useTabId } from '../tabs/tabContext';
 
 /**
  * useBack — "close this screen and go up one level".
  *
- * Returns a handler that moves the operator one step up the menu tree,
- * the same tree the Esc key and every ActionStrip "Back" walk (see
+ * Returns a handler that closes this screen and shows the one it was
+ * opened from (src/tabs/backTrail.js); with nothing underneath it moves
+ * the operator one step up the menu tree, the same tree the Esc key and
+ * every ActionStrip "Back" walk (see
  * src/utils/escBack.js). `fallback` is used when the current route has
  * no parent of its own — normally Home.
  *
@@ -19,11 +22,14 @@ import { resolveBack } from '../utils/escBack';
  */
 export default function useBack(fallback = '/') {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const tabId = useTabId();
   return useCallback(() => {
-    const up = resolveBack(pathname);
-    // `replace` keeps history shallow — going up closes a screen rather
-    // than stacking another copy of the parent on top of it.
-    navigate(up === pathname ? fallback : up, { replace: true });
-  }, [navigate, pathname, fallback]);
+    const tgt = backTarget(tabId, location);
+    markBack(tabId);
+    // `replace` keeps history shallow — going back closes a screen rather
+    // than stacking another copy of the one underneath on top of it.
+    if (!tgt) { navigate(fallback, { replace: true }); return; }
+    navigate({ pathname: tgt.pathname, search: tgt.search, hash: tgt.hash }, { replace: true, state: tgt.state });
+  }, [navigate, location, tabId, fallback]);
 }
